@@ -1,0 +1,205 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clinvar-link"
+dynamic = ["version"]
+description = "MCP server grounding variant-pathogenicity questions in NCBI ClinVar."
+readme = "README.md"
+authors = [{ name = "Bernt Popp" }]
+license = { text = "MIT" }
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.46.0,<1.0.0",
+    "pydantic>=2.11.0,<3.0.0",
+    "pydantic-settings>=2.6.0,<3.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "async-lru>=2.0.4,<3.0.0",
+    "structlog>=24.4.0,<26.0.0",
+    "orjson>=3.10.0,<4.0.0",
+    "rich>=15.0.0,<16.0.0",
+    "typer>=0.25.1,<1.0.0",
+    "mcp[cli]>=1.27.0,<2.0.0",
+    "fastmcp>=3.2.0,<4.0.0",
+    "gunicorn>=25.3.0,<27.0.0",
+    "asgi-correlation-id>=4.3.0,<5.0.0",
+    "prometheus-client>=0.21.0,<1.0.0",
+    "pyyaml>=6.0,<7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3,<10.0.0",
+    "pytest-asyncio>=1.3.0,<2.0.0",
+    "pytest-cov>=6.0.0,<8.0.0",
+    "pytest-mock>=3.14.0,<4.0.0",
+    "pytest-xdist>=3.6.0,<4.0.0",
+    "respx>=0.22.0,<1.0.0",
+    "ruff>=0.8.0,<1.0.0",
+    "mypy>=1.14.0,<3.0.0",
+    "pre-commit>=4.0.0,<5.0.0",
+    "types-PyYAML>=6.0,<7.0",
+]
+
+[project.scripts]
+clinvar-link = "clinvar_link.cli:app"
+clinvar-link-mcp = "mcp_server:main"
+clinvar-link-data = "clinvar_link.ingest.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/berntpopp/clinvar-link"
+Repository = "https://github.com/berntpopp/clinvar-link"
+Issues = "https://github.com/berntpopp/clinvar-link/issues"
+
+# Single source of truth for the version: clinvar_link/__init__.py (__version__).
+# Keep this in sync with the git release tag; .github/workflows/release.yml
+# fails the release if the tag and this version diverge.
+[tool.hatch.version]
+path = "clinvar_link/__init__.py"
+
+# Ship the SQLite schema + review-status YAML as package data. hgnc-link relies
+# on hatchling's default inclusion of non-.py files inside the package dir
+# (packages = [...]) rather than a force-include map; we match that mechanism so
+# the build does not break before those data files land in a later task.
+[tool.hatch.build.targets.wheel]
+packages = ["clinvar_link"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "C4",
+    "S",
+    "T20",
+    "SIM",
+    "RUF",
+]
+ignore = [
+    "S101",
+    "E501",
+    "B008",
+    "N999",
+    "RUF006",
+    "RUF012",
+    "RUF022",
+    "SIM108",
+    "SIM117",
+    "T201",
+    "UP042",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = ["S101", "T20"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+warn_no_return = true
+warn_unreachable = true
+disable_error_code = [
+    "return-value",
+    "union-attr",
+]
+exclude = [
+    ".*site-packages.*",
+    ".*/miniforge3/.*",
+    ".*/venv/.*",
+    ".*/.venv/.*",
+    "htmlcov/.*",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "async_lru.*",
+    "structlog.*",
+    "mcp.*",
+    "fastmcp.*",
+    "fastapi.*",
+    "pydantic.*",
+    "pydantic_settings.*",
+    "yaml.*",
+    "uvicorn.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--strict-markers",
+    "-ra",
+    "--import-mode=importlib",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]
+
+[tool.coverage.run]
+source = ["clinvar_link"]
+omit = [
+    "tests/*",
+    "*/tests/*",
+    "*/__init__.py",
+]
+branch = true
+
+[tool.coverage.report]
+fail_under = 70
+precision = 2
+show_missing = true
+skip_empty = true
+exclude_also = [
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
