@@ -1,129 +1,25 @@
-# Publish the prebuilt ClinVar SQLite bundle to GitHub Releases.
-#
-# Flow: ClinVar publishes a new weekly release every Monday. This workflow runs
-# Mondays at 06:00 UTC (and on-demand via workflow_dispatch), BUILDS the SQLite
-# index from the NCBI bulk dump on the runner (clinvar-link-data build), PACKS
-# it into a zstd-compressed clinvar.sqlite.zst (+ .sha256) snapshot, and
-# PUBLISHES that snapshot to a GitHub Release tagged bundle-<YYYY-MM-DD> (the
-# ClinVar release date, read from the built DB's meta row). Containers and
-# clients then download the prebuilt snapshot via `clinvar-link-data pull`
-# instead of rebuilding the ~9 GB index themselves. The newest release is the
-# "latest" release GitHub resolves for `BUNDLE_URL=latest`.
-
-name: Publish bundle
+name: Publish bundle (disabled — build locally)
 
 on:
-  schedule:
-    # Mondays 06:00 UTC — ClinVar publishes its weekly release on Mondays.
-    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
-      force:
-        description: "Re-publish even if a release for this date already exists (clobber assets)."
-        type: boolean
-        default: false
-
-# gh release create/upload needs write access to repository contents.
-permissions:
-  contents: write
-
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+      notice:
+        description: "Disabled. Build + publish locally; see the run log."
+        required: false
+        default: "disabled"
+        type: string
 
 jobs:
-  publish:
-    name: Build, pack, and publish the ClinVar bundle
+  disabled:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          version: "0.8.7"
-
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      # Disk headroom: the full build needs ~5 GB of temp/source + the built DB.
-      # ubuntu-latest has ~14 GB free on / which is sufficient. Free some extra
-      # space by dropping toolchains we never use, for a comfortable margin.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          df -h /
-
-      # Build the SQLite index from the NCBI ClinVar weekly bulk dump
-      # (variant_summary + hgvs4variation, since ENABLE_HGVS4VARIATION defaults
-      # to true). Output goes to _data/clinvar.sqlite.
-      - name: Build the ClinVar index
-        env:
-          CLINVAR_LINK_DATA_DIR: ${{ github.workspace }}/_data
-        run: uv run clinvar-link-data build
-
-      # Pack the built DB into _dist/clinvar.sqlite.zst (+ .sha256). pack also
-      # prints the suggested release tag, but we read the tag robustly from the
-      # built DB's meta.clinvar_release_date in the next step rather than parsing
-      # the rich-table stdout.
-      - name: Pack the bundle
-        env:
-          CLINVAR_LINK_DATA_DIR: ${{ github.workspace }}/_data
-        run: uv run clinvar-link-data pack --out-dir "${{ github.workspace }}/_dist"
-
-      # Resolve the release tag (bundle-<YYYY-MM-DD>) directly from the DB meta
-      # via the same helper pack uses, so it is robust against stdout formatting.
-      - name: Resolve release tag
-        id: tag
-        env:
-          CLINVAR_LINK_DATA_DIR: ${{ github.workspace }}/_data
-        run: |
-          TAG="$(uv run --no-sync python -c "
-          from clinvar_link.config import settings
-          from clinvar_link.ingest.bundle import _read_release_date, _release_tag
-          print(_release_tag(_read_release_date(settings.db_path)))
-          ")"
-          echo "Resolved release tag: ${TAG}"
-          if [ -z "${TAG}" ] || [ "${TAG}" = "bundle-unknown" ]; then
-            echo "::error::Could not resolve a dated release tag from the built DB (got '${TAG}')."
-            exit 1
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-
-      # GitHub release assets are capped at 2 GB. The compressed bundle is well
-      # under this, but fail loudly with a clear message if it ever isn't.
-      - name: Assert bundle is under the 2 GB GitHub asset limit
-        run: |
-          SIZE="$(stat -c%s "${{ github.workspace }}/_dist/clinvar.sqlite.zst")"
-          echo "clinvar.sqlite.zst size: ${SIZE} bytes"
-          if [ "${SIZE}" -ge 2147483648 ]; then
-            echo "::error::Packed bundle is ${SIZE} bytes, exceeding the 2 GB GitHub release asset limit."
-            exit 1
-          fi
-
-      # Publish idempotently: clobber assets if the release already exists,
-      # otherwise create it. The newest release becomes GitHub's "latest", which
-      # is what the `BUNDLE_URL=latest` resolver reads (/releases/latest).
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          DIST="${{ github.workspace }}/_dist"
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
-            && gh release upload "$TAG" \
-                 "$DIST/clinvar.sqlite.zst" "$DIST/clinvar.sqlite.zst.sha256" \
-                 --clobber --repo "$GITHUB_REPOSITORY" \
-            || gh release create "$TAG" \
-                 "$DIST/clinvar.sqlite.zst" "$DIST/clinvar.sqlite.zst.sha256" \
-                 --repo "$GITHUB_REPOSITORY" \
-                 --title "ClinVar SQLite bundle $TAG" \
-                 --notes "Prebuilt ClinVar index (variant_summary + hgvs4variation). Download via 'clinvar-link-data pull'."
+      - run: |
+          echo "ClinVar SQLite bundles are built, packed, and published from the maintainer's workstation."
+          echo "Building on GitHub Actions is intentionally disabled (wasteful for a multi-GB index)."
+          echo
+          echo "On the workstation:"
+          echo "  uv run clinvar-link-data publish --build      # download source, build, pack, upload"
+          echo "  # or, if the index is already built:"
+          echo "  uv run clinvar-link-data publish              # pack the existing ./data DB and upload"
+          echo
+          echo "Requires local 'gh auth login'. The release tag is bundle-<ClinVar release date>."

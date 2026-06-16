@@ -78,14 +78,25 @@ There are three ways the SQLite index is produced and distributed:
 2. **`clinvar-link-data build`** — build locally from the NCBI bulk dump (heavy:
    ~414 MB gz download, ~9 GB raw, a few minutes). Use this for offline/source
    builds.
-3. **`.github/workflows/publish-bundle.yml`** — the weekly CI workflow that
-   `build`s the index, `pack`s it into `clinvar.sqlite.zst` (+ `.sha256`), and
-   publishes it to a GitHub Release tagged `bundle-<YYYY-MM-DD>`. The newest
-   release is what `pull` / `BUNDLE_URL=latest` resolves.
+3. **`clinvar-link-data publish`** (maintainers) — the bundle is built, packed,
+   and published **locally on the maintainer's workstation**, not by GitHub
+   Actions (building a multi-GB index on Actions is wasteful). On the
+   workstation, with `gh auth login` done:
 
-> A bundle release must exist before `pull` works — the publish workflow has to
-> have run at least once. GitHub caps release assets at 2 GB; the published
-> bundle is well under that.
+   ```bash
+   uv run clinvar-link-data publish --build   # download source, build, pack, upload
+   uv run clinvar-link-data publish           # reuse ./data/clinvar.sqlite, pack, upload
+   ```
+
+   This packs `clinvar.sqlite.zst` (+ `.sha256`) and idempotently publishes it to
+   a GitHub Release tagged `bundle-<YYYY-MM-DD>` (the ClinVar release date) via
+   the local `gh` CLI. The newest release is what `pull` / `BUNDLE_URL=latest`
+   resolves. `.github/workflows/publish-bundle.yml` is a **disabled stub** that
+   only prints these local commands.
+
+> A bundle release must exist before `pull` works — a maintainer has to have
+> published at least once. GitHub caps release assets at 2 GB; `publish` asserts
+> the packed bundle is under that before uploading.
 
 Inspect the loaded release and check a running server:
 
@@ -188,9 +199,10 @@ uv run clinvar-link-data refresh    # conditional: rebuild only if the dump chan
 uv run clinvar-link-data status     # release date + variant/gene counts of the built DB
 ```
 
-In production the refresh path is: CI republishes the bundle weekly
-(`publish-bundle.yml`) → containers/clients `pull` the new snapshot. For local
-source builds, `refresh` is cheap: it sends a conditional request (ETag /
+In production the refresh path is: a maintainer republishes the bundle from the
+workstation (`clinvar-link-data publish`) → containers/clients `pull` the new
+snapshot. GitHub Actions does **not** build (the workflow is a disabled stub).
+For local source builds, `refresh` is cheap: it sends a conditional request (ETag /
 Last-Modified) and skips the rebuild when the upstream dump is unchanged, or
 when the local index is younger than `CLINVAR_LINK_REFRESH_TTL_DAYS` (default 7).
 ClinVar publishes a new release weekly, so schedule a refresh (or a `pull`).

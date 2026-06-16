@@ -9,6 +9,7 @@ existing DB).
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -317,6 +318,153 @@ def pack(
     table.add_row("size_bytes", str(result.get("size_bytes")))
     table.add_row("zst_path", str(result.get("zst_path")))
     console.print(table)
+
+
+# GitHub release assets are hard-capped at 2 GB; the packed bundle is well under
+# this, but assert it before attempting an upload that would fail server-side.
+_GH_ASSET_LIMIT = 2 * 1024 * 1024 * 1024
+
+_GH_MISSING_MSG = "GitHub CLI 'gh' is required to publish; install gh and run 'gh auth login'"
+
+
+def _run_gh(args: list[str]) -> None:
+    """Run ``gh <args>`` (checked), raising a clear error if ``gh`` is missing."""
+    try:
+        subprocess.run(["gh", *args], check=True)  # noqa: S603, S607
+    except FileNotFoundError as exc:
+        raise RuntimeError(_GH_MISSING_MSG) from exc
+
+
+def _gh_release_exists(tag: str, repo: str) -> bool:
+    """True if a release ``tag`` already exists in ``repo`` (gh view returncode 0).
+
+    A non-zero return code is the expected "does not exist" signal, so this uses
+    a plain ``subprocess.run`` (not :func:`_run_gh`) and does not raise on it. A
+    missing ``gh`` binary still raises the clear install hint.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["gh", "release", "view", tag, "--repo", repo],  # noqa: S607
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(_GH_MISSING_MSG) from exc
+    return result.returncode == 0
+
+
+@app.command()
+def publish(
+    repo: str = typer.Option(
+        settings.GITHUB_REPO,
+        "--repo",
+        help="owner/name repository whose Releases host the bundle.",
+    ),
+    out_dir: Path = typer.Option(
+        settings.DATA_DIR,
+        "--out-dir",
+        help="Directory to write clinvar.sqlite.zst (+ .sha256).",
+    ),
+    build: bool = typer.Option(
+        False,
+        "--build/--no-build",
+        help="Rebuild the index from source before packing (default: use the existing DB).",
+    ),
+    draft: bool = typer.Option(
+        False,
+        "--draft/--no-draft",
+        help="Create the release as a draft (default: published, so 'pull' / "
+        "BUNDLE_URL=latest can resolve it).",
+    ),
+    upload: bool = typer.Option(
+        True,
+        "--upload/--no-upload",
+        help="Upload the packed bundle to GitHub Releases via gh (default: on).",
+    ),
+) -> None:
+    """Build (optional), pack, and publish the SQLite bundle to GitHub Releases.
+
+    The maintainer publish path: this builds (with ``--build``) or reuses the
+    existing ``./data`` index, packs it into ``clinvar.sqlite.zst`` (+ ``.sha256``),
+    and idempotently publishes it to a ``bundle-<YYYY-MM-DD>`` GitHub Release via
+    the local ``gh`` CLI. Bundles are produced on the maintainer's workstation,
+    not on GitHub Actions.
+    """
+    # 1. Ensure an index exists: rebuild from source, or require the local DB.
+    if build:
+        try:
+            _build_local(force=True)
+        except (DownloadError, ClinVarServerError, OSError, sqlite3.Error) as exc:
+            console.print(f"[red]ERROR:[/red] build failed: {exc}")
+            raise typer.Exit(1) from exc
+    elif not settings.db_path.exists():
+        console.print(
+            f"[red]ERROR:[/red] no index at {settings.db_path}; "
+            "run 'clinvar-link-data build' or pass --build."
+        )
+        raise typer.Exit(1)
+
+    # 2. Pack the DB into a compressed release asset.
+    try:
+        info = pack_bundle(settings.db_path, out_dir)
+    except (DownloadError, OSError) as exc:
+        console.print(f"[red]ERROR:[/red] pack failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    table = Table(title="Packed ClinVar bundle", show_header=False)
+    table.add_column("field", style="bold cyan")
+    table.add_column("value")
+    table.add_row("release_tag", str(info.get("release_tag")))
+    table.add_row("sha256", str(info.get("sha256")))
+    table.add_row("size_bytes", str(info.get("size_bytes")))
+    table.add_row("zst_path", str(info.get("zst_path")))
+    table.add_row("sha256_path", str(info.get("sha256_path")))
+    console.print(table)
+
+    # 3. Refuse to publish an asset over GitHub's 2 GB hard limit.
+    size_bytes = int(info["size_bytes"])
+    if size_bytes >= _GH_ASSET_LIMIT:
+        console.print(
+            f"[red]ERROR:[/red] packed bundle is {size_bytes} bytes, exceeding the "
+            "2 GB GitHub release asset limit."
+        )
+        raise typer.Exit(1)
+
+    zst_path = str(info["zst_path"])
+    sha256_path = str(info["sha256_path"])
+
+    # 4. Publish idempotently via gh, or report the packed path if uploads are off.
+    if not upload:
+        console.print(f"packed {zst_path}; upload skipped")
+        return
+
+    tag = str(info["release_tag"])
+    try:
+        if _gh_release_exists(tag, repo):
+            _run_gh(["release", "upload", tag, zst_path, sha256_path, "--clobber", "--repo", repo])
+        else:
+            create_args = [
+                "release",
+                "create",
+                tag,
+                zst_path,
+                sha256_path,
+                "--repo",
+                repo,
+                "--title",
+                f"ClinVar SQLite bundle {tag}",
+                "--notes",
+                "Prebuilt ClinVar index (variant_summary + hgvs4variation). "
+                "Download via 'clinvar-link-data pull'.",
+            ]
+            if draft:
+                create_args.append("--draft")
+            _run_gh(create_args)
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        console.print(f"[red]ERROR:[/red] publish failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print(f"published {tag} to {repo}")
 
 
 def main() -> None:

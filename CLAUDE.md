@@ -84,7 +84,7 @@ docker/                     # Dockerfile, compose, entrypoint, README
 - `clinvar-link` (`cli.py:app`) — `serve`, `config`, `health`, `version`.
 - `clinvar-link-mcp` (`mcp_server.py:main`) — stdio MCP transport.
 - `clinvar-link-data` (`ingest/cli.py:main`) — `build`, `refresh`, `status`,
-  `pull`, `bootstrap`, `pack`.
+  `pull`, `bootstrap`, `pack`, `publish`.
 
 ## Conventions
 
@@ -138,23 +138,30 @@ make ci-local                      # full local gate
 - Coordinates follow the bulk file: GRCh38 is the canonical row; GRCh37 is
   retained where present.
 
-## Data distribution (build → pack → release → pull)
+## Data distribution (build → pack → publish locally → pull)
 
-The heavy build runs in CI, not in production containers:
+The heavy build runs **locally on the maintainer's workstation**, not in CI or
+in production containers:
 
-- **Producer:** `.github/workflows/publish-bundle.yml` runs weekly (Mondays
-  06:00 UTC) + on-demand. It `build`s the index, `pack`s it
-  (`ingest/bundle.py:pack_bundle` → zstd `clinvar.sqlite.zst` + `.sha256`), and
-  `gh release`-publishes it to a `bundle-<YYYY-MM-DD>` tag (the ClinVar release
-  date, read from `meta.clinvar_release_date`). The newest release is GitHub's
-  "latest", which `BUNDLE_URL=latest` resolves.
+- **Producer:** `clinvar-link-data publish` builds + packs + publishes the bundle
+  locally. `--build` rebuilds the index from source first; `--no-build` (default)
+  reuses the existing `./data` DB. It `pack`s via
+  `ingest/bundle.py:pack_bundle` (→ zstd `clinvar.sqlite.zst` + `.sha256`),
+  asserts the asset is under GitHub's 2 GB limit, and idempotently `gh
+  release`-publishes (create-or-clobber, via the `_run_gh` subprocess helper) to
+  a `bundle-<YYYY-MM-DD>` tag (the ClinVar release date, read from
+  `meta.clinvar_release_date`). Requires local `gh auth login`. The newest
+  release is GitHub's "latest", which `BUNDLE_URL=latest` resolves. The GH
+  workflow `.github/workflows/publish-bundle.yml` is a **disabled stub**
+  (`workflow_dispatch`-only; it just prints the local commands) — building a
+  multi-GB index on Actions is intentionally avoided.
 - **Consumer:** `clinvar-link-data bootstrap` (the container entrypoint) is
   pull-first: reuse a valid local index → else `pull` the bundle
   (download → verify sha256 → decompress → atomic `os.replace`) → else build
   locally only when `CLINVAR_LINK_BUILD_LOCAL=true` → else error + exit 1. A
   bootstrap failure is fatal in the entrypoint (no serving an empty DB).
-- GitHub caps release assets at 2 GB; the publish workflow asserts the packed
-  bundle is under that and fails loudly otherwise.
+- GitHub caps release assets at 2 GB; `clinvar-link-data publish` asserts the
+  packed bundle is under that and fails loudly otherwise.
 
 ## Safety
 

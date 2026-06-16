@@ -294,3 +294,91 @@ def test_cli_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert "bundle-" in result.output
     assert (out_dir / "clinvar.sqlite.zst").exists()
     assert (out_dir / "clinvar.sqlite.zst.sha256").exists()
+
+
+# -- CLI publish ---------------------------------------------------------------
+
+
+def test_cli_publish_no_upload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`publish --no-upload` packs the existing DB and never touches gh/network."""
+    db_path = _build_fixture_db(tmp_path / "build")
+    out_dir = tmp_path / "dist"
+
+    import clinvar_link.ingest.cli as cli_mod
+
+    fixture_settings = Settings(DATA_DIR=db_path.parent, DB_FILENAME=db_path.name)
+    monkeypatch.setattr(cli_mod, "settings", fixture_settings)
+
+    # Guard: a no-upload run must not invoke gh at all.
+    def _boom(*_a: object, **_k: object) -> None:
+        raise AssertionError("subprocess.run must not be called for --no-upload")
+
+    monkeypatch.setattr(cli_mod.subprocess, "run", _boom)
+
+    result = runner.invoke(
+        cli_mod.app,
+        ["publish", "--no-build", "--no-upload", "--out-dir", str(out_dir)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "bundle-" in result.output
+    assert "upload skipped" in result.output
+    assert (out_dir / "clinvar.sqlite.zst").exists()
+    assert (out_dir / "clinvar.sqlite.zst.sha256").exists()
+
+
+def test_cli_publish_upload_invokes_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`publish --upload` runs a gh release create/upload with tag + both assets."""
+    db_path = _build_fixture_db(tmp_path / "build")
+    out_dir = tmp_path / "dist"
+
+    import clinvar_link.ingest.cli as cli_mod
+
+    fixture_settings = Settings(DATA_DIR=db_path.parent, DB_FILENAME=db_path.name)
+    monkeypatch.setattr(cli_mod, "settings", fixture_settings)
+
+    calls: list[list[str]] = []
+
+    class _FakeCompleted:
+        # The release-view existence check expects a non-zero "does not exist".
+        returncode = 1
+
+    def _fake_run(args: list[str], *_a: object, **_k: object) -> _FakeCompleted:
+        calls.append(list(args))
+        return _FakeCompleted()
+
+    monkeypatch.setattr(cli_mod.subprocess, "run", _fake_run)
+
+    result = runner.invoke(
+        cli_mod.app,
+        ["publish", "--no-build", "--upload", "--out-dir", str(out_dir), "--repo", "owner/repo"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "published bundle-" in result.output
+
+    zst = str(out_dir / "clinvar.sqlite.zst")
+    sha = str(out_dir / "clinvar.sqlite.zst.sha256")
+
+    # A `gh release create` (release did not exist) carrying the tag + both assets.
+    create = [c for c in calls if c[:3] == ["gh", "release", "create"]]
+    assert create, f"no gh release create call recorded: {calls}"
+    args = create[0]
+    assert any(tok.startswith("bundle-") for tok in args)
+    assert zst in args
+    assert sha in args
+    assert "--repo" in args and "owner/repo" in args
+
+
+def test_cli_publish_no_build_missing_db_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`publish --no-build` with no index exits 1 with a clear message."""
+    import clinvar_link.ingest.cli as cli_mod
+
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    missing_settings = Settings(DATA_DIR=empty_dir, DB_FILENAME="clinvar.sqlite")
+    monkeypatch.setattr(cli_mod, "settings", missing_settings)
+
+    result = runner.invoke(cli_mod.app, ["publish", "--no-build", "--no-upload"])
+    assert result.exit_code == 1
+    assert "no index at" in result.output
