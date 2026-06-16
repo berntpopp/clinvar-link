@@ -17,6 +17,7 @@ from clinvar_link.ingest.builder import build_database
 from clinvar_link.ingest.downloader import download_source
 
 FIXTURE = Path(__file__).parent / "fixtures" / "variant_summary_sample.txt"
+FIXTURE_HGVS = Path(__file__).parent / "fixtures" / "hgvs4variation_sample.txt"
 
 # The fixture authors 20 distinct VariationIDs (100001..100020), each present on
 # both GRCh38 and GRCh37 (40 data rows total), across 4 genes.
@@ -209,6 +210,74 @@ def test_build_uses_provided_source_sha256(tmp_path):
     finally:
         conn.close()
     assert meta["source_sha256"] == "deadbeef"
+
+
+def test_build_without_hgvs_source_is_backward_compatible(tmp_path):
+    # Building with no hgvs_source_path (the default) must behave exactly as
+    # before: only the variant_summary Name/VCV HGVS forms are indexed.
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    summary = build_database(cfg, source_path=FIXTURE)
+    assert summary["variant_count"] == EXPECTED_VARIANTS
+
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        # The hgvs4variation-only short forms are absent without the source.
+        short = conn.execute(
+            "SELECT 1 FROM hgvs_lookup WHERE hgvs_norm = ?", ("c.5266dupc",)
+        ).fetchone()
+        assert short is None
+        # But the variant_summary Name HGVS is still present.
+        name_hit = conn.execute(
+            "SELECT variation_id FROM hgvs_lookup "
+            "WHERE hgvs_norm LIKE 'nm_007294.4(brca1):c.5266dupc%'"
+        ).fetchone()
+        assert name_hit is not None
+    finally:
+        conn.close()
+
+
+def test_build_loads_hgvs4variation(tmp_path):
+    # With a secondary hgvs4variation source, every coding/protein expression of
+    # a KEPT VariationID is indexed -> get_variant by any HGVS form is robust.
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    build_database(cfg, source_path=FIXTURE, hgvs_source_path=FIXTURE_HGVS)
+
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    def vid_for(norm):
+        row = conn.execute(
+            "SELECT variation_id FROM hgvs_lookup WHERE hgvs_norm = ? LIMIT 1", (norm,)
+        ).fetchone()
+        return row["variation_id"] if row is not None else None
+
+    try:
+        # Only the precise full expressions (transcript-/protein-qualified) are
+        # indexed: full NucleotideExpression (col 6) + ProteinExpression (col 8).
+        assert vid_for("nm_007294.4(brca1):c.5266dupc") == 100001
+        assert vid_for("np_009225.1:p.gln1756fs") == 100001
+        # The bare short forms (NucleotideChange col 7 / ProteinChange col 9) are
+        # ambiguous (same c./p. maps to many variants) and are NO LONGER indexed.
+        assert vid_for("c.5266dupc") is None
+        assert vid_for("p.gln1756fs") is None
+
+        # genomic-Type rows (huge g. coordinate expressions) are NOT indexed.
+        assert vid_for("nc_000017.11:g.43094464dupg") is None
+        assert vid_for("g.43094464dupg") is None
+
+        # A VariationID not present in the variant fixture (not emitted) is skipped.
+        assert vid_for("nm_999999.1(ghost):c.1a>t") is None
+        assert vid_for("c.1a>t") is None
+
+        # No exact (hgvs_norm, variation_id) duplicates: GRCh37/GRCh38 rows that
+        # repeat the same expression are deduped by the UNIQUE index.
+        dups = conn.execute(
+            "SELECT hgvs_norm, variation_id, COUNT(*) c FROM hgvs_lookup GROUP BY 1, 2 HAVING c > 1"
+        ).fetchall()
+        assert dups == []
+    finally:
+        conn.close()
 
 
 @respx.mock

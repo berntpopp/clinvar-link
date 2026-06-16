@@ -30,6 +30,7 @@ app = typer.Typer(
 console = Console()
 
 _SOURCE_FILENAME = "variant_summary.txt.gz"
+_HGVS_SOURCE_FILENAME = "hgvs4variation.txt.gz"
 _CACHE_FILENAME = "download_cache.json"
 
 
@@ -37,8 +38,35 @@ def _source_path() -> Path:
     return settings.DATA_DIR / _SOURCE_FILENAME
 
 
+def _hgvs_source_path() -> Path:
+    return settings.DATA_DIR / _HGVS_SOURCE_FILENAME
+
+
 def _cache_path() -> Path:
     return settings.DATA_DIR / _CACHE_FILENAME
+
+
+def _maybe_download_hgvs(*, force: bool) -> Path | None:
+    """Download the optional hgvs4variation source; never fail the main build.
+
+    Returns the local path on success, or ``None`` (logging a warning) when the
+    feature is disabled or the secondary download fails for any reason.
+    """
+    if not settings.ENABLE_HGVS4VARIATION:
+        return None
+    try:
+        download_source(
+            settings.HGVS4VARIATION_URL,
+            _hgvs_source_path(),
+            cache_path=_cache_path(),
+            force=force,
+        )
+    except (DownloadError, ClinVarServerError, OSError) as exc:
+        console.print(
+            f"[yellow]WARNING:[/yellow] hgvs4variation download failed, building without it: {exc}"
+        )
+        return None
+    return _hgvs_source_path()
 
 
 def _print_summary(summary: dict[str, Any], *, header: str) -> None:
@@ -94,9 +122,11 @@ def build() -> None:
                 cache_path=_cache_path(),
                 force=True,
             )
+            hgvs_path = _maybe_download_hgvs(force=True)
             summary = build_database(
                 settings,
                 source_path=_source_path(),
+                hgvs_source_path=hgvs_path,
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
                 source_sha256=download.get("sha256"),
@@ -131,9 +161,11 @@ def refresh() -> None:
             )
 
         with build_lock(settings.DATA_DIR):
+            hgvs_path = _maybe_download_hgvs(force=False)
             summary = build_database(
                 settings,
                 source_path=_source_path(),
+                hgvs_source_path=hgvs_path,
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
                 source_sha256=download.get("sha256"),

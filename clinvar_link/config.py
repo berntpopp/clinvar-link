@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     AUTO_BOOTSTRAP: bool = False
     # Index per-submitter conflict detail (submission_summary.txt.gz). Off in v1.
     ENABLE_SUBMISSION_SUMMARY: bool = False
+    # Also ingest hgvs4variation.txt.gz to index ALL HGVS expressions per
+    # variant (coding/protein forms), making HGVS lookups robust.
+    ENABLE_HGVS4VARIATION: bool = True
+    # Secondary source: NCBI ClinVar all-HGVS-expressions table, gzip-compressed.
+    HGVS4VARIATION_URL: str = (
+        "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz"
+    )
 
     # Cache Configuration
     CACHE_SIZE: int = 1024  # Maximum number of records to cache

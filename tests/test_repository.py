@@ -20,6 +20,7 @@ from clinvar_link.exceptions import ClinVarDataError
 from clinvar_link.ingest.builder import build_database
 
 FIXTURE = Path(__file__).parent / "fixtures" / "variant_summary_sample.txt"
+FIXTURE_HGVS = Path(__file__).parent / "fixtures" / "hgvs4variation_sample.txt"
 
 
 @pytest.fixture(scope="module")
@@ -27,6 +28,22 @@ def repo(tmp_path_factory):
     d = tmp_path_factory.mktemp("repo")
     cfg = Settings(DATA_DIR=d, DB_FILENAME="t.sqlite")
     build_database(cfg, source_path=FIXTURE, last_modified="Mon, 01 Jan 2026 00:00:00 GMT")
+    r = ClinVarRepository(cfg.db_path)
+    yield r
+    r.close()
+
+
+@pytest.fixture(scope="module")
+def repo_with_hgvs(tmp_path_factory):
+    """A repository whose index also ingested the hgvs4variation source."""
+    d = tmp_path_factory.mktemp("repo_hgvs")
+    cfg = Settings(DATA_DIR=d, DB_FILENAME="t.sqlite")
+    build_database(
+        cfg,
+        source_path=FIXTURE,
+        hgvs_source_path=FIXTURE_HGVS,
+        last_modified="Mon, 01 Jan 2026 00:00:00 GMT",
+    )
     r = ClinVarRepository(cfg.db_path)
     yield r
     r.close()
@@ -102,6 +119,19 @@ def test_get_by_hgvs(repo):
     # Normalization is case-insensitive.
     assert repo.get_by_hgvs(name.upper())["variation_id"] == 100001
     assert repo.get_by_hgvs("   ") is None
+
+
+def test_get_by_hgvs_resolves_hgvs4variation_forms(repo_with_hgvs):
+    # After ingesting hgvs4variation, get_by_hgvs resolves the full Nucleotide
+    # expression and the full protein expression to the VariationID.
+    repo = repo_with_hgvs
+    assert repo.get_by_hgvs("NM_007294.4(BRCA1):c.5266dupC")["variation_id"] == 100001
+    assert repo.get_by_hgvs("NP_009225.1:p.Gln1756fs")["variation_id"] == 100001
+    # The bare short forms are ambiguous and no longer indexed -> no resolution.
+    assert repo.get_by_hgvs("c.5266dupC") is None
+    assert repo.get_by_hgvs("p.Gln1756fs") is None
+    # Genomic g. expressions are intentionally not indexed.
+    assert repo.get_by_hgvs("NC_000017.11:g.43094464dupG") is None
 
 
 def test_search_and_gene(repo):

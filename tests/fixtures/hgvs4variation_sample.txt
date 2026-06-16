@@ -1,0 +1,33 @@
+# This is a sample of the ClinVar hgvs4variation.txt file format.
+# The real file begins with many comment lines explaining each column.
+# There is NO usable tab-delimited header row; data must be parsed by fixed
+# positional columns, skipping every line that starts with '#'.
+#
+# Column positions (tab-delimited):
+#   0  GeneSymbol
+#   1  GeneID
+#   2  VariationID
+#   3  AlleleID
+#   4  Type
+#   5  Assembly
+#   6  NucleotideExpression
+#   7  NucleotideChange
+#   8  ProteinExpression
+#   9  ProteinChange
+#  10  UsedForNaming
+#  11  Submitted
+#  12  OnRefSeqGene
+#
+# Sentinel for an empty/absent value is '-'.
+BRCA1	672	100001	200001	coding	GRCh38	NM_007294.4(BRCA1):c.5266dupC	c.5266dupC	NP_009225.1:p.Gln1756fs	p.Gln1756fs	Yes	No	No
+BRCA1	672	100001	200001	genomic	GRCh38	NC_000017.11:g.43094464dupG	g.43094464dupG	-	-	No	No	No
+BRCA1	672	100001	200001	coding	GRCh37	NM_007294.3(BRCA1):c.5266dupC	c.5266dupC	-	-	No	No	No
+BRCA1	672	100002	200002	coding	GRCh38	NM_007294.4(BRCA1):c.181T>G	c.181T>G	NP_009225.1:p.Cys61Gly	p.Cys61Gly	Yes	No	No
+BRCA1	672	100002	200002	genomic	GRCh38	NC_000017.11:g.43106487A>C	g.43106487A>C	-	-	No	No	No
+TTN	7273	100006	200006	coding	GRCh38	NM_001267550.2(TTN):c.21229del	c.21229del	NP_001254479.2:p.Glu7077fs	p.Glu7077fs	Yes	No	No
+MLH1	4292	100011	200011	coding	GRCh38	NM_000249.4(MLH1):c.350C>T	c.350C>T	NP_000240.1:p.Thr117Met	p.Thr117Met	Yes	No	No
+MLH1	4292	100011	200011	genomic	GRCh38	NC_000003.12:g.36993455C>T	g.36993455C>T	-	-	No	No	No
+AP5Z1	9907	100016	200016	coding	GRCh38	NM_014855.3(AP5Z1):c.80_83delinsTGCTGTAAACTGTAACTGTAAA	c.80_83delinsTGCTGTAAACTGTAACTGTAAA	NP_055670.1:p.Arg27_Ile28delinsLeuLeuTer	p.Arg27_Ile28delinsLeuLeuTer	Yes	No	No
+AP5Z1	9907	100020	200020	coding	GRCh38	NM_014855.3(AP5Z1):c.358C>T	c.358C>T	NP_055670.1:p.Gln120Ter	p.Gln120Ter	Yes	No	No
+GHOST	99999	999999	299999	coding	GRCh38	NM_999999.1(GHOST):c.1A>T	c.1A>T	NP_999999.1:p.Met1Leu	p.Met1Leu	Yes	No	No
+GHOST	99999	999999	299999	genomic	GRCh38	NC_000099.9:g.1A>T	g.1A>T	-	-	No	No	No

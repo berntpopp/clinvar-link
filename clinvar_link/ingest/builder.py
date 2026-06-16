@@ -249,7 +249,8 @@ class _Batches:
             self.allele.clear()
         if self.hgvs:
             conn.executemany(
-                "INSERT INTO hgvs_lookup (hgvs_norm, variation_id) VALUES (?, ?)", self.hgvs
+                "INSERT OR IGNORE INTO hgvs_lookup (hgvs_norm, variation_id) VALUES (?, ?)",
+                self.hgvs,
             )
             self.hgvs.clear()
         if self.gene:
@@ -264,6 +265,70 @@ class _Batches:
                 self.fts,
             )
             self.fts.clear()
+
+
+# hgvs4variation.txt positional columns (the file has no usable header row;
+# every comment/explanation line is '#'-prefixed and skipped).
+_HGVS4VAR_TYPE_COL = 4
+_HGVS4VAR_VID_COL = 2
+# Expression columns to index: only the PRECISE, transcript-/protein-qualified
+# full expressions -- NucleotideExpression (col 6, ``NM_...:c.`` / ``NR_...:n.``)
+# and ProteinExpression (col 8, ``NP_...:p.``). The bare short forms
+# NucleotideChange (col 7, e.g. ``c.5266dupC``) and ProteinChange (col 9, e.g.
+# ``p.Gln1756fs``) are AMBIGUOUS -- the same change maps to many variants across
+# genes/transcripts -- so they are intentionally NOT indexed.
+_HGVS4VAR_EXPR_COLS = (6, 8)
+_HGVS4VAR_MIN_FIELDS = 13
+
+
+def _load_hgvs4variation(conn: sqlite3.Connection, path: Path, emitted: set[int]) -> int:
+    """Index the precise coding/protein HGVS expressions from ``hgvs4variation.txt[.gz]``.
+
+    For each data row whose VariationID was kept (in ``emitted``) and is not a
+    ``genomic``-Type row (huge ``g.`` coordinate strings, low value for lookups),
+    inserts the normalized full NucleotideExpression (col 6) and ProteinExpression
+    (col 8) into ``hgvs_lookup``. The bare short forms (NucleotideChange col 7,
+    ProteinChange col 9) are ambiguous and deliberately skipped. Inserts use
+    ``INSERT OR IGNORE`` against the UNIQUE ``idx_hgvs_norm`` so the GRCh37/GRCh38
+    rows that repeat the same expression collapse to one ``(hgvs_norm,
+    variation_id)`` row. Streams the file and flushes in bounded batches so memory
+    stays flat on the full dump. Returns the number of insert attempts made (some
+    may be ignored as duplicates).
+    """
+    pending: list[tuple[str, int]] = []
+    inserted = 0
+    sql = "INSERT OR IGNORE INTO hgvs_lookup (hgvs_norm, variation_id) VALUES (?, ?)"
+
+    def flush() -> None:
+        nonlocal inserted
+        if pending:
+            conn.executemany(sql, pending)
+            inserted += len(pending)
+            pending.clear()
+
+    with _open_source(path) as handle:
+        reader = csv.reader(handle, delimiter="\t")
+        for fields in reader:
+            if not fields or fields[0].startswith("#"):
+                continue
+            if len(fields) < _HGVS4VAR_MIN_FIELDS:
+                continue
+            if fields[_HGVS4VAR_TYPE_COL] == "genomic":
+                continue
+            vid = _int_or_none(fields[_HGVS4VAR_VID_COL])
+            if vid is None or vid not in emitted:
+                continue
+            for col in _HGVS4VAR_EXPR_COLS:
+                value = fields[col]
+                if not value or value == "-":
+                    continue
+                hgvs_norm = _normalize_hgvs(value)
+                if hgvs_norm:
+                    pending.append((hgvs_norm, vid))
+            if len(pending) >= _INSERT_BATCH:
+                flush()
+    flush()
+    return inserted
 
 
 def _emit_canonical(
@@ -365,6 +430,7 @@ def build_database(
     config: Settings,
     *,
     source_path: Path,
+    hgvs_source_path: Path | None = None,
     etag: str | None = None,
     last_modified: str | None = None,
     release_date: str | None = None,
@@ -375,6 +441,10 @@ def build_database(
     Streams the ``variant_summary`` TSV twice (dedup pass + emit pass), writes
     all tables + the FTS5 index into a temp database in ``config.DATA_DIR``, then
     atomically swaps it into ``config.db_path``.
+
+    When ``hgvs_source_path`` is given, the secondary ``hgvs4variation`` source is
+    streamed afterwards to index every coding/protein HGVS expression of each
+    kept variant into ``hgvs_lookup`` (before the deferred indexes are built).
 
     Returns a summary dict: ``variant_count``, ``gene_count``,
     ``clinvar_release_date``, ``db_path``.
@@ -400,6 +470,16 @@ def build_database(
             conn.execute("PRAGMA cache_size=-262144")  # ~256 MB page cache
             conn.execute("PRAGMA mmap_size=268435456")  # 256 MB
             conn.executescript(_load_schema_sql())
+
+            # Create the UNIQUE hgvs index UP FRONT (the other 8 secondary indexes
+            # stay deferred to indexes.sql). It must exist during the inserts so
+            # INSERT OR IGNORE dedups exact (hgvs_norm, variation_id) pairs as the
+            # build streams (GRCh37/GRCh38 repeat the same coding/protein form).
+            # A UNIQUE (hgvs_norm, variation_id) index still serves
+            # ``WHERE hgvs_norm = ?`` lookups as a leftmost-prefix scan.
+            conn.execute(
+                "CREATE UNIQUE INDEX idx_hgvs_norm ON hgvs_lookup (hgvs_norm, variation_id)"
+            )
 
             batches = _Batches(conn)
             accumulators: dict[str, GeneAccumulator] = {}
@@ -427,6 +507,12 @@ def build_database(
                     batches.maybe_flush()
 
             batches.flush()
+
+            # Secondary source: index ALL coding/protein HGVS expressions of the
+            # kept variants. Runs before the deferred indexes so idx_hgvs_norm is
+            # built once over the full table at the end.
+            if hgvs_source_path is not None:
+                _load_hgvs4variation(conn, hgvs_source_path, emitted)
 
             gene_count = _write_gene_summaries(conn, accumulators, gene_display)
             sha256 = source_sha256 if source_sha256 is not None else _sha256(source_path)
