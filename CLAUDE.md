@@ -131,10 +131,16 @@ make ci-local                      # full local gate
   `docker/README.md`).
 - `submission_summary.txt.gz` per-submitter detail is optional and off in v1
   (`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
-- `hgvs4variation.txt.gz` enrichment is **on by default**
-  (`CLINVAR_LINK_ENABLE_HGVS4VARIATION`): it indexes all HGVS expressions
-  (coding/protein) per variant so HGVS lookups are robust. The secondary
-  download never fails the build (logged as a warning).
+- HGVS lookups in the **default shipped bundle** are indexed straight from the
+  `variant_summary` `Name`: the full Name, the canonical nucleotide expression
+  (the part of `Name` before the trailing `(p....)` protein suffix, e.g.
+  `NM_007294.4(BRCA1):c.5266dupC`), and the VCV accession. The ambiguous bare
+  short forms (`c.`/`p.`) are deliberately not indexed.
+- `hgvs4variation.txt.gz` enrichment is **opt-in / off by default**
+  (`CLINVAR_LINK_ENABLE_HGVS4VARIATION=true`): it indexes ALL transcript-version
+  HGVS expressions (~12 keys/variant) for exhaustive multi-transcript coverage,
+  but roughly doubles the DB to ~8 GB. The secondary download never fails the
+  build (logged as a warning).
 - Coordinates follow the bulk file: GRCh38 is the canonical row; GRCh37 is
   retained where present.
 

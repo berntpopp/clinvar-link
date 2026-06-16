@@ -121,6 +121,15 @@ def test_get_by_hgvs(repo):
     assert repo.get_by_hgvs("   ") is None
 
 
+def test_get_by_hgvs_resolves_canonical_nucleotide_after_lean_build(repo):
+    # LEAN build (no hgvs4variation source): the canonical nucleotide
+    # expression derived from the variant_summary Name still resolves, even
+    # though the stored full Name carries the trailing "(p....)" protein suffix.
+    assert repo.get_by_hgvs("NM_007294.4(BRCA1):c.5266dupC")["variation_id"] == 100001
+    # The ambiguous short protein form is not indexed in the lean build.
+    assert repo.get_by_hgvs("p.Gln1756fs") is None
+
+
 def test_get_by_hgvs_resolves_hgvs4variation_forms(repo_with_hgvs):
     # After ingesting hgvs4variation, get_by_hgvs resolves the full Nucleotide
     # expression and the full protein expression to the VariationID.

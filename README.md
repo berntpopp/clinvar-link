@@ -191,6 +191,14 @@ atomic (`os.replace`) so readers never see a half-built DB.
 `submission_summary.txt.gz` per-submitter detail is optional and off in v1
 (`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
 
+The default shipped bundle indexes HGVS straight from the `variant_summary`
+`Name`: the full Name, the **canonical nucleotide expression** (the part before
+the trailing `(p....)` protein suffix, e.g. `NM_007294.4(BRCA1):c.5266dupC`),
+and the VCV accession — so c-level lookups stay robust without shipping the
+56M-row `hgvs4variation` table. Set
+`CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` to also ingest `hgvs4variation.txt.gz`
+for exhaustive multi-transcript HGVS coverage, at roughly 2x DB size (~8 GB).
+
 ```bash
 uv run clinvar-link-data pull       # download the latest prebuilt bundle (fast; recommended)
 uv run clinvar-link-data bootstrap  # pull-or-build: reuse local index, else pull, else build
@@ -254,7 +262,7 @@ All settings use the flat `CLINVAR_LINK_` env prefix (or an `.env` file; see
 | `CLINVAR_LINK_BUILD_LOCAL` | `false` | Fall back to a full local build when no bundle is available (`bootstrap`). |
 | `CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR` | `DATA_DIR` | Staging dir for the downloaded `.zst` before decompression. |
 | `CLINVAR_LINK_AUTO_BOOTSTRAP` | `false` | Build the DB on first start if absent (in-app; superseded by the entrypoint `bootstrap`). |
-| `CLINVAR_LINK_ENABLE_HGVS4VARIATION` | `true` | Also ingest `hgvs4variation.txt.gz` to index all HGVS expressions per variant. |
+| `CLINVAR_LINK_ENABLE_HGVS4VARIATION` | `false` | Opt-in: also ingest `hgvs4variation.txt.gz` (ALL transcript-version HGVS expressions) for exhaustive coverage, at ~2x DB size (~8 GB). Default off; HGVS is indexed from the `variant_summary` Name (full name + canonical nucleotide expression + VCV). |
 | `CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY` | `false` | Index `submission_summary` per-submitter detail. |
 | `CLINVAR_LINK_MCP_TRANSPORT` | `unified` | `unified` or `http`. |
 | `CLINVAR_LINK_MCP_HOST` | `127.0.0.1` | Bind host. |

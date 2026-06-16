@@ -16,6 +16,8 @@ def test_settings_loads_with_defaults() -> None:
     assert isinstance(config.DATA_DIR, Path)
     assert config.AUTO_BOOTSTRAP is False
     assert config.ENABLE_SUBMISSION_SUMMARY is False
+    # hgvs4variation is opt-in (default off) so the shipped bundle stays lean.
+    assert config.ENABLE_HGVS4VARIATION is False
     assert config.CACHE_SIZE == 1024
     assert config.CACHE_TTL_MINUTES == 60
     assert config.LOG_FORMAT == "json"

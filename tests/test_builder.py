@@ -237,6 +237,37 @@ def test_build_without_hgvs_source_is_backward_compatible(tmp_path):
         conn.close()
 
 
+def test_build_lean_indexes_canonical_nucleotide_from_name(tmp_path):
+    # LEAN/default path: built WITHOUT hgvs_source_path, the canonical
+    # nucleotide expression (Name before the " (p....)" suffix) is indexed
+    # alongside the full Name and the VCV accession. vid 100001's fixture Name
+    # is "NM_007294.4(BRCA1):c.5266dupC (p.Gln1756fs)".
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    build_database(cfg, source_path=FIXTURE)
+
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    def vid_for(norm):
+        row = conn.execute(
+            "SELECT variation_id FROM hgvs_lookup WHERE hgvs_norm = ? LIMIT 1", (norm,)
+        ).fetchone()
+        return row["variation_id"] if row is not None else None
+
+    try:
+        # Canonical nucleotide expression (no trailing protein suffix).
+        assert vid_for("nm_007294.4(brca1):c.5266dupc") == 100001
+        # The full Name (with the protein suffix) is still indexed.
+        assert vid_for("nm_007294.4(brca1):c.5266dupc (p.gln1756fs)") == 100001
+        # The VCV accession is still indexed.
+        assert vid_for("vcv000100001") == 100001
+        # The ambiguous short protein form is NOT indexed.
+        assert vid_for("p.gln1756fs") is None
+        assert vid_for("(p.gln1756fs)") is None
+    finally:
+        conn.close()
+
+
 def test_build_loads_hgvs4variation(tmp_path):
     # With a secondary hgvs4variation source, every coding/protein expression of
     # a KEPT VariationID is indexed -> get_variant by any HGVS form is robust.

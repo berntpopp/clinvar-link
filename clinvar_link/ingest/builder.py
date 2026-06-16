@@ -354,6 +354,19 @@ def _emit_canonical(
     hgvs_norm = _normalize_hgvs(name)
     if hgvs_norm:
         batches.hgvs.append((hgvs_norm, vid))
+        # Also index the canonical NUCLEOTIDE expression: the part of Name
+        # before the protein suffix. ClinVar Name is
+        # "<nucleotide-expression> (<protein-change>)", e.g.
+        # "NM_007294.4(BRCA1):c.5266dupC (p.Gln1756fs)". Indexing the bare
+        # nucleotide form lets get_by_hgvs("NM_007294.4(BRCA1):c.5266dupC")
+        # resolve even though the stored Name carries the trailing "(p....)".
+        # The parenthetical short protein is AMBIGUOUS and deliberately NOT
+        # indexed. INSERT OR IGNORE against UNIQUE(hgvs_norm, variation_id)
+        # makes the duplicate (when no protein suffix exists) a no-op.
+        if " (" in name:
+            nucleotide = name.split(" (")[0].strip()
+            if nucleotide and nucleotide != name:
+                batches.hgvs.append((_normalize_hgvs(nucleotide), vid))
     vcv = _normalize_hgvs(parsed.get("accession") or "")
     if vcv:
         batches.hgvs.append((vcv, vid))
