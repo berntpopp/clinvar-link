@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root is the parent of the package directory (``clinvar_link/``); the
@@ -72,6 +72,20 @@ class Settings(BaseSettings):
         "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz"
     )
 
+    # Prebuilt-bundle distribution. Instead of building the index locally, clients
+    # can fetch a zstd-compressed SQLite snapshot published to GitHub Releases by
+    # CI. ``GITHUB_REPO`` is the source of releases; ``BUNDLE_URL`` selects the
+    # asset (``"latest"`` resolves the newest release asset, ``""`` disables the
+    # bundle path, or a full ``.sqlite.zst`` URL pins a specific snapshot).
+    GITHUB_REPO: str = "berntpopp/clinvar-link"
+    BUNDLE_URL: str = "latest"
+    # Fall back to a full local build when no prebuilt bundle is available.
+    BUILD_LOCAL: bool = False
+    # Stable asset name uploaded by CI for the prebuilt snapshot.
+    BUNDLE_ASSET_NAME: str = "clinvar.sqlite.zst"
+    # Staging directory for the downloaded ``.zst`` before decompression.
+    BUNDLE_DOWNLOAD_DIR: Path = _DEFAULT_DATA_DIR
+
     # Cache Configuration
     CACHE_SIZE: int = 1024  # Maximum number of records to cache
     CACHE_TTL_MINUTES: int = 60  # Cache time-to-live in minutes
@@ -119,6 +133,18 @@ class Settings(BaseSettings):
         if not v.startswith("/"):
             return f"/{v}"
         return v
+
+    @model_validator(mode="after")
+    def _default_bundle_download_dir(self) -> "Settings":
+        """Default the bundle staging dir to ``DATA_DIR`` unless one was given.
+
+        ``BUNDLE_DOWNLOAD_DIR`` and ``DATA_DIR`` share the same default sentinel,
+        so a caller that overrides only ``DATA_DIR`` still stages the ``.zst``
+        alongside the database it is about to install.
+        """
+        if self.BUNDLE_DOWNLOAD_DIR == _DEFAULT_DATA_DIR:
+            object.__setattr__(self, "BUNDLE_DOWNLOAD_DIR", self.DATA_DIR)
+        return self
 
     @property
     def db_path(self) -> Path:
