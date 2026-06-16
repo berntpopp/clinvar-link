@@ -3,9 +3,11 @@
 #
 # Unlike a remote-API server, clinvar-link serves answers from a LOCAL SQLite
 # index built from the NCBI ClinVar weekly bulk download. The image ships no
-# data: the entrypoint downloads variant_summary.txt.gz and builds the index
-# into the /app/data volume on first boot (or refreshes it), then serves the
-# unified FastAPI host (/health) + MCP streamable-HTTP app (/mcp) on one port.
+# data: on first boot the entrypoint runs `clinvar-link-data bootstrap`, which
+# downloads the latest prebuilt SQLite bundle from GitHub Releases, verifies it,
+# and atomically installs it into the /app/data volume (or, with BUILD_LOCAL,
+# builds from source instead). It then serves the unified FastAPI host (/health)
+# + MCP streamable-HTTP app (/mcp) on one port.
 
 FROM python:3.12-slim AS builder
 
@@ -45,10 +47,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_MCP_PATH=/mcp \
     CLINVAR_LINK_DATA_DIR=/app/data \
     CLINVAR_LINK_DB_FILENAME=clinvar.sqlite \
-    # The entrypoint builds/refreshes the index before the server starts, so the
-    # request path never triggers a lazy build. Refresh is owned by cron / a
-    # sidecar in production (see docker/README.md).
-    CLINVAR_LINK_AUTO_BOOTSTRAP=true \
+    # Bundle mode (the default): on first boot the entrypoint runs
+    # `clinvar-link-data bootstrap`, which downloads the latest prebuilt SQLite
+    # snapshot from GitHub Releases (BUNDLE_URL=latest of GITHUB_REPO), verifies
+    # its sha256, decompresses, and atomically installs it — far faster than a
+    # local build. Set CLINVAR_LINK_BUILD_LOCAL=true to build from the NCBI bulk
+    # dump instead (heavy; see docker/README.md).
+    CLINVAR_LINK_BUNDLE_URL=latest \
+    CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link \
+    CLINVAR_LINK_BUILD_LOCAL=false \
+    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/tmp/clinvar-link \
     CLINVAR_LINK_LOG_FORMAT=json \
     TMPDIR=/tmp/clinvar-link
 
@@ -77,13 +85,15 @@ USER app
 
 EXPOSE 8000
 
-# The built SQLite index lives under CLINVAR_LINK_DATA_DIR (/app/data). Mount a
-# volume there so the ~9 GB raw / built index persists across container restarts.
+# The installed SQLite index lives under CLINVAR_LINK_DATA_DIR (/app/data).
+# Mount a volume there so the index persists across container restarts and the
+# first-boot bundle download happens only once.
 VOLUME ["/app/data"]
 
-# start-period is generous: the first boot downloads the ClinVar weekly release
-# (~414 MB gz) and builds the SQLite index before /health turns healthy.
-HEALTHCHECK --interval=30s --timeout=10s --retries=5 --start-period=900s \
+# start-period covers the first-boot bundle download: pulling the prebuilt
+# clinvar.sqlite.zst (~hundreds of MB) and decompressing it is far faster than a
+# ~9 GB local build, so 5 minutes is ample before /health turns healthy.
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 --start-period=300s \
     CMD curl -f http://127.0.0.1:8000/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

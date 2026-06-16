@@ -83,7 +83,8 @@ docker/                     # Dockerfile, compose, entrypoint, README
 
 - `clinvar-link` (`cli.py:app`) — `serve`, `config`, `health`, `version`.
 - `clinvar-link-mcp` (`mcp_server.py:main`) — stdio MCP transport.
-- `clinvar-link-data` (`ingest/cli.py:main`) — `build`, `refresh`, `status`.
+- `clinvar-link-data` (`ingest/cli.py:main`) — `build`, `refresh`, `status`,
+  `pull`, `bootstrap`, `pack`.
 
 ## Conventions
 
@@ -130,8 +131,30 @@ make ci-local                      # full local gate
   `docker/README.md`).
 - `submission_summary.txt.gz` per-submitter detail is optional and off in v1
   (`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
+- `hgvs4variation.txt.gz` enrichment is **on by default**
+  (`CLINVAR_LINK_ENABLE_HGVS4VARIATION`): it indexes all HGVS expressions
+  (coding/protein) per variant so HGVS lookups are robust. The secondary
+  download never fails the build (logged as a warning).
 - Coordinates follow the bulk file: GRCh38 is the canonical row; GRCh37 is
   retained where present.
+
+## Data distribution (build → pack → release → pull)
+
+The heavy build runs in CI, not in production containers:
+
+- **Producer:** `.github/workflows/publish-bundle.yml` runs weekly (Mondays
+  06:00 UTC) + on-demand. It `build`s the index, `pack`s it
+  (`ingest/bundle.py:pack_bundle` → zstd `clinvar.sqlite.zst` + `.sha256`), and
+  `gh release`-publishes it to a `bundle-<YYYY-MM-DD>` tag (the ClinVar release
+  date, read from `meta.clinvar_release_date`). The newest release is GitHub's
+  "latest", which `BUNDLE_URL=latest` resolves.
+- **Consumer:** `clinvar-link-data bootstrap` (the container entrypoint) is
+  pull-first: reuse a valid local index → else `pull` the bundle
+  (download → verify sha256 → decompress → atomic `os.replace`) → else build
+  locally only when `CLINVAR_LINK_BUILD_LOCAL=true` → else error + exit 1. A
+  bootstrap failure is fatal in the entrypoint (no serving an empty DB).
+- GitHub caps release assets at 2 GB; the publish workflow asserts the packed
+  bundle is under that and fails loudly otherwise.
 
 ## Safety
 

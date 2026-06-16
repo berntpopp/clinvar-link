@@ -44,8 +44,20 @@ reproducible lookup.
 
 ```bash
 uv sync                            # install project + dependencies
-uv run clinvar-link-data build     # download the weekly release + build the SQLite index
+uv run clinvar-link-data pull      # download the latest prebuilt SQLite bundle (recommended, fast)
 uv run clinvar-link serve          # unified FastAPI host (/health) + MCP at /mcp
+```
+
+`pull` downloads the latest prebuilt `clinvar.sqlite.zst` from GitHub Releases
+(**~hundreds of MB compressed**), verifies its sha256, decompresses it, and
+atomically installs `./data/clinvar.sqlite`. This is the fast path; it requires
+that a bundle release exists (see [Getting the data](#getting-the-data) below).
+
+Prefer to build locally instead (no network dependency on a release, ~3 min,
+~4 GB working set)?
+
+```bash
+uv run clinvar-link-data build     # download the weekly release + build the SQLite index
 ```
 
 The first `build` downloads `variant_summary.txt.gz`
@@ -53,6 +65,27 @@ The first `build` downloads `variant_summary.txt.gz`
 `./data/clinvar.sqlite` (override with `CLINVAR_LINK_DATA_DIR` /
 `CLINVAR_LINK_DB_FILENAME`). With `uv` installed you can also use the Makefile:
 `make install`, `make data`, `make dev`.
+
+### Getting the data
+
+There are three ways the SQLite index is produced and distributed:
+
+1. **`clinvar-link-data pull`** — download the latest prebuilt bundle from
+   GitHub Releases (recommended; fast). `clinvar-link-data bootstrap` is the
+   pull-or-build helper used by the container entrypoint: it reuses a valid
+   local index, else pulls the bundle (`CLINVAR_LINK_BUNDLE_URL=latest`), else
+   builds locally when `CLINVAR_LINK_BUILD_LOCAL=true`.
+2. **`clinvar-link-data build`** — build locally from the NCBI bulk dump (heavy:
+   ~414 MB gz download, ~9 GB raw, a few minutes). Use this for offline/source
+   builds.
+3. **`.github/workflows/publish-bundle.yml`** — the weekly CI workflow that
+   `build`s the index, `pack`s it into `clinvar.sqlite.zst` (+ `.sha256`), and
+   publishes it to a GitHub Release tagged `bundle-<YYYY-MM-DD>`. The newest
+   release is what `pull` / `BUNDLE_URL=latest` resolves.
+
+> A bundle release must exist before `pull` works — the publish workflow has to
+> have run at least once. GitHub caps release assets at 2 GB; the published
+> bundle is well under that.
 
 Inspect the loaded release and check a running server:
 
@@ -148,15 +181,20 @@ atomic (`os.replace`) so readers never see a half-built DB.
 (`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
 
 ```bash
-uv run clinvar-link-data build     # force a full download + rebuild
+uv run clinvar-link-data pull       # download the latest prebuilt bundle (fast; recommended)
+uv run clinvar-link-data bootstrap  # pull-or-build: reuse local index, else pull, else build
+uv run clinvar-link-data build      # force a full local download + rebuild
 uv run clinvar-link-data refresh    # conditional: rebuild only if the dump changed (cron job)
 uv run clinvar-link-data status     # release date + variant/gene counts of the built DB
 ```
 
-`refresh` is cheap: it sends a conditional request (ETag / Last-Modified) and
-skips the rebuild when the upstream dump is unchanged, or when the local index
-is younger than `CLINVAR_LINK_REFRESH_TTL_DAYS` (default 7). ClinVar publishes a
-new release weekly, so schedule a refresh. systemd timer:
+In production the refresh path is: CI republishes the bundle weekly
+(`publish-bundle.yml`) → containers/clients `pull` the new snapshot. For local
+source builds, `refresh` is cheap: it sends a conditional request (ETag /
+Last-Modified) and skips the rebuild when the upstream dump is unchanged, or
+when the local index is younger than `CLINVAR_LINK_REFRESH_TTL_DAYS` (default 7).
+ClinVar publishes a new release weekly, so schedule a refresh (or a `pull`).
+systemd timer:
 
 ```ini
 # /etc/systemd/system/clinvar-link-refresh.service
@@ -199,7 +237,12 @@ All settings use the flat `CLINVAR_LINK_` env prefix (or an `.env` file; see
 | `CLINVAR_LINK_DB_FILENAME` | `clinvar.sqlite` | SQLite filename inside `DATA_DIR`. |
 | `CLINVAR_LINK_SOURCE_URL` | NCBI `variant_summary.txt.gz` | Bulk-release source URL. |
 | `CLINVAR_LINK_REFRESH_TTL_DAYS` | `7` | Skip refresh if the index is younger than this. |
-| `CLINVAR_LINK_AUTO_BOOTSTRAP` | `false` | Build the DB on first start if absent. |
+| `CLINVAR_LINK_BUNDLE_URL` | `latest` | Prebuilt-bundle source: `latest` (newest GitHub release asset), `""` (disable bundle pull), or a full `.sqlite.zst` URL. |
+| `CLINVAR_LINK_GITHUB_REPO` | `berntpopp/clinvar-link` | Repo whose Releases publish the prebuilt bundle. |
+| `CLINVAR_LINK_BUILD_LOCAL` | `false` | Fall back to a full local build when no bundle is available (`bootstrap`). |
+| `CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR` | `DATA_DIR` | Staging dir for the downloaded `.zst` before decompression. |
+| `CLINVAR_LINK_AUTO_BOOTSTRAP` | `false` | Build the DB on first start if absent (in-app; superseded by the entrypoint `bootstrap`). |
+| `CLINVAR_LINK_ENABLE_HGVS4VARIATION` | `true` | Also ingest `hgvs4variation.txt.gz` to index all HGVS expressions per variant. |
 | `CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY` | `false` | Index `submission_summary` per-submitter detail. |
 | `CLINVAR_LINK_MCP_TRANSPORT` | `unified` | `unified` or `http`. |
 | `CLINVAR_LINK_MCP_HOST` | `127.0.0.1` | Bind host. |
@@ -214,24 +257,26 @@ All settings use the flat `CLINVAR_LINK_` env prefix (or an `.env` file; see
 
 ## Docker
 
-The image ships no data: the entrypoint downloads `variant_summary.txt.gz` and
-builds the index into the `clinvar-data` volume on first boot, then serves the
-unified host (`/health`) with MCP mounted at `/mcp` on port 8000. See
-[`docker/README.md`](docker/README.md).
+The image ships no data: on first boot the entrypoint runs
+`clinvar-link-data bootstrap`, which downloads the latest prebuilt SQLite bundle
+from GitHub Releases, verifies it, and atomically installs it into the
+`clinvar-data` volume, then serves the unified host (`/health`) with MCP mounted
+at `/mcp` on port 8000. See [`docker/README.md`](docker/README.md).
 
 ```bash
 make docker-build       # build the image
-make docker-up          # start (first boot downloads + builds the index)
+make docker-up          # start (first boot pulls the prebuilt bundle)
 make docker-logs        # follow logs
 make docker-down        # stop
 ```
 
-The built SQLite index (and cached bulk download) live in the `clinvar-data`
-named volume so the multi-gigabyte first-boot build happens only once. First
-boot can take a while; the healthcheck `start_period` is 15 minutes. Set
-`CLINVAR_LINK_AUTO_BOOTSTRAP=true` to build on first boot (the default in the
-image and Compose file), and refresh on a schedule via host cron (see
-[`docker/README.md`](docker/README.md)).
+The installed SQLite index lives in the `clinvar-data` named volume so the
+first-boot bundle download happens only once. First boot is fast (a bundle
+download + decompress); the healthcheck `start_period` is 5 minutes. Defaults
+are `CLINVAR_LINK_BUNDLE_URL=latest` and `CLINVAR_LINK_BUILD_LOCAL=false` (in the
+image and Compose file); set `CLINVAR_LINK_BUILD_LOCAL=true` to build from source
+instead. Refresh on a schedule via host cron — CI republishes the bundle weekly
+and containers `pull` it (see [`docker/README.md`](docker/README.md)).
 
 ## Citation & License
 

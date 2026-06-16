@@ -9,27 +9,58 @@ make docker-down        # stop
 
 clinvar-link is a **local-data** MCP server: it answers from a SQLite index
 built from the NCBI ClinVar weekly bulk release, not from a remote API at
-request time. The image ships no data — the entrypoint downloads
-`variant_summary.txt.gz` and builds the index into the `clinvar-data` volume on
-first boot, then serves the unified FastAPI host (`/health`) with the MCP
-streamable-HTTP app mounted at `/mcp` on a single port (8000).
+request time. The image ships no data — on first boot the entrypoint runs
+`clinvar-link-data bootstrap`, which **downloads the latest prebuilt SQLite
+bundle** from GitHub Releases (`clinvar.sqlite.zst`), verifies its sha256,
+decompresses it, and atomically installs it into the `clinvar-data` volume. It
+then serves the unified FastAPI host (`/health`) with the MCP streamable-HTTP
+app mounted at `/mcp` on a single port (8000).
+
+## How the data gets there
+
+The heavy build runs **in CI, once a week**, not in your container:
+
+1. The `.github/workflows/publish-bundle.yml` workflow runs every Monday (and
+   on-demand). It builds the SQLite index from the NCBI weekly dump
+   (`variant_summary.txt.gz` + `hgvs4variation.txt.gz`), packs it into a
+   zstd-compressed `clinvar.sqlite.zst` (+ a `.sha256` sidecar), and publishes
+   it to a GitHub Release tagged `bundle-<YYYY-MM-DD>`.
+2. On first boot your container runs `clinvar-link-data bootstrap`, which pulls
+   that prebuilt bundle (`CLINVAR_LINK_BUNDLE_URL=latest` of
+   `CLINVAR_LINK_GITHUB_REPO`), verifies the sha256, decompresses, and
+   atomically swaps it into place.
+3. `bootstrap` is a no-op when a valid index is already present (restarts are
+   instant), and falls back to a full local build only when
+   `CLINVAR_LINK_BUILD_LOCAL=true`.
+
+> A bundle release must already exist for the pull to succeed — the
+> `publish-bundle.yml` workflow has to have run at least once. For fully offline
+> or air-gapped builds, set `CLINVAR_LINK_BUILD_LOCAL=true` to build from source.
+
+GitHub caps release assets at **2 GB**; the published `clinvar.sqlite.zst` is
+well under that limit (the publish workflow asserts it and fails otherwise).
+
+A bootstrap failure is **fatal**: the entrypoint exits non-zero rather than
+serving an empty database, so the container fails loudly instead of silently
+returning no results.
 
 ## First-boot data size
 
-The first boot downloads the ClinVar weekly release
-(`variant_summary.txt.gz`, **~414 MB gzipped / ~9 GB uncompressed**) and builds
-the SQLite index. This takes a while and needs disk headroom on the
-`clinvar-data` volume, so the healthcheck `start_period` is set to 15 minutes.
-Subsequent restarts reuse the persisted index and start immediately.
+The first boot downloads the prebuilt bundle (**~hundreds of MB compressed**)
+and decompresses it into the `clinvar-data` volume — far faster than a local
+build, so the healthcheck `start_period` is set to **5 minutes**. Subsequent
+restarts reuse the persisted index and start immediately.
+
+If you set `CLINVAR_LINK_BUILD_LOCAL=true` instead, the first boot downloads the
+ClinVar weekly release (`variant_summary.txt.gz`, **~414 MB gzipped / ~9 GB
+uncompressed**) and builds the index locally — slower and disk-hungry; raise the
+healthcheck `start_period` accordingly.
 
 ## Refresh
 
-ClinVar publishes a **new weekly release**, so the index should be rebuilt on a
-schedule. The in-app scheduler is not used; refresh is owned by host cron / a
-sidecar. The entrypoint runs `clinvar-link-data refresh` on start when
-`CLINVAR_LINK_AUTO_BOOTSTRAP=true` or the DB file is absent; `refresh` is
-conditional and skips the rebuild when the upstream dump is unchanged (cheap
-no-op) or the index is younger than `CLINVAR_LINK_REFRESH_TTL_DAYS` (default 7).
+CI republishes the bundle every Monday, so production refresh is just a **pull**
+of the newest snapshot. The in-app scheduler is not used; refresh is owned by
+host cron / a sidecar.
 
 Run the one-shot refresh runner (uncomment the `refresh` service in
 `docker-compose.yml` first) from host cron:
@@ -41,15 +72,16 @@ Run the one-shot refresh runner (uncomment the `refresh` service in
 Or exec into the running container:
 
 ```cron
-17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml exec clinvar-link clinvar-link-data refresh
+17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml exec clinvar-link clinvar-link-data pull
 ```
 
 ## Volume
 
-The built SQLite index (and the cached bulk download) live under
-`CLINVAR_LINK_DATA_DIR` (`/app/data`), persisted in the `clinvar-data` named
-volume across container restarts so the multi-gigabyte first-boot
-download/build happens only once.
+The installed SQLite index lives under `CLINVAR_LINK_DATA_DIR` (`/app/data`),
+persisted in the `clinvar-data` named volume across container restarts so the
+first-boot bundle download happens only once. The downloaded `.zst` is staged
+in an ephemeral tmpfs at `CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR` (`/tmp/clinvar-link`)
+before being decompressed and swapped into the volume.
 
 ## Ports
 
