@@ -1,0 +1,44 @@
+# Keep the build context small and the image clean. The runtime builds its own
+# SQLite index from the ClinVar bulk download into the /app/data volume, so no
+# data, caches, or dev tooling need to ship into the image.
+
+# Virtualenvs
+.venv
+venv
+
+# Python caches / build artifacts
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+
+# Local data store: built index + cached bulk download (rebuilt at runtime)
+*.sqlite
+*.sqlite-*
+*.txt.gz
+data
+
+# Tests, docs, and coverage output (not needed in the runtime image)
+tests
+docs
+htmlcov
+.coverage
+coverage.xml
+
+# Tool caches
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# VCS and local env
+.git
+.gitignore
+.env
+.env.*
+!.env.docker.example
+
+# CI / editor metadata
+.github
+.pre-commit-config.yaml

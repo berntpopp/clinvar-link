@@ -1,0 +1,79 @@
+name: clinvar-link
+
+services:
+  clinvar-link:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: clinvar-link
+    ports:
+      - "${CLINVAR_LINK_HOST_PORT:-8000}:8000"
+    env_file:
+      - path: ../.env
+        required: false
+      - path: ../.env.docker
+        required: false
+    environment:
+      CLINVAR_LINK_MCP_TRANSPORT: unified
+      CLINVAR_LINK_MCP_HOST: 0.0.0.0
+      CLINVAR_LINK_MCP_PORT: 8000
+      CLINVAR_LINK_MCP_PATH: /mcp
+      CLINVAR_LINK_LOG_LEVEL: INFO
+      CLINVAR_LINK_LOG_FORMAT: json
+      CLINVAR_LINK_DATA_DIR: /app/data
+      # Build the SQLite index from the ClinVar weekly bulk download on first
+      # boot (the entrypoint also auto-builds when the DB file is absent).
+      CLINVAR_LINK_AUTO_BOOTSTRAP: "true"
+    volumes:
+      # Persist the built SQLite index (and the cached bulk download) across
+      # container restarts so first-boot download/build happens only once.
+      - clinvar-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # First boot downloads the ClinVar weekly release (~414 MB gz) and builds
+      # the SQLite index before /health turns healthy.
+      start_period: 900s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - clinvar-network
+
+  # Weekly refresh: ClinVar publishes a new weekly release, so the index should
+  # be rebuilt on a schedule. Two common options:
+  #
+  # 1. Host cron invoking the one-shot refresh runner below (uncomment it first):
+  #      17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml run --rm refresh
+  #
+  # 2. Host cron exec'ing into the running container:
+  #      17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml exec clinvar-link clinvar-link-data refresh
+  #
+  # Uncomment to enable the sidecar runner (invoked via `run --rm refresh`):
+  # refresh:
+  #   profiles: ["tools"]
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile
+  #     target: production
+  #   entrypoint: ["clinvar-link-data", "refresh"]
+  #   environment:
+  #     CLINVAR_LINK_DATA_DIR: /app/data
+  #   volumes:
+  #     - clinvar-data:/app/data
+  #   networks:
+  #     - clinvar-network
+
+volumes:
+  clinvar-data:
+    driver: local
+
+networks:
+  clinvar-network:
+    driver: bridge
