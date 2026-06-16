@@ -102,7 +102,9 @@ def pack_bundle(db_path: Path, out_dir: Path, *, level: int = 19) -> dict[str, A
 
     release_date = _read_release_date(db_path)
 
-    compressor = zstandard.ZstdCompressor(level=level)
+    # threads=-1 uses all logical CPUs — multi-GB SQLite packs in a fraction of
+    # the single-threaded time with negligible ratio loss.
+    compressor = zstandard.ZstdCompressor(level=level, threads=-1)
     try:
         with db_path.open("rb") as src, zst_path.open("wb") as dst:
             compressor.copy_stream(src, dst, read_size=_CHUNK_SIZE, write_size=_CHUNK_SIZE)
