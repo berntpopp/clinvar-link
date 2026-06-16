@@ -67,6 +67,25 @@ class ClinVarDataError(ClinVarServerError):
     pass
 
 
+class DataUnavailableError(ClinVarServerError):
+    """Raised when the local index is missing and cannot be built on demand."""
+
+    pass
+
+
+class DownloadError(ClinVarServerError):
+    """Raised when fetching the ClinVar bulk dump fails.
+
+    Carries the upstream HTTP status code when one is available so callers can
+    distinguish transport errors from server-side failures.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None):
+        """Initialize with a message and optional HTTP status code."""
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class ToolInputError(ValueError):
     """Local pre-lookup validation failure.
 
