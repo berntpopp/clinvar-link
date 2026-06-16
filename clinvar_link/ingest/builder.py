@@ -93,6 +93,11 @@ def _load_schema_sql() -> str:
     return (files("clinvar_link.data") / "schema.sql").read_text(encoding="utf-8")
 
 
+def _load_indexes_sql() -> str:
+    """Read the bundled secondary-index DDL (applied after bulk insert)."""
+    return (files("clinvar_link.data") / "indexes.sql").read_text(encoding="utf-8")
+
+
 def _priority(assembly: str) -> int:
     """Return the canonical-row preference for an assembly (default 1)."""
     return _PRIORITY.get(assembly, 1)
@@ -363,6 +368,7 @@ def build_database(
     etag: str | None = None,
     last_modified: str | None = None,
     release_date: str | None = None,
+    source_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Build the ClinVar SQLite index from ``source_path``, atomically.
 
@@ -386,6 +392,13 @@ def build_database(
     try:
         conn = sqlite3.connect(tmp_path)
         try:
+            # Build-time PRAGMAs on the throwaway temp DB: durability mid-build
+            # is irrelevant since the file is atomically os.replace'd into place.
+            conn.execute("PRAGMA synchronous=OFF")
+            conn.execute("PRAGMA journal_mode=OFF")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA cache_size=-262144")  # ~256 MB page cache
+            conn.execute("PRAGMA mmap_size=268435456")  # 256 MB
             conn.executescript(_load_schema_sql())
 
             batches = _Batches(conn)
@@ -416,18 +429,27 @@ def build_database(
             batches.flush()
 
             gene_count = _write_gene_summaries(conn, accumulators, gene_display)
-            source_sha256 = _sha256(source_path)
+            sha256 = source_sha256 if source_sha256 is not None else _sha256(source_path)
             _write_meta(
                 conn,
                 config=config,
                 etag=etag,
                 last_modified=last_modified,
                 release_date=release_date,
-                source_sha256=source_sha256,
+                source_sha256=sha256,
                 variant_count=len(emitted),
                 gene_count=gene_count,
                 build_duration_s=time.perf_counter() - start,
             )
+
+            # Build the secondary B-tree indexes now that the bulk insert is
+            # done (no per-row index maintenance), then compact the FTS index.
+            conn.executescript(_load_indexes_sql())
+            conn.execute("INSERT INTO variant_fts(variant_fts) VALUES('optimize')")
+
+            # journal_mode=OFF leaves no rollback journal; reset to DELETE so the
+            # file is in a clean state that opens cleanly read-only.
+            conn.execute("PRAGMA journal_mode=DELETE")
             conn.commit()
             variant_count = len(emitted)
             release = release_date or last_modified

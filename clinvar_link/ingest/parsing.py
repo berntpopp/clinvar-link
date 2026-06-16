@@ -304,34 +304,30 @@ class GeneAccumulator:
     """Incrementally accumulate variant statistics for one gene.
 
     Memory-efficient alternative to collecting all variant dicts and then
-    aggregating.  Detail lists (protein_variants, genomic_variants) are capped at
-    *max_detail* to bound JSONB size.
+    aggregating: only running aggregates are kept, never per-variant detail.
 
     Star ratings drive the "high confidence" notion (star_rating >= 3) and the
     ``star_distribution`` histogram, replacing the kidney-confidence map.
 
     Usage::
 
-        acc = GeneAccumulator(star_map, max_detail=200)
+        acc = GeneAccumulator(star_map)
         for variant in stream:
             acc.add_variant(variant)
         stats = acc.finalize()
     """
 
     __slots__ = (
-        "_max_detail",
         "_star_map",
         "benign_count",
         "conflicting_count",
         "consequence_categories",
-        "genomic_variants",
         "high_confidence_count",
         "likely_benign_count",
         "likely_pathogenic_count",
         "molecular_consequences",
         "not_provided_count",
         "pathogenic_count",
-        "protein_variants",
         "star_distribution",
         "total_count",
         "traits_summary",
@@ -344,7 +340,7 @@ class GeneAccumulator:
         {"splice donor variant", "splice acceptor variant", "splice region variant"}
     )
 
-    def __init__(self, star_map: dict[str, int], max_detail: int = 200) -> None:
+    def __init__(self, star_map: dict[str, int]) -> None:
         self.total_count = 0
         self.pathogenic_count = 0
         self.likely_pathogenic_count = 0
@@ -368,10 +364,7 @@ class GeneAccumulator:
             "other": 0,
         }
         self.star_distribution: dict[int, int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
-        self.protein_variants: list[dict[str, Any]] = []
-        self.genomic_variants: list[dict[str, Any]] = []
         self._star_map = star_map
-        self._max_detail = max_detail
 
     # ------------------------------------------------------------------ #
 
@@ -396,87 +389,8 @@ class GeneAccumulator:
             elif "/" not in classification or "pathogenic/likely pathogenic" in classification:
                 self.pathogenic_count += 1
 
-        # --- Category label for detail dicts ---
-        if is_pathogenic:
-            category = "likely_pathogenic" if "likely" in classification else "pathogenic"
-        elif "benign" in classification:
-            category = "likely_benign" if "likely" in classification else "benign"
-        elif "uncertain" in classification or "vus" in classification:
-            category = "vus"
-        elif "conflicting" in classification:
-            category = "conflicting"
-        else:
-            category = "other"
-
         star_rating = self._star_rating(variant)
         mol_consequences = variant.get("molecular_consequences", [])
-
-        # --- Effect category from molecular consequences ---
-        effect_category = "other"
-        for conseq in mol_consequences:
-            conseq_lower = conseq.lower()
-            if conseq_lower in self._TRUNCATING:
-                effect_category = "truncating"
-                break
-            elif conseq_lower in self._SPLICE or "splice" in conseq_lower:
-                if effect_category not in ("truncating",):
-                    effect_category = "splice_region"
-            elif "missense" in conseq_lower:
-                if effect_category not in ("truncating", "splice_region"):
-                    effect_category = "missense"
-            elif "inframe" in conseq_lower:
-                if effect_category not in ("truncating", "splice_region", "missense"):
-                    effect_category = "inframe"
-            elif "synonymous" in conseq_lower:
-                if effect_category == "other":
-                    effect_category = "synonymous"
-
-        # --- Protein variants (capped) ---
-        protein_change = variant.get("protein_change", "")
-        position = parse_protein_position(protein_change)
-        if position and len(self.protein_variants) < self._max_detail:
-            self.protein_variants.append(
-                {
-                    "position": position,
-                    "protein_change": protein_change,
-                    "cdna_change": variant.get("cdna_change", ""),
-                    "accession": variant.get("accession", ""),
-                    "classification": variant.get("classification", ""),
-                    "category": category,
-                    "effect_category": effect_category,
-                    "review_status": variant.get("review_status", ""),
-                    "star_rating": star_rating,
-                    "molecular_consequences": mol_consequences,
-                    "variant_type": variant.get("variant_type", ""),
-                    "title": variant.get("title", ""),
-                    "chromosome": variant.get("chromosome"),
-                    "genomic_start": variant.get("start"),
-                    "genomic_end": variant.get("stop"),
-                }
-            )
-
-        # --- Genomic variants (capped) ---
-        genomic_start = variant.get("start")
-        if genomic_start is not None and len(self.genomic_variants) < self._max_detail:
-            self.genomic_variants.append(
-                {
-                    "position": position,
-                    "protein_change": protein_change,
-                    "cdna_change": variant.get("cdna_change", ""),
-                    "accession": variant.get("accession", ""),
-                    "classification": variant.get("classification", ""),
-                    "category": category,
-                    "effect_category": effect_category,
-                    "review_status": variant.get("review_status", ""),
-                    "star_rating": star_rating,
-                    "molecular_consequences": mol_consequences,
-                    "variant_type": variant.get("variant_type", ""),
-                    "title": variant.get("title", ""),
-                    "chromosome": variant.get("chromosome"),
-                    "genomic_start": genomic_start,
-                    "genomic_end": variant.get("stop"),
-                }
-            )
 
         # --- Other classification counts ---
         if not is_pathogenic and "benign" in classification:
@@ -578,8 +492,6 @@ class GeneAccumulator:
             "high_confidence_count": self.high_confidence_count,
             "variant_type_counts": self.variant_type_counts,
             "molecular_consequences": self.molecular_consequences,
-            "protein_variants": self.protein_variants,
-            "genomic_variants": self.genomic_variants,
             "consequence_categories": self.consequence_categories,
             "star_distribution": self.star_distribution,
             "top_molecular_consequences": top_molecular_consequences,

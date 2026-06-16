@@ -4,6 +4,7 @@ These run entirely offline: the builder consumes the committed TSV fixture and
 the downloader test mocks NCBI with ``respx`` (a 200 then a conditional 304).
 """
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -21,6 +22,19 @@ FIXTURE = Path(__file__).parent / "fixtures" / "variant_summary_sample.txt"
 # both GRCh38 and GRCh37 (40 data rows total), across 4 genes.
 EXPECTED_VARIANTS = 20
 EXPECTED_GENES = 4
+
+# The 9 secondary B-tree indexes deferred to after the bulk insert (indexes.sql).
+EXPECTED_INDEXES = {
+    "idx_variant_gene",
+    "idx_variant_class",
+    "idx_variant_stars",
+    "idx_coord_vid",
+    "idx_coord_assembly",
+    "idx_rsid",
+    "idx_allele_id",
+    "idx_hgvs_norm",
+    "idx_gene_index",
+}
 
 
 def test_build_dedup_and_meta(tmp_path):
@@ -125,6 +139,78 @@ def test_build_coordinates_differ_per_assembly(tmp_path):
     conn.close()
 
 
+def test_build_creates_deferred_indexes(tmp_path):
+    # All 9 secondary indexes must exist after the build, even though they are
+    # created only after the bulk insert + FTS optimize.
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    build_database(cfg, source_path=FIXTURE)
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    try:
+        names = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+    assert names == EXPECTED_INDEXES
+
+
+def test_build_gene_summary_drops_detail_lists(tmp_path):
+    # gene_summary JSON keeps aggregate fields but no longer carries the
+    # never-read per-variant detail lists.
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    build_database(cfg, source_path=FIXTURE)
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT summary_json FROM gene_summary WHERE gene_symbol_upper='BRCA1'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    blob = row["summary_json"]
+    assert "protein_variants" not in blob
+    assert "genomic_variants" not in blob
+
+    summary = json.loads(blob)
+    assert "protein_variants" not in summary
+    assert "genomic_variants" not in summary
+    assert "total_count" in summary
+    assert "star_distribution" in summary
+    assert "has_pathogenic" in summary
+
+
+def test_build_fts_still_works_after_optimize(tmp_path):
+    # Deferred indexes + FTS 'optimize' must not break free-text search.
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    build_database(cfg, source_path=FIXTURE)
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    try:
+        hit = conn.execute(
+            "SELECT rowid FROM variant_fts WHERE variant_fts MATCH 'BRCA1' LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert hit is not None
+
+
+def test_build_uses_provided_source_sha256(tmp_path):
+    # When source_sha256 is supplied, it is written verbatim to meta without
+    # re-hashing the source file.
+    cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
+    build_database(cfg, source_path=FIXTURE, source_sha256="deadbeef")
+    conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        meta = conn.execute("SELECT source_sha256 FROM meta WHERE id = 1").fetchone()
+    finally:
+        conn.close()
+    assert meta["source_sha256"] == "deadbeef"
+
+
 @respx.mock
 def test_download_source_ok_then_not_modified(tmp_path):
     url = "https://example.test/variant_summary.txt.gz"
@@ -143,6 +229,8 @@ def test_download_source_ok_then_not_modified(tmp_path):
     assert first["status"] == "ok"
     assert first["etag"] == '"abc"'
     assert dest.read_bytes() == b"FRESH-BODY"
+    # SHA-256 is computed inline while streaming the body to disk.
+    assert first["sha256"] == hashlib.sha256(b"FRESH-BODY").hexdigest()
     assert cache.exists()
     cached = json.loads(cache.read_text())
     assert cached[url]["etag"] == '"abc"'

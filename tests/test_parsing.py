@@ -208,3 +208,30 @@ def test_gene_accumulator():
     assert stats["pathogenic_count"] == 1
     assert stats["has_pathogenic"] is True
     assert stats["star_distribution"][3] == 1
+
+    # Per-variant detail lists are no longer emitted (they were never read).
+    assert "protein_variants" not in stats
+    assert "genomic_variants" not in stats
+
+    # Retained aggregate fields the service reads stay present.
+    for field in (
+        "total_count",
+        "pathogenic_count",
+        "likely_pathogenic_count",
+        "vus_count",
+        "benign_count",
+        "likely_benign_count",
+        "conflicting_count",
+        "not_provided_count",
+        "high_confidence_count",
+        "variant_type_counts",
+        "molecular_consequences",
+        "top_molecular_consequences",
+        "consequence_categories",
+        "star_distribution",
+        "top_traits",
+        "high_confidence_percentage",
+        "pathogenic_percentage",
+        "has_pathogenic",
+    ):
+        assert field in stats

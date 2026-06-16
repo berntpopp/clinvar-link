@@ -10,6 +10,7 @@ keep memory flat on the multi-hundred-MB dump.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -41,11 +42,18 @@ def _write_cache(
     cache_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def _stream_to_file(response: httpx.Response, path: Path) -> None:
+def _stream_to_file(response: httpx.Response, path: Path) -> str:
+    """Stream the response body to ``path``, returning its SHA-256 hex digest.
+
+    Hashing happens inline as chunks are written, so the body is only read once.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
     with path.open("wb") as handle:
         for chunk in response.iter_bytes(_CHUNK_SIZE):
             handle.write(chunk)
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def download_source(
@@ -63,7 +71,8 @@ def download_source(
     persists the fresh validators to ``cache_path``.
 
     Returns a dict: ``status`` (``"ok"`` | ``"not_modified"``), ``path``,
-    ``etag``, ``last_modified``.
+    ``etag``, ``last_modified``, ``sha256`` (the body digest on a 200; ``None``
+    on a 304 since no body was transferred).
     """
     headers = {"User-Agent": _USER_AGENT}
     if not force:
@@ -84,11 +93,12 @@ def download_source(
                     "path": str(dest_path) if dest_path.exists() else None,
                     "etag": headers.get("If-None-Match"),
                     "last_modified": headers.get("If-Modified-Since"),
+                    "sha256": None,
                 }
             response.raise_for_status()
             etag = response.headers.get("ETag")
             last_modified = response.headers.get("Last-Modified")
-            _stream_to_file(response, dest_path)
+            sha256 = _stream_to_file(response, dest_path)
     except httpx.HTTPStatusError as exc:
         raise DownloadError(
             f"GET {url} failed: HTTP {exc.response.status_code}",
@@ -103,4 +113,5 @@ def download_source(
         "path": str(dest_path),
         "etag": etag,
         "last_modified": last_modified,
+        "sha256": sha256,
     }

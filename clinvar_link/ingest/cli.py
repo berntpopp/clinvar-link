@@ -99,6 +99,7 @@ def build() -> None:
                 source_path=_source_path(),
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
+                source_sha256=download.get("sha256"),
             )
     except (DownloadError, ClinVarServerError, OSError, sqlite3.Error) as exc:
         console.print(f"[red]ERROR:[/red] build failed: {exc}")
@@ -135,6 +136,7 @@ def refresh() -> None:
                 source_path=_source_path(),
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
+                source_sha256=download.get("sha256"),
             )
     except (DownloadError, ClinVarServerError, OSError, sqlite3.Error) as exc:
         console.print(f"[red]ERROR:[/red] refresh failed: {exc}")

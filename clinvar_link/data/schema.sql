@@ -1,7 +1,8 @@
 -- clinvar-link local index schema (built from ClinVar variant_summary.txt).
 -- A VariationID appears once per assembly (GRCh38 + GRCh37). We keep one
 -- canonical `variant` row (GRCh38 preferred) and BOTH assemblies' coordinates.
-PRAGMA journal_mode = WAL;
+-- Secondary B-tree indexes live in indexes.sql and are applied AFTER the bulk
+-- insert (the builder controls the journal mode for the throwaway temp DB).
 PRAGMA foreign_keys = OFF;
 
 -- Single-row build provenance.
@@ -46,9 +47,6 @@ CREATE TABLE variant (
     chromosome              TEXT,
     cytogenetic             TEXT
 );
-CREATE INDEX idx_variant_gene ON variant (gene_symbol);
-CREATE INDEX idx_variant_class ON variant (classification);
-CREATE INDEX idx_variant_stars ON variant (star_rating);
 
 -- Per-assembly coordinates (1-2 rows per variant: GRCh38 and/or GRCh37).
 CREATE TABLE variant_coordinate (
@@ -64,36 +62,30 @@ CREATE TABLE variant_coordinate (
     reference_allele_vcf  TEXT,
     alternate_allele_vcf  TEXT
 );
-CREATE INDEX idx_coord_vid ON variant_coordinate (variation_id);
-CREATE INDEX idx_coord_assembly ON variant_coordinate (assembly, chromosome, start);
 
 -- Resolution index: dbSNP rsid -> variation_id.
 CREATE TABLE rsid_lookup (
     rsid          INTEGER,
     variation_id  INTEGER
 );
-CREATE INDEX idx_rsid ON rsid_lookup (rsid);
 
 -- Resolution index: ClinVar AlleleID -> variation_id.
 CREATE TABLE allele_id_lookup (
     allele_id     INTEGER,
     variation_id  INTEGER
 );
-CREATE INDEX idx_allele_id ON allele_id_lookup (allele_id);
 
 -- Resolution index: normalized HGVS string -> variation_id.
 CREATE TABLE hgvs_lookup (
     hgvs_norm     TEXT,
     variation_id  INTEGER
 );
-CREATE INDEX idx_hgvs_norm ON hgvs_lookup (hgvs_norm);
 
 -- Gene -> variant membership (uppercased symbol for case-insensitive lookup).
 CREATE TABLE gene_index (
     gene_symbol_upper  TEXT,
     variation_id       INTEGER
 );
-CREATE INDEX idx_gene_index ON gene_index (gene_symbol_upper);
 
 -- Per-gene aggregate summary (precomputed JSON blob).
 CREATE TABLE gene_summary (
