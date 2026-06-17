@@ -103,6 +103,9 @@ def _safe_message(exc: BaseException) -> str:
     return text[:240]
 
 
+_GENE_TOOLS = frozenset({"get_gene_clinvar_summary", "get_variants_by_gene"})
+
+
 def _fallback_for(context: McpErrorContext) -> tuple[str, dict[str, Any] | None]:
     """Resolve the context-appropriate resolver tool for not_found / invalid_input.
 
@@ -110,17 +113,22 @@ def _fallback_for(context: McpErrorContext) -> tuple[str, dict[str, Any] | None]
     point it at search_variants. A failing gene tool points back at search; and
     everything else at the discovery entrypoint. fallback_args are populated from
     context so the LLM gets a ready-to-call next step.
+
+    Whitespace-only values for query/variant_id/gene_symbol are treated as absent
+    so blank strings are never echoed into fallback_args or next_commands.
     """
+    query = (context.query or "").strip() or None
+    variant_id = (context.variant_id or "").strip() or None
     if context.tool_name == "get_variant":
-        if context.query:
-            return "search_variants", {"query": context.query}
-        if context.variant_id:
-            return "search_variants", {"query": context.variant_id}
+        if query:
+            return "search_variants", {"query": query}
+        if variant_id:
+            return "search_variants", {"query": variant_id}
         return "search_variants", None
-    if context.gene_symbol:
-        return "get_gene_clinvar_summary", {"gene_symbol": context.gene_symbol}
-    if context.query:
-        return "search_variants", {"query": context.query}
+    if context.gene_symbol and context.gene_symbol.strip():
+        return "get_gene_clinvar_summary", {"gene_symbol": context.gene_symbol.strip()}
+    if query:
+        return "search_variants", {"query": query}
     return "get_server_capabilities", None
 
 
@@ -166,19 +174,32 @@ def _recovery_action(error_code: str, retryable: bool) -> str:
 
 
 def _recovery_text(error_code: str, fallback_tool: str | None, tool_name: str | None = None) -> str:
+    is_gene = tool_name in _GENE_TOOLS
     if error_code == "not_found":
+        if is_gene:
+            return (
+                "No ClinVar record for that gene in the local index. Confirm the HGNC "
+                "gene symbol (e.g. COL4A5); or call search_variants to discover variants."
+            )
         resolver = fallback_tool or "search_variants"
         return (
             "Identifier well-formed but absent in the local ClinVar index. This is a "
-            "reformulate, not a retry: confirm the VCV / rsID / HGVS / AlleleID, or call "
+            "reformulate, not a retry: confirm the VCV / rsID / HGVS / AlleleID "
+            "(e.g. VCV000024455 | rs104886142 | NM_033380.3(COL4A5):c.1871G>A), or call "
             f"{resolver} to locate the matching record, then retry."
         )
     if error_code == "invalid_input":
+        if is_gene:
+            return (
+                "The request was rejected as malformed. Pass a single HGNC gene symbol "
+                "(e.g. COL4A5) and a valid sort/filter; do not retry unchanged."
+            )
         resolver = fallback_tool or "get_server_capabilities"
         return (
             "The request was rejected as malformed (the identifier or query shape is "
-            "wrong for this tool). Do not retry unchanged. Reformulate the identifier "
-            f"or call {resolver} to convert free text / symbols / rsIDs into a usable id."
+            "wrong for this tool). Do not retry unchanged. Provide a valid id "
+            "(e.g. VCV000024455 | rs104886142 | NM_033380.3(COL4A5):c.1871G>A) or call "
+            f"{resolver}."
         )
     return (
         f"Unexpected failure. Call {fallback_tool} for a safe entry point."

@@ -45,3 +45,10 @@ async def test_variants_by_gene_sorted_by_stars_desc(mcp):
     stars = [r["star_rating"] for r in out["results"]]
     assert stars == sorted(stars, reverse=True)
     assert out["_meta"]["next_commands"]
+
+
+async def test_gene_not_found_recovery_is_gene_specific(mcp):
+    out = await call_tool(mcp, "get_gene_clinvar_summary", {"gene_symbol": "NOSUCHGENE"})
+    assert out["success"] is False and out["error_code"] == "not_found"
+    assert "VCV" not in out["recovery"] and "rsID" not in out["recovery"]
+    assert "gene symbol" in out["recovery"].lower()
