@@ -37,7 +37,7 @@ _TOOLS = [
 ]
 
 
-def _server_version() -> str:
+def server_version() -> str:
     try:
         return version("clinvar-link")
     except PackageNotFoundError:
@@ -48,7 +48,7 @@ def get_capabilities_resource() -> dict[str, Any]:
     date = get_cached_clinvar_release_date()
     caps: dict[str, Any] = {
         "server": "clinvar-link",
-        "server_version": _server_version(),
+        "server_version": server_version(),
         "mcp_protocol_version": MCP_PROTOCOL_VERSION,
         # Version label derived from the same live release date; falls back to
         # the static sentinel only before the date cache has been primed.

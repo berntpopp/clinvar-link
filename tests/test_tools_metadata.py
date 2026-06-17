@@ -84,3 +84,9 @@ async def test_client_supplied_request_id_is_echoed(mcp):
         mcp, "get_variant", {"identifier": "VCV000100001", "request_id": "req-abc-123"}
     )
     assert out["_meta"]["request_id"] == "req-abc-123"
+
+
+async def test_meta_carries_server_version(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
+    assert isinstance(out["_meta"]["server_version"], str)
+    assert out["_meta"]["server_version"]  # non-empty

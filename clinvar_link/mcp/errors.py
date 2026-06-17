@@ -27,7 +27,7 @@ from clinvar_link.exceptions import (
 )
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 from clinvar_link.mcp.freshness import clinvar_freshness
-from clinvar_link.mcp.resources import CLINVAR_DATA_RELEASE
+from clinvar_link.mcp.resources import CLINVAR_DATA_RELEASE, server_version
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,7 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
     clinvar_date = get_cached_clinvar_release_date()
     meta: dict[str, Any] = {
         "unsafe_for_clinical_use": True,
+        "server_version": server_version(),
         "clinvar_release": clinvar_date if clinvar_date else CLINVAR_DATA_RELEASE,
     }
     if clinvar_date is not None:
