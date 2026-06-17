@@ -241,3 +241,12 @@ async def test_forced_id_type_mismatch_is_invalid_input(service):
     # An rsID forced as hgvs (needs ":" or hint) must be invalid_input.
     with pytest.raises(ToolInputError):
         await service.get_variant("rs28897672", id_type="hgvs")
+
+
+async def test_full_mode_trims_null_and_na(service):
+    out = await service.get_variant("VCV000100001", response_mode="full")
+    for trait in out["traits"]:
+        assert all(v is not None for v in trait.values())  # no null id keys
+    for coord in out["coordinates"]:
+        assert coord.get("reference_allele") != "na"
+        assert coord.get("alternate_allele") != "na"

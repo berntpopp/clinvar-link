@@ -523,14 +523,29 @@ class ClinVarService:
         )
         return self._project(variant.model_dump(), mode)
 
+    @staticmethod
+    def _trim_full(payload: dict[str, Any]) -> dict[str, Any]:
+        """Drop information-free keys (null trait ids, 'na' alleles) from full payloads."""
+        for trait in payload.get("traits", []) or []:
+            if isinstance(trait, dict):
+                for key in ("omim_id", "medgen_id", "mondo_id"):
+                    if trait.get(key) is None:
+                        trait.pop(key, None)
+        for coord in payload.get("coordinates", []) or []:
+            if isinstance(coord, dict):
+                for key in ("reference_allele", "alternate_allele"):
+                    if coord.get(key) in (None, "na", "NA"):
+                        coord.pop(key, None)
+        return payload
+
     def _project(self, payload: dict[str, Any], mode: str) -> dict[str, Any]:
         """Project a full variant payload down to the requested verbosity.
 
         Pure dict transform; tolerant of missing keys. ``full`` returns the
-        payload unchanged.
+        payload with null trait ids and 'na' alleles stripped.
         """
         if mode == "full":
-            return payload
+            return self._trim_full(payload)
 
         out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
         if mode == "minimal":
