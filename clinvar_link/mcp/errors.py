@@ -18,13 +18,13 @@ from uuid import uuid4
 
 from pydantic import ValidationError as PydanticValidationError
 
+from clinvar_link.config import settings
 from clinvar_link.exceptions import (
     ClinVarDataError,
     ClinVarServerError,
     DataNotFoundError,
     ToolInputError,
 )
-from clinvar_link.config import settings
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 from clinvar_link.mcp.freshness import clinvar_freshness
 from clinvar_link.mcp.resources import CLINVAR_DATA_RELEASE

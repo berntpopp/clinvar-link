@@ -46,6 +46,7 @@ def _ensure_id_type(id_type: str) -> None:
     if id_type not in _ID_TYPES:
         raise ToolInputError(f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})")
 
+
 # Fields kept in the ``minimal`` variant projection.
 _MINIMAL_FIELDS = (
     "variation_id",

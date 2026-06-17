@@ -99,6 +99,17 @@ docker/                     # Dockerfile, compose, entrypoint, README
 - **Error envelope:** errors are returned as typed dicts, never raised to the
   client. Taxonomy: `not_found`, `invalid_input`, `internal_error` (kept in sync
   with `mcp/resources.get_capabilities_resource` `error_codes`).
+- **Input validation (service-owned):** malformed input is `invalid_input`, not a
+  silent dump or a false `not_found`. Pagination bounds are clamped
+  (`limit` → `[1, MAX_PAGE_SIZE]`, `offset ≥ 0`) and the two list tools also carry
+  `Field(ge=…)` constraints; `id_type` and `sort` are allow-listed
+  (`_ID_TYPES`, `ClinVarRepository.SORT_ORDERS` — the latter advertised as
+  `sort_options` in capabilities); a blank `query` with no filter is rejected; a
+  recognized-but-absent identifier stays `not_found`. An over-restrictive gene
+  filter returns empty success, not `not_found`.
+- **Freshness signal:** `mcp/freshness.py:clinvar_freshness` derives
+  `{age_days, past_ttl}` (vs `REFRESH_TTL_DAYS`) from the cached release date;
+  merged into `_meta` (every response) and capabilities (`data_freshness`).
 - **Tools:** every tool declares `annotations=READ_ONLY_OPEN_WORLD` and carries
   `_meta.next_commands`. Keep the six-tool surface (`get_variant`,
   `get_variants` batch, `search_variants`, `get_gene_clinvar_summary`,

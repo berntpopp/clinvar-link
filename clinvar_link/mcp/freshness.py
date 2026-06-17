@@ -6,7 +6,7 @@ Leaf module (stdlib only) so the envelope (``errors``) and capabilities
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
 
@@ -25,13 +25,12 @@ def clinvar_freshness(
     if not release_date:
         return None
     try:
+        # Raises ValueError on unparseable input (Python 3.10+); never returns None.
         released = parsedate_to_datetime(release_date)
     except (TypeError, ValueError):
         return None
-    if released is None:
-        return None
     if released.tzinfo is None:
-        released = released.replace(tzinfo=timezone.utc)
-    current = now or datetime.now(timezone.utc)
+        released = released.replace(tzinfo=UTC)
+    current = now or datetime.now(UTC)
     age_days = max(0, (current - released).days)
     return {"age_days": age_days, "past_ttl": age_days > ttl_days}

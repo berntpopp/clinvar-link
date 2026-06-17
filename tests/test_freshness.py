@@ -1,12 +1,12 @@
 """Tests for the pure data-freshness helper."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from clinvar_link.mcp.freshness import clinvar_freshness
 
 
 def test_freshness_within_ttl():
-    now = datetime(2026, 6, 17, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 17, tzinfo=UTC)
     assert clinvar_freshness("Mon, 15 Jun 2026 08:40:33 GMT", 7, now=now) == {
         "age_days": 1,
         "past_ttl": False,
@@ -14,7 +14,7 @@ def test_freshness_within_ttl():
 
 
 def test_freshness_past_ttl():
-    now = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 7, 1, tzinfo=UTC)
     f = clinvar_freshness("Mon, 15 Jun 2026 08:40:33 GMT", 7, now=now)
     assert f["past_ttl"] is True and f["age_days"] >= 8
 
