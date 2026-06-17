@@ -98,3 +98,11 @@ async def test_search_variants_returns_results_and_next_commands(mcp):
     # First next_command should chain to get_variant on the top hit.
     tools = [c["tool"] for c in out["_meta"]["next_commands"]]
     assert "get_variant" in tools
+
+
+async def test_blank_identifier_does_not_echo_blank(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "   "})
+    assert out["success"] is False and out["error_code"] == "invalid_input"
+    assert out["fallback_args"] in (None, {})  # no blank query echoed
+    for cmd in out["_meta"]["next_commands"]:
+        assert cmd["arguments"].get("query", "").strip() != "" or "query" not in cmd["arguments"]

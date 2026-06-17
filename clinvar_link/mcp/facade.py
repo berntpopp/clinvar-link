@@ -30,7 +30,7 @@ _INSTRUCTIONS = (
     "- Response modes: minimal | compact | standard | full; compact is the "
     "default. Start compact and widen only when you need more detail.\n"
     "- Citation contract: every result carries a recommended_citation and the "
-    "ClinVar release date in _meta (clinvar_release / clinvar_release_date); "
+    "ClinVar release date in _meta.clinvar_release_date; "
     "cite both when reporting a classification.\n"
     "- Chaining: every response carries _meta.next_commands, a ready-to-call list "
     "of {tool, arguments} next steps (on success and error); execute the first "

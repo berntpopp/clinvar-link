@@ -190,3 +190,63 @@ async def test_search_blank_query_without_filter_is_invalid_input(service):
 async def test_search_blank_query_with_filter_is_allowed(service):
     out = await service.search_variants("", gene_symbol="TTN")
     assert out["count"] >= 1
+
+
+async def test_search_auto_falls_back_to_or(service):
+    # "BRCA1" AND "Lynch" co-occur in NO variant; OR finds both gene sets.
+    out = await service.search_variants("BRCA1 Lynch")
+    assert out["match_mode"] == "or_fallback"
+    assert out["count"] > 0
+
+
+async def test_search_auto_uses_and_when_it_matches(service):
+    out = await service.search_variants("BRCA1 Cys61Gly")
+    assert out["match_mode"] == "and"
+    assert {r["variation_id"] for r in out["results"]} == {100002}
+
+
+async def test_search_has_more_without_relying_on_count(service):
+    out = await service.search_variants("BRCA1", limit=2, count_mode="none")
+    assert out["total_count"] is None
+    assert out["has_more"] is True
+    assert out["next_offset"] == 2
+
+
+async def test_search_reports_capped_total(service):
+    out = await service.search_variants("BRCA1", count_mode="exact", limit=2)
+    assert out["total_count"] in (5,)  # fixture is small; not capped here
+    assert "total_count_capped" not in out  # only present when capped
+
+
+async def test_gene_summary_buckets_reconcile_to_total(service):
+    out = await service.get_gene_clinvar_summary("BRCA1")
+    buckets = (
+        out["pathogenic_count"]
+        + out["likely_pathogenic_count"]
+        + out["vus_count"]
+        + out["likely_benign_count"]
+        + out["benign_count"]
+        + out["conflicting_count"]
+        + out["not_provided_count"]
+        + out["other_count"]
+    )
+    assert buckets == out["total_count"]
+    assert out["other_count"] >= 0
+
+
+async def test_forced_id_type_mismatch_is_invalid_input(service):
+    # A VCV accession forced as variation_id (numeric) must be invalid_input.
+    with pytest.raises(ToolInputError):
+        await service.get_variant("VCV000100001", id_type="variation_id")
+    # An rsID forced as hgvs (needs ":" or hint) must be invalid_input.
+    with pytest.raises(ToolInputError):
+        await service.get_variant("rs28897672", id_type="hgvs")
+
+
+async def test_full_mode_trims_null_and_na(service):
+    out = await service.get_variant("VCV000100001", response_mode="full")
+    for trait in out["traits"]:
+        assert all(v is not None for v in trait.values())  # no null id keys
+    for coord in out["coordinates"]:
+        assert coord.get("reference_allele") != "na"
+        assert coord.get("alternate_allele") != "na"

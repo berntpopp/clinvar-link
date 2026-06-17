@@ -450,6 +450,17 @@ class GeneAccumulator:
         """Return the aggregated statistics dict for the gene."""
         total = self.total_count
 
+        known_buckets = (
+            self.pathogenic_count
+            + self.likely_pathogenic_count
+            + self.vus_count
+            + self.benign_count
+            + self.likely_benign_count
+            + self.conflicting_count
+            + self.not_provided_count
+        )
+        other_count = max(0, total - known_buckets)
+
         top_consequences = sorted(
             self.molecular_consequences.items(), key=lambda x: x[1], reverse=True
         )[:10]
@@ -489,6 +500,7 @@ class GeneAccumulator:
             "likely_benign_count": self.likely_benign_count,
             "conflicting_count": self.conflicting_count,
             "not_provided_count": self.not_provided_count,
+            "other_count": other_count,
             "high_confidence_count": self.high_confidence_count,
             "variant_type_counts": self.variant_type_counts,
             "molecular_consequences": self.molecular_consequences,

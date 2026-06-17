@@ -235,3 +235,21 @@ def test_gene_accumulator():
         "has_pathogenic",
     ):
         assert field in stats
+
+
+def test_finalize_other_count_catches_unbucketed():
+    acc = GeneAccumulator(load_star_map())
+    acc.add_variant({"classification": "Pathogenic", "star_rating": 2})
+    acc.add_variant({"classification": "risk factor", "star_rating": 1})  # outside named buckets
+    stats = acc.finalize()
+    known = (
+        stats["pathogenic_count"]
+        + stats["likely_pathogenic_count"]
+        + stats["vus_count"]
+        + stats["benign_count"]
+        + stats["likely_benign_count"]
+        + stats["conflicting_count"]
+        + stats["not_provided_count"]
+    )
+    assert stats["other_count"] == stats["total_count"] - known
+    assert stats["other_count"] == 1

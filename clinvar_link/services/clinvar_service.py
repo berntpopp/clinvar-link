@@ -40,6 +40,11 @@ _HGVS_HINTS = ("c.", "p.", "g.", "n.")
 # Accepted ``id_type`` values; anything else is a structural input error.
 _ID_TYPES = frozenset({"auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id"})
 
+_MATCH_MODES = frozenset({"auto", "and", "or"})
+_COUNT_MODES = frozenset({"exact", "none"})
+# Cap the search count scan; beyond this we report total_count_capped=True.
+_SEARCH_COUNT_EXACT_MAX = 1000
+
 
 def _ensure_id_type(id_type: str) -> None:
     """Raise :class:`ToolInputError` for an ``id_type`` outside the allowlist."""
@@ -97,8 +102,8 @@ class ClinVarService:
 
         Also primes the process-level date cache the envelope/provenance layer
         reads, so EVERY response — including a cold get_variant issued before
-        get_server_capabilities — can echo the live release (``clinvar_release``)
-        instead of falling back to ``"unknown"``.
+        get_server_capabilities — can echo the live ``clinvar_release_date``
+        (which is omitted only while the release date is still unknown).
         """
         meta = await self._meta()
         raw = meta.get("clinvar_release_date")
@@ -141,9 +146,23 @@ class ClinVarService:
         )
         return self._project(variant.model_dump(), response_mode)
 
+    @staticmethod
+    def _validate_shape(text: str, id_type: str) -> None:
+        """Reject a value whose shape cannot match an explicitly forced id_type."""
+        if id_type == "vcv" and not _VCV_RE.match(text):
+            raise ToolInputError(f"id_type='vcv' requires a VCV accession (got {text!r})")
+        if id_type == "rsid" and not (_RSID_RE.match(text) or _DIGITS_RE.match(text)):
+            raise ToolInputError(f"id_type='rsid' requires an rsID (got {text!r})")
+        if id_type in {"variation_id", "allele_id"} and not _DIGITS_RE.match(text):
+            raise ToolInputError(f"id_type={id_type!r} requires a numeric id (got {text!r})")
+        if id_type == "hgvs" and ":" not in text and not any(h in text for h in _HGVS_HINTS):
+            raise ToolInputError(f"id_type='hgvs' requires an HGVS expression (got {text!r})")
+
     async def _resolve(self, text: str, id_type: str) -> dict[str, Any] | None:
         """Dispatch identifier resolution by explicit or auto-detected type."""
         _ensure_id_type(id_type)
+        if id_type != "auto":
+            self._validate_shape(text, id_type)
         if id_type == "vcv":
             return await asyncio.to_thread(self.repo.get_by_vcv, text)
         if id_type == "variation_id":
@@ -262,35 +281,66 @@ class ClinVarService:
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
+        match_mode: str = "auto",
+        count_mode: str = "exact",
         limit: int = 20,
         offset: int = 0,
         response_mode: str = "compact",
     ) -> dict[str, Any]:
-        """Free-text search returning projected variant dicts plus pagination."""
+        """Free-text search with AND default, OR fallback, and tiered count."""
         has_filter = bool(gene_symbol or classification or min_stars is not None)
         if not (query or "").strip() and not has_filter:
             raise ToolInputError(
                 "query is required; to list a gene's variants use get_variants_by_gene"
             )
+        if match_mode not in _MATCH_MODES:
+            raise ToolInputError(
+                f"match_mode must be one of {sorted(_MATCH_MODES)} (got {match_mode!r})"
+            )
+        if count_mode not in _COUNT_MODES:
+            raise ToolInputError(
+                f"count_mode must be one of {sorted(_COUNT_MODES)} (got {count_mode!r})"
+            )
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
-        rows = await asyncio.to_thread(
-            self.repo.search,
+        fetch = limit + 1  # over-fetch by one to compute has_more without a count
+
+        async def _do(mode: str) -> list[dict[str, Any]]:
+            return await asyncio.to_thread(
+                self.repo.search,
+                query,
+                gene_symbol=gene_symbol,
+                classification=classification,
+                min_stars=min_stars,
+                assembly=assembly,
+                match_mode=mode,
+                limit=fetch,
+                offset=offset,
+            )
+
+        multi_token = len((query or "").split()) >= 2
+        if match_mode == "auto":
+            rows = await _do("and")
+            used = "and"
+            if not rows and multi_token:
+                or_rows = await _do("or")
+                if or_rows:
+                    rows, used = or_rows, "or_fallback"
+        else:
+            rows = await _do(match_mode)
+            used = match_mode
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        count_match_mode = "or" if used in ("or", "or_fallback") else "and"
+        total, capped = await self._count_for_search(
             query,
             gene_symbol=gene_symbol,
             classification=classification,
             min_stars=min_stars,
             assembly=assembly,
-            limit=limit,
-            offset=offset,
-        )
-        total = await asyncio.to_thread(
-            self.repo.count_search,
-            query,
-            gene_symbol=gene_symbol,
-            classification=classification,
-            min_stars=min_stars,
-            assembly=assembly,
+            match_mode=count_match_mode,
+            count_mode=count_mode,
         )
         release = await self._release_date()
         results = [self._to_projected(row, release, response_mode) for row in rows]
@@ -298,10 +348,36 @@ class ClinVarService:
             "results": results,
             "count": len(results),
             "query": query,
-            **self._pagination(total, len(results), limit, offset),
+            "match_mode": used,
+            **self._pagination(total, has_more, limit, offset, capped=capped),
         }
         self._lean_list(out, results, release, response_mode)
         return out
+
+    async def _count_for_search(
+        self,
+        query: str,
+        *,
+        gene_symbol: str | None,
+        classification: str | None,
+        min_stars: int | None,
+        assembly: str | None,
+        match_mode: str,
+        count_mode: str,
+    ) -> tuple[int | None, bool]:
+        """Return (total, capped) for the search count."""
+        if count_mode == "none":
+            return None, False
+        return await asyncio.to_thread(
+            self.repo.count_search,
+            query,
+            gene_symbol=gene_symbol,
+            classification=classification,
+            min_stars=min_stars,
+            assembly=assembly,
+            match_mode=match_mode,
+            count_exact_max=_SEARCH_COUNT_EXACT_MAX,
+        )
 
     # -- gene-scoped views -----------------------------------------------------
 
@@ -319,6 +395,16 @@ class ClinVarService:
         model = GeneClinVarSummary(**{**summary, "gene_symbol": gene_symbol})
         model.recommended_citation = gene_citation(gene_symbol, release)
         payload = model.model_dump()
+        known = (
+            payload["pathogenic_count"]
+            + payload["likely_pathogenic_count"]
+            + payload["vus_count"]
+            + payload["likely_benign_count"]
+            + payload["benign_count"]
+            + payload["conflicting_count"]
+            + payload["not_provided_count"]
+        )
+        payload["other_count"] = max(0, payload["total_count"] - known)
         if response_mode == "minimal":
             for key in ("consequence_categories", "top_traits", "star_distribution"):
                 payload.pop(key, None)
@@ -358,7 +444,7 @@ class ClinVarService:
                 "gene_symbol": gene_symbol,
                 "results": [],
                 "count": 0,
-                **self._pagination(0, 0, limit, offset),
+                **self._pagination(0, False, limit, offset),
             }
         rows = await asyncio.to_thread(
             self.repo.variants_by_gene,
@@ -371,11 +457,12 @@ class ClinVarService:
         )
         release = await self._release_date()
         results = [self._to_projected(row, release, response_mode) for row in rows]
+        has_more = (offset + len(results)) < total
         out: dict[str, Any] = {
             "gene_symbol": gene_symbol,
             "results": results,
             "count": len(results),
-            **self._pagination(total, len(results), limit, offset),
+            **self._pagination(total, has_more, limit, offset),
         }
         self._lean_list(out, results, release, response_mode)
         return out
@@ -383,22 +470,25 @@ class ClinVarService:
     # -- shaping helpers -------------------------------------------------------
 
     @staticmethod
-    def _pagination(total: int, returned: int, limit: int, offset: int) -> dict[str, Any]:
-        """Build the shared pagination block so callers can detect truncation.
-
-        ``total_count`` is the full match count (independent of the page);
-        ``has_more`` / ``next_offset`` tell the caller whether — and from where —
-        to fetch the next page without guessing from ``count == limit``.
-        """
-        consumed = offset + returned
-        has_more = consumed < total
-        return {
+    def _pagination(
+        total: int | None,
+        has_more: bool,
+        limit: int,
+        offset: int,
+        *,
+        capped: bool = False,
+    ) -> dict[str, Any]:
+        """Pagination block. ``total`` may be None when the caller skipped counting."""
+        block: dict[str, Any] = {
             "total_count": total,
             "limit": limit,
             "offset": offset,
             "has_more": has_more,
-            "next_offset": consumed if has_more else None,
+            "next_offset": (offset + limit) if has_more else None,
         }
+        if capped:
+            block["total_count_capped"] = True
+        return block
 
     @staticmethod
     def _lean_list(
@@ -433,14 +523,29 @@ class ClinVarService:
         )
         return self._project(variant.model_dump(), mode)
 
+    @staticmethod
+    def _trim_full(payload: dict[str, Any]) -> dict[str, Any]:
+        """Drop information-free keys (null trait ids, 'na' alleles) from full payloads."""
+        for trait in payload.get("traits", []) or []:
+            if isinstance(trait, dict):
+                for key in ("omim_id", "medgen_id", "mondo_id"):
+                    if trait.get(key) is None:
+                        trait.pop(key, None)
+        for coord in payload.get("coordinates", []) or []:
+            if isinstance(coord, dict):
+                for key in ("reference_allele", "alternate_allele"):
+                    if coord.get(key) in (None, "na", "NA"):
+                        coord.pop(key, None)
+        return payload
+
     def _project(self, payload: dict[str, Any], mode: str) -> dict[str, Any]:
         """Project a full variant payload down to the requested verbosity.
 
         Pure dict transform; tolerant of missing keys. ``full`` returns the
-        payload unchanged.
+        payload with null trait ids and 'na' alleles stripped.
         """
         if mode == "full":
-            return payload
+            return self._trim_full(payload)
 
         out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
         if mode == "minimal":

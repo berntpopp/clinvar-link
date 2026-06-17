@@ -30,6 +30,14 @@ directory map.
 - **`response_mode`** ∈ `minimal | compact | standard | full` (default
   `compact`); projection is `services/clinvar_service._project`. `full` returns
   the unprojected payload.
+- **Search behaviour:** `search_variants` defaults to AND-mode (`match_mode=auto`
+  = AND with OR fallback). `count_mode` ∈ `{exact, none}` controls whether
+  `total_count`/`total_count_capped` is emitted (bounded by an internal cap) or
+  omitted for lowest latency. Gene summaries include `other_count` for
+  classifications outside the named buckets. These are advertised in capabilities
+  under `search_controls`.
+- **`server_version`** is stamped in every `_meta` response; the live tool
+  registry drives `capabilities.tools` (no hardcoded list drift).
 - **Every tool declares `annotations=READ_ONLY_OPEN_WORLD`.**
 - **Citation contract:** every variant/gene result carries a
   `recommended_citation` and the ClinVar release date in `_meta`. Builders live

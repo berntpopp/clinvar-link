@@ -35,10 +35,14 @@ def mcp(tmp_path):
     reset_clinvar_date_cache()
 
 
-async def test_capabilities_lists_all_tools(mcp):
+async def test_capabilities_tools_equal_registered_tools(mcp):
+    from fastmcp import Client
+
     out = await call_tool(mcp, "get_server_capabilities", {})
-    assert out["success"] is True
-    assert _EXPECTED_TOOLS.issubset(set(out["tools"]))
+    async with Client(mcp) as client:
+        registered = {t.name for t in await client.list_tools()}
+    assert set(out["tools"]) == registered  # equality: no over/under-reporting
+    assert registered == _EXPECTED_TOOLS
 
 
 async def test_capabilities_primes_release_date_cache(mcp):
@@ -48,13 +52,12 @@ async def test_capabilities_primes_release_date_cache(mcp):
     assert get_cached_clinvar_release_date() is not None
 
 
-async def test_capabilities_clinvar_release_is_populated_not_unknown(mcp):
+async def test_capabilities_release_date_is_populated(mcp):
     out = await call_tool(mcp, "get_server_capabilities", {})
     date = get_cached_clinvar_release_date()
     assert date is not None
-    # The release identifier must reflect the known release, never "unknown".
-    assert out["clinvar_release"] == date
-    assert out["clinvar_release"] != "unknown"
+    assert out["clinvar_release_date"] == date
+    assert "clinvar_release" not in out
 
 
 async def test_success_envelope_meta_carries_release_and_request_id(mcp):
@@ -63,7 +66,7 @@ async def test_success_envelope_meta_carries_release_and_request_id(mcp):
     date = get_cached_clinvar_release_date()
     out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
     meta = out["_meta"]
-    assert meta["clinvar_release"] == date
+    assert "clinvar_release" not in meta
     assert meta["clinvar_release_date"] == date
     # Observability: every response is correlatable and carries a latency hint.
     assert isinstance(meta["request_id"], str) and meta["request_id"]
@@ -75,8 +78,8 @@ async def test_cold_get_variant_carries_release_without_capabilities(mcp):
     # release (primed lazily by the service), never "unknown".
     assert get_cached_clinvar_release_date() is None
     out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
-    assert out["_meta"]["clinvar_release"] != "unknown"
-    assert out["_meta"]["clinvar_release"] == out["_meta"]["clinvar_release_date"]
+    assert out["_meta"]["clinvar_release_date"] != "unknown"
+    assert "clinvar_release" not in out["_meta"]
 
 
 async def test_client_supplied_request_id_is_echoed(mcp):
@@ -84,3 +87,16 @@ async def test_client_supplied_request_id_is_echoed(mcp):
         mcp, "get_variant", {"identifier": "VCV000100001", "request_id": "req-abc-123"}
     )
     assert out["_meta"]["request_id"] == "req-abc-123"
+
+
+async def test_meta_carries_server_version(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
+    assert isinstance(out["_meta"]["server_version"], str)
+    assert out["_meta"]["server_version"]  # non-empty
+
+
+async def test_capabilities_advertise_search_controls(mcp):
+    out = await call_tool(mcp, "get_server_capabilities", {})
+    assert "search_controls" in out
+    assert set(out["search_controls"]["match_mode"]) >= {"auto", "and", "or"}
+    assert set(out["search_controls"]["count_mode"]) >= {"exact", "none"}

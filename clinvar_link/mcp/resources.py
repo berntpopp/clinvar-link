@@ -14,10 +14,8 @@ from clinvar_link.mcp.freshness import clinvar_freshness
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
 
-# The ClinVar bulk release is a moving target; the live date is injected at
-# runtime from the local DB meta via the date cache (see clinvar_date_cache).
-# This static constant is the "version label" surfaced in _meta before that
-# cache has been primed by the first get_server_capabilities call.
+# Retained as an exported symbol for backward compatibility; no longer used
+# internally. _meta omits the date when unknown rather than emitting this sentinel.
 CLINVAR_DATA_RELEASE = "unknown"
 
 # Source note echoed in capabilities so callers know this server reads a local
@@ -37,7 +35,7 @@ _TOOLS = [
 ]
 
 
-def _server_version() -> str:
+def server_version() -> str:
     try:
         return version("clinvar-link")
     except PackageNotFoundError:
@@ -48,11 +46,8 @@ def get_capabilities_resource() -> dict[str, Any]:
     date = get_cached_clinvar_release_date()
     caps: dict[str, Any] = {
         "server": "clinvar-link",
-        "server_version": _server_version(),
+        "server_version": server_version(),
         "mcp_protocol_version": MCP_PROTOCOL_VERSION,
-        # Version label derived from the same live release date; falls back to
-        # the static sentinel only before the date cache has been primed.
-        "clinvar_release": date or CLINVAR_DATA_RELEASE,
         # Echoes the process-cached live ClinVar release date once the first
         # get_server_capabilities tool call has read it from the DB meta; None
         # until then (the sync resource handler never touches the DB itself).
@@ -62,6 +57,12 @@ def get_capabilities_resource() -> dict[str, Any]:
         "tools": list(_TOOLS),
         "response_modes": ["minimal", "compact", "standard", "full"],
         "sort_options": sorted(ClinVarRepository.SORT_ORDERS),
+        "search_controls": {
+            "match_mode": ["auto", "and", "or"],
+            "count_mode": ["exact", "none"],
+            "default_match_mode": "auto",
+            "note": "auto = AND with automatic OR fallback when AND returns nothing.",
+        },
         "recommended_workflows": [
             "VCV / rsID / HGVS / AlleleID -> get_variant",
             "several identifiers at once -> get_variants (one batched call)",
@@ -83,6 +84,8 @@ def get_capabilities_resource() -> dict[str, Any]:
             "variation_id_field": "variation_id",
             "citation_field": "recommended_citation",
             "next_commands_field": "_meta.next_commands",
+            "other_count_field": "other_count",
+            "capped_total_flag": "total_count_capped",
         },
         "limitations": [
             "Local SQLite index built from the weekly variant_summary bulk file; "
@@ -106,12 +109,22 @@ def get_capabilities_resource() -> dict[str, Any]:
             "clinvar://usage": "compact usage notes",
             "clinvar://license": "data license and canonical citation",
             "clinvar://research-use": "research-use-only notice",
+            "clinvar://version": "server + protocol + data-release versions",
         },
     }
     fresh = clinvar_freshness(date, settings.REFRESH_TTL_DAYS) if date else None
     if fresh is not None:
         caps["data_freshness"] = fresh
     return caps
+
+
+def get_version_resource() -> dict[str, Any]:
+    return {
+        "server": "clinvar-link",
+        "server_version": server_version(),
+        "mcp_protocol_version": MCP_PROTOCOL_VERSION,
+        "clinvar_release_date": get_cached_clinvar_release_date(),
+    }
 
 
 def get_usage_resource() -> str:
@@ -136,11 +149,17 @@ def get_usage_resource() -> str:
         "## Response modes\n"
         "`minimal | compact | standard | full`. Compact is the default; start there "
         "and widen to `full` only for debugging or full submitter context.\n\n"
+        "## Search controls\n"
+        "`match_mode` (`auto` | `and` | `or`): controls FTS token matching for "
+        "`search_variants`. Default `auto` = AND-first with automatic OR fallback "
+        "when AND returns nothing. Use `and` to force strict AND, `or` to force "
+        "broad OR. `count_mode` (`exact` | `none`): `exact` returns `total_count` "
+        "and `total_count_capped` (bounded by the internal cap to stay fast); "
+        "`none` skips the count scan for lowest latency.\n\n"
         "## Citation contract\n"
         "Every classification you report MUST cite the ClinVar record "
         "(`vcv_accession`) and "
-        "the data release echoed in `_meta.clinvar_release` / "
-        "`_meta.clinvar_release_date`. Canonical source: "
+        "the data release echoed in `_meta.clinvar_release_date`. Canonical source: "
         "ClinVar (NCBI). https://www.ncbi.nlm.nih.gov/clinvar/.\n\n"
         f"{RESEARCH_USE_NOTICE}"
     )
@@ -159,7 +178,6 @@ def get_license_resource() -> dict[str, Any]:
         "attribution": "National Center for Biotechnology Information (NCBI), ClinVar.",
         "citation": "ClinVar (NCBI). https://www.ncbi.nlm.nih.gov/clinvar/",
         "homepage": "https://www.ncbi.nlm.nih.gov/clinvar/",
-        "clinvar_release": get_cached_clinvar_release_date() or CLINVAR_DATA_RELEASE,
         "clinvar_release_date": get_cached_clinvar_release_date(),
         "data_source_note": _DATA_SOURCE_NOTE,
         "research_use_only": True,

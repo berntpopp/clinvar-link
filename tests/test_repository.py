@@ -149,14 +149,14 @@ def test_get_by_hgvs_gene_unqualified_no_false_positive(repo):
 
 
 def test_count_search_matches_result_total(repo):
-    # count_search returns the full match total independent of limit/offset, so
-    # the service can expose total_count / has_more pagination metadata.
-    total = repo.count_search("AP5Z1")
-    assert total == 5
+    # count_search returns (count, capped) — unpack and verify total independent of limit/offset,
+    # so the service can expose total_count / has_more pagination metadata.
+    total, capped = repo.count_search("AP5Z1")
+    assert total == 5 and capped is False
     page = repo.search("AP5Z1", limit=2, offset=0)
     assert len(page) == 2 and total > len(page)
     # Filters narrow the count consistently with the listing.
-    path_total = repo.count_search("AP5Z1", classification="pathogenic")
+    path_total, _ = repo.count_search("AP5Z1", classification="pathogenic")
     assert 0 < path_total <= total
 
 
@@ -248,3 +248,30 @@ def test_gene_summary_and_meta(repo):
     m = repo.meta()
     assert m["clinvar_release_date"]
     assert m["variant_count"] == 20
+
+
+def test_search_and_is_more_selective_than_or(repo):
+    # "BRCA1" + "Cys61Gly" co-occur only in VariationID 100002.
+    and_rows = repo.search("BRCA1 Cys61Gly", match_mode="and", limit=50)
+    or_rows = repo.search("BRCA1 Cys61Gly", match_mode="or", limit=50)
+    and_ids = {r["variation_id"] for r in and_rows}
+    or_ids = {r["variation_id"] for r in or_rows}
+    assert and_ids == {100002}
+    assert and_ids < or_ids  # OR is a strict superset (all BRCA1 rows, etc.)
+
+
+def test_count_search_caps_at_exact_max(repo):
+    full, capped_full = repo.count_search("BRCA1")
+    assert full == 5 and capped_full is False
+    n, capped = repo.count_search("BRCA1", count_exact_max=2)
+    assert n == 2 and capped is True
+
+
+def test_gene_stripped_hgvs_key_is_indexed(repo):
+    # The gene-less canonical form must exist as an EQUALITY key (not just resolvable
+    # via the LIKE fallback). Keys are stored lower-cased.
+    for key in ("nm_007294.4:c.5266dupc", "nm_007294.4:c.5333-1g>a"):
+        hit = repo._conn.execute("SELECT 1 FROM hgvs_lookup WHERE hgvs_norm = ?", (key,)).fetchone()
+        assert hit is not None, f"missing gene-stripped key: {key}"
+    # And it resolves to the right variant.
+    assert repo.get_by_hgvs("NM_007294.4:c.5266dupC")["variation_id"] == 100001

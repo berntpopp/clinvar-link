@@ -169,14 +169,15 @@ class ClinVarRepository:
     # -- search ----------------------------------------------------------------
 
     @staticmethod
-    def _fts_query(text: str) -> str:
-        """Build a safe FTS5 MATCH string (token OR, last token prefix-matched)."""
+    def _fts_query(text: str, operator: str = "AND") -> str:
+        """Build a safe FTS5 MATCH string (tokens joined by AND/OR, last prefix-matched)."""
         tokens = _FTS_TOKEN_RE.findall(text or "")
         if not tokens:
             return '""'
         quoted = [f'"{tok}"' for tok in tokens[:-1]]
         quoted.append(f'"{tokens[-1]}"*')
-        return " OR ".join(quoted)
+        joiner = " OR " if operator.upper() == "OR" else " AND "
+        return joiner.join(quoted)
 
     def search(
         self,
@@ -186,6 +187,7 @@ class ClinVarRepository:
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
+        match_mode: str = "and",
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -204,7 +206,7 @@ class ClinVarRepository:
 
         tokens = _FTS_TOKEN_RE.findall(query or "")
         if tokens:
-            match = self._fts_query(query)
+            match = self._fts_query(query, operator="OR" if match_mode == "or" else "AND")
             # filter_sql is built only from hardcoded clause strings; all
             # user-supplied values are bound via ``?`` parameters.
             sql = (
@@ -258,44 +260,59 @@ class ClinVarRepository:
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
-    ) -> int:
-        """Return the total match count for :meth:`search` (for pagination totals).
-
-        Mirrors :meth:`search`'s FTS5 / LIKE-fallback dispatch and filters, but
-        counts rows instead of materializing them, so the service can report
-        ``total_count`` / ``has_more`` without fetching every page.
-        """
+        match_mode: str = "and",
+        count_exact_max: int | None = None,
+    ) -> tuple[int, bool]:
+        """Return (match_count, capped). When ``count_exact_max`` is set, the scan
+        stops after that many rows and ``capped`` is True if more exist."""
         filter_sql, filter_params = self._search_filters(
             gene_symbol=gene_symbol,
             classification=classification,
             min_stars=min_stars,
             assembly=assembly,
         )
+
+        def _capped(n: int) -> tuple[int, bool]:
+            if count_exact_max is not None and n > count_exact_max:
+                return count_exact_max, True
+            return n, False
+
         tokens = _FTS_TOKEN_RE.findall(query or "")
         if tokens:
-            match = self._fts_query(query)
-            # filter_sql is hardcoded; user values are bound via ``?`` params.
-            sql = (
-                "SELECT COUNT(*) AS n FROM variant_fts f "  # noqa: S608
+            match = self._fts_query(query, operator="OR" if match_mode == "or" else "AND")
+            base = (
+                "SELECT 1 FROM variant_fts f "  # noqa: S608
                 "JOIN variant v ON v.variation_id = f.rowid "
                 "WHERE variant_fts MATCH ?"
                 f"{filter_sql}"
             )
+            params: list[Any] = [match, *filter_params]
+            sql, params = self._wrap_count(base, params, count_exact_max)
             try:
-                row = self._conn.execute(sql, (match, *filter_params)).fetchone()
-                return int(row["n"]) if row is not None else 0
+                row = self._conn.execute(sql, tuple(params)).fetchone()
+                return _capped(int(row["n"]) if row is not None else 0)
             except sqlite3.Error:
-                pass  # fall through to LIKE
+                pass
         cleaned = (query or "").replace("%", "").replace("_", "").strip().upper()
         pattern = f"%{cleaned}%"
-        # filter_sql is hardcoded; user values are bound via ``?`` params.
-        sql = (
-            "SELECT COUNT(*) AS n FROM variant v "  # noqa: S608
+        base = (
+            "SELECT 1 FROM variant v "  # noqa: S608
             "WHERE (UPPER(v.name) LIKE ? OR UPPER(v.gene_symbol) LIKE ?)"
             f"{filter_sql}"
         )
-        row = self._conn.execute(sql, (pattern, pattern, *filter_params)).fetchone()
-        return int(row["n"]) if row is not None else 0
+        params = [pattern, pattern, *filter_params]
+        sql, params = self._wrap_count(base, params, count_exact_max)
+        row = self._conn.execute(sql, tuple(params)).fetchone()
+        return _capped(int(row["n"]) if row is not None else 0)
+
+    @staticmethod
+    def _wrap_count(
+        base: str, params: list[Any], count_exact_max: int | None
+    ) -> tuple[str, list[Any]]:
+        """Wrap a row-yielding query in COUNT(*), bounding the scan when capping."""
+        if count_exact_max is not None:
+            return f"SELECT COUNT(*) AS n FROM ({base} LIMIT ?)", [*params, count_exact_max + 1]  # noqa: S608
+        return f"SELECT COUNT(*) AS n FROM ({base})", params  # noqa: S608
 
     @staticmethod
     def _search_filters(
