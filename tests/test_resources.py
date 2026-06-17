@@ -36,6 +36,25 @@ def test_capabilities_advertises_sort_options():
     assert caps["sort_options"] == sorted(ClinVarRepository.SORT_ORDERS)
 
 
+def test_capabilities_carries_data_freshness_once_primed():
+    # AC4: once the release-date cache is primed, capabilities exposes the same
+    # freshness signal as the per-response _meta block. Hermetic: prime then reset.
+    from clinvar_link.mcp.clinvar_date_cache import (
+        reset_clinvar_date_cache,
+        set_cached_clinvar_release_date,
+    )
+
+    try:
+        set_cached_clinvar_release_date("Mon, 15 Jun 2026 08:40:33 GMT")
+        caps = get_capabilities_resource()
+        assert isinstance(caps["data_freshness"]["age_days"], int)
+        assert isinstance(caps["data_freshness"]["past_ttl"], bool)
+    finally:
+        reset_clinvar_date_cache()
+    # With the cache cleared, the optional key is simply absent (no null noise).
+    assert "data_freshness" not in get_capabilities_resource()
+
+
 def test_capabilities_lists_core_tools():
     cap = get_capabilities_resource()
     assert cap["research_use_only"] is True
