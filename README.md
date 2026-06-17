@@ -91,8 +91,8 @@ There are three ways the SQLite index is produced and distributed:
    This packs `clinvar.sqlite.zst` (+ `.sha256`) and idempotently publishes it to
    a GitHub Release tagged `bundle-<YYYY-MM-DD>` (the ClinVar release date) via
    the local `gh` CLI. The newest release is what `pull` / `BUNDLE_URL=latest`
-   resolves. `.github/workflows/publish-bundle.yml` is a **disabled stub** that
-   only prints these local commands.
+   resolves. The build runs only here, on the maintainer's workstation — there
+   is no GitHub Actions build job.
 
 > A bundle release must exist before `pull` works — a maintainer has to have
 > published at least once. GitHub caps release assets at 2 GB; `publish` asserts
@@ -209,7 +209,7 @@ uv run clinvar-link-data status     # release date + variant/gene counts of the 
 
 In production the refresh path is: a maintainer republishes the bundle from the
 workstation (`clinvar-link-data publish`) → containers/clients `pull` the new
-snapshot. GitHub Actions does **not** build (the workflow is a disabled stub).
+snapshot. GitHub Actions does **not** build the index — there is no CI build job.
 For local source builds, `refresh` is cheap: it sends a conditional request (ETag /
 Last-Modified) and skips the rebuild when the upstream dump is unchanged, or
 when the local index is younger than `CLINVAR_LINK_REFRESH_TTL_DAYS` (default 7).

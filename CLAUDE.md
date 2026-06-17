@@ -157,10 +157,9 @@ in production containers:
   release`-publishes (create-or-clobber, via the `_run_gh` subprocess helper) to
   a `bundle-<YYYY-MM-DD>` tag (the ClinVar release date, read from
   `meta.clinvar_release_date`). Requires local `gh auth login`. The newest
-  release is GitHub's "latest", which `BUNDLE_URL=latest` resolves. The GH
-  workflow `.github/workflows/publish-bundle.yml` is a **disabled stub**
-  (`workflow_dispatch`-only; it just prints the local commands) — building a
-  multi-GB index on Actions is intentionally avoided.
+  release is GitHub's "latest", which `BUNDLE_URL=latest` resolves. There is no
+  CI build job — building a multi-GB index on Actions is intentionally avoided;
+  publishing is a local maintainer step.
 - **Consumer:** `clinvar-link-data bootstrap` (the container entrypoint) is
   pull-first: reuse a valid local index → else `pull` the bundle
   (download → verify sha256 → decompress → atomic `os.replace`) → else build

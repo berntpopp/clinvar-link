@@ -18,13 +18,15 @@ app mounted at `/mcp` on a single port (8000).
 
 ## How the data gets there
 
-The heavy build runs **in CI, once a week**, not in your container:
+The heavy build runs **once on the maintainer's workstation**, not in CI and
+not in your container:
 
-1. The `.github/workflows/publish-bundle.yml` workflow runs every Monday (and
-   on-demand). It builds the SQLite index from the NCBI weekly dump
-   (`variant_summary.txt.gz` + `hgvs4variation.txt.gz`), packs it into a
-   zstd-compressed `clinvar.sqlite.zst` (+ a `.sha256` sidecar), and publishes
-   it to a GitHub Release tagged `bundle-<YYYY-MM-DD>`.
+1. A maintainer builds + packs + publishes from their workstation:
+   `clinvar-link-data publish --build` builds the SQLite index from the NCBI
+   weekly dump, packs it into a zstd-compressed `clinvar.sqlite.zst` (+ a
+   `.sha256` sidecar), and publishes it to a GitHub Release tagged
+   `bundle-<YYYY-MM-DD>` via the local `gh` CLI. (There is no GitHub Actions
+   build job — building a multi-GB index on Actions is wasteful.)
 2. On first boot your container runs `clinvar-link-data bootstrap`, which pulls
    that prebuilt bundle (`CLINVAR_LINK_BUNDLE_URL=latest` of
    `CLINVAR_LINK_GITHUB_REPO`), verifies the sha256, decompresses, and
@@ -33,12 +35,12 @@ The heavy build runs **in CI, once a week**, not in your container:
    instant), and falls back to a full local build only when
    `CLINVAR_LINK_BUILD_LOCAL=true`.
 
-> A bundle release must already exist for the pull to succeed — the
-> `publish-bundle.yml` workflow has to have run at least once. For fully offline
-> or air-gapped builds, set `CLINVAR_LINK_BUILD_LOCAL=true` to build from source.
+> A bundle release must already exist for the pull to succeed — a maintainer
+> has to have published at least once. For fully offline or air-gapped builds,
+> set `CLINVAR_LINK_BUILD_LOCAL=true` to build from source.
 
 GitHub caps release assets at **2 GB**; the published `clinvar.sqlite.zst` is
-well under that limit (the publish workflow asserts it and fails otherwise).
+well under that limit (the `publish` command asserts it and fails otherwise).
 
 A bootstrap failure is **fatal**: the entrypoint exits non-zero rather than
 serving an empty database, so the container fails loudly instead of silently

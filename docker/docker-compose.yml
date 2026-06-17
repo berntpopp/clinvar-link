@@ -54,9 +54,9 @@ services:
     networks:
       - clinvar-network
 
-  # Weekly refresh: CI (publish-bundle.yml) rebuilds and republishes the bundle
-  # release every Monday, so production refresh is just a `pull` of the newest
-  # snapshot. Two common options:
+  # Weekly refresh: a maintainer republishes the bundle from their workstation
+  # (`clinvar-link-data publish`); production refresh is just a `pull` of the
+  # newest snapshot. Two common options:
   #
   # 1. Host cron invoking the one-shot refresh runner below (uncomment it first):
   #      17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml run --rm refresh

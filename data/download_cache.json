@@ -1,0 +1,10 @@
+{
+  "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz": {
+    "etag": null,
+    "last_modified": "Mon, 15 Jun 2026 08:40:33 GMT"
+  },
+  "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz": {
+    "etag": null,
+    "last_modified": "Mon, 15 Jun 2026 04:03:12 GMT"
+  }
+}
