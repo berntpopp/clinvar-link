@@ -169,14 +169,15 @@ class ClinVarRepository:
     # -- search ----------------------------------------------------------------
 
     @staticmethod
-    def _fts_query(text: str) -> str:
-        """Build a safe FTS5 MATCH string (token OR, last token prefix-matched)."""
+    def _fts_query(text: str, operator: str = "AND") -> str:
+        """Build a safe FTS5 MATCH string (tokens joined by AND/OR, last prefix-matched)."""
         tokens = _FTS_TOKEN_RE.findall(text or "")
         if not tokens:
             return '""'
         quoted = [f'"{tok}"' for tok in tokens[:-1]]
         quoted.append(f'"{tokens[-1]}"*')
-        return " OR ".join(quoted)
+        joiner = " OR " if operator.upper() == "OR" else " AND "
+        return joiner.join(quoted)
 
     def search(
         self,
@@ -186,6 +187,7 @@ class ClinVarRepository:
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
+        match_mode: str = "and",
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -204,7 +206,7 @@ class ClinVarRepository:
 
         tokens = _FTS_TOKEN_RE.findall(query or "")
         if tokens:
-            match = self._fts_query(query)
+            match = self._fts_query(query, operator="OR" if match_mode == "or" else "AND")
             # filter_sql is built only from hardcoded clause strings; all
             # user-supplied values are bound via ``?`` parameters.
             sql = (

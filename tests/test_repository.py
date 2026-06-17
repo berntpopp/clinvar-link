@@ -248,3 +248,13 @@ def test_gene_summary_and_meta(repo):
     m = repo.meta()
     assert m["clinvar_release_date"]
     assert m["variant_count"] == 20
+
+
+def test_search_and_is_more_selective_than_or(repo):
+    # "BRCA1" + "Cys61Gly" co-occur only in VariationID 100002.
+    and_rows = repo.search("BRCA1 Cys61Gly", match_mode="and", limit=50)
+    or_rows = repo.search("BRCA1 Cys61Gly", match_mode="or", limit=50)
+    and_ids = {r["variation_id"] for r in and_rows}
+    or_ids = {r["variation_id"] for r in or_rows}
+    assert and_ids == {100002}
+    assert and_ids < or_ids  # OR is a strict superset (all BRCA1 rows, etc.)
