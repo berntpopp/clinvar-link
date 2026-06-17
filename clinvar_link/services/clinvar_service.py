@@ -249,7 +249,8 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """Free-text search returning projected variant dicts plus pagination."""
-        limit = min(limit, settings.MAX_PAGE_SIZE)
+        limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
+        offset = max(0, offset)
         rows = await asyncio.to_thread(
             self.repo.search,
             query,
@@ -312,7 +313,8 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """List a gene's variants (projected) with a total for pagination."""
-        limit = min(limit, settings.MAX_PAGE_SIZE)
+        limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
+        offset = max(0, offset)
         total = await asyncio.to_thread(
             self.repo.count_variants_by_gene,
             gene_symbol,

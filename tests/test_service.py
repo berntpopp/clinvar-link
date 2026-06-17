@@ -121,3 +121,15 @@ async def test_full_mode_keeps_per_row_citation(service):
 async def test_meta(service):
     m = await service.get_clinvar_meta()
     assert m["release_date"]
+
+
+async def test_search_negative_limit_is_clamped_not_unbounded(service):
+    # A negative limit must never become SQLite "LIMIT -1" (an unbounded dump).
+    out = await service.search_variants("BRCA1", limit=-1)
+    assert out["limit"] == 1
+    assert out["count"] <= out["total_count"]
+
+
+async def test_variants_by_gene_negative_offset_clamped(service):
+    out = await service.get_variants_by_gene("BRCA1", min_stars=0, offset=-5)
+    assert out["offset"] == 0

@@ -68,6 +68,11 @@ async def test_get_variants_batch_tool(mcp):
     assert out["_meta"]["request_id"]
 
 
+async def test_search_rejects_nonpositive_limit(mcp):
+    out = await call_tool(mcp, "search_variants", {"query": "BRCA1", "limit": 0})
+    assert out["success"] is False and out["error_code"] == "invalid_input"
+
+
 async def test_search_variants_returns_results_and_next_commands(mcp):
     out = await call_tool(mcp, "search_variants", {"query": "BRCA1", "limit": 5})
     assert out["success"] is True

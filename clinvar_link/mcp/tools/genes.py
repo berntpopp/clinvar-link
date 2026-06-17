@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
@@ -63,8 +64,8 @@ def register_gene_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarSe
         classification: str | None = None,
         min_stars: int | None = None,
         sort: str = "stars_desc",
-        limit: int = 50,
-        offset: int = 0,
+        limit: Annotated[int, Field(ge=1)] = 50,
+        offset: Annotated[int, Field(ge=0)] = 0,
         response_mode: str = "compact",
         request_id: str | None = None,
     ) -> dict[str, Any]:

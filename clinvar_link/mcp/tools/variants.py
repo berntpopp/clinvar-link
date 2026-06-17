@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
@@ -110,8 +111,8 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
-        limit: int = 20,
-        offset: int = 0,
+        limit: Annotated[int, Field(ge=1)] = 20,
+        offset: Annotated[int, Field(ge=0)] = 0,
         response_mode: str = "compact",
         request_id: str | None = None,
     ) -> dict[str, Any]:
