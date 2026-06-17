@@ -27,7 +27,7 @@ from clinvar_link.exceptions import (
 )
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 from clinvar_link.mcp.freshness import clinvar_freshness
-from clinvar_link.mcp.resources import CLINVAR_DATA_RELEASE, server_version
+from clinvar_link.mcp.resources import server_version
 
 logger = logging.getLogger(__name__)
 
@@ -73,19 +73,16 @@ class McpToolError(Exception):
 def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
     """Base ``_meta`` provenance merged into every success and error envelope.
 
-    Always carries the research-use flag and ClinVar release label. The
-    ``clinvar_release`` version identifier is derived from the same live release
-    date the cache holds, so it is never ``"unknown"`` once the first
-    capabilities call has primed the date; only before priming does it fall back
-    to the static sentinel. ``clinvar_release_date`` is omitted while still
-    unknown to avoid null noise. ``request_id`` (when set on the context)
-    correlates the response to server-side logs/traces.
+    Always carries the research-use flag and server version. ``clinvar_release_date``
+    is set only once the date cache has been primed (first get_server_capabilities or
+    lazy service read); omitted while still unknown to avoid null noise.
+    ``request_id`` (when set on the context) correlates the response to
+    server-side logs/traces.
     """
     clinvar_date = get_cached_clinvar_release_date()
     meta: dict[str, Any] = {
         "unsafe_for_clinical_use": True,
         "server_version": server_version(),
-        "clinvar_release": clinvar_date if clinvar_date else CLINVAR_DATA_RELEASE,
     }
     if clinvar_date is not None:
         meta["clinvar_release_date"] = clinvar_date

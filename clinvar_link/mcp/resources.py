@@ -50,9 +50,6 @@ def get_capabilities_resource() -> dict[str, Any]:
         "server": "clinvar-link",
         "server_version": server_version(),
         "mcp_protocol_version": MCP_PROTOCOL_VERSION,
-        # Version label derived from the same live release date; falls back to
-        # the static sentinel only before the date cache has been primed.
-        "clinvar_release": date or CLINVAR_DATA_RELEASE,
         # Echoes the process-cached live ClinVar release date once the first
         # get_server_capabilities tool call has read it from the DB meta; None
         # until then (the sync resource handler never touches the DB itself).
@@ -149,8 +146,7 @@ def get_usage_resource() -> str:
         "## Citation contract\n"
         "Every classification you report MUST cite the ClinVar record "
         "(`vcv_accession`) and "
-        "the data release echoed in `_meta.clinvar_release` / "
-        "`_meta.clinvar_release_date`. Canonical source: "
+        "the data release echoed in `_meta.clinvar_release_date`. Canonical source: "
         "ClinVar (NCBI). https://www.ncbi.nlm.nih.gov/clinvar/.\n\n"
         f"{RESEARCH_USE_NOTICE}"
     )
@@ -169,7 +165,6 @@ def get_license_resource() -> dict[str, Any]:
         "attribution": "National Center for Biotechnology Information (NCBI), ClinVar.",
         "citation": "ClinVar (NCBI). https://www.ncbi.nlm.nih.gov/clinvar/",
         "homepage": "https://www.ncbi.nlm.nih.gov/clinvar/",
-        "clinvar_release": get_cached_clinvar_release_date() or CLINVAR_DATA_RELEASE,
         "clinvar_release_date": get_cached_clinvar_release_date(),
         "data_source_note": _DATA_SOURCE_NOTE,
         "research_use_only": True,

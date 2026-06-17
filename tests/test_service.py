@@ -221,9 +221,14 @@ async def test_search_reports_capped_total(service):
 async def test_gene_summary_buckets_reconcile_to_total(service):
     out = await service.get_gene_clinvar_summary("BRCA1")
     buckets = (
-        out["pathogenic_count"] + out["likely_pathogenic_count"] + out["vus_count"]
-        + out["likely_benign_count"] + out["benign_count"] + out["conflicting_count"]
-        + out["not_provided_count"] + out["other_count"]
+        out["pathogenic_count"]
+        + out["likely_pathogenic_count"]
+        + out["vus_count"]
+        + out["likely_benign_count"]
+        + out["benign_count"]
+        + out["conflicting_count"]
+        + out["not_provided_count"]
+        + out["other_count"]
     )
     assert buckets == out["total_count"]
     assert out["other_count"] >= 0

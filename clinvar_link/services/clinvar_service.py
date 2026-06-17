@@ -396,9 +396,12 @@ class ClinVarService:
         model.recommended_citation = gene_citation(gene_symbol, release)
         payload = model.model_dump()
         known = (
-            payload["pathogenic_count"] + payload["likely_pathogenic_count"]
-            + payload["vus_count"] + payload["likely_benign_count"]
-            + payload["benign_count"] + payload["conflicting_count"]
+            payload["pathogenic_count"]
+            + payload["likely_pathogenic_count"]
+            + payload["vus_count"]
+            + payload["likely_benign_count"]
+            + payload["benign_count"]
+            + payload["conflicting_count"]
             + payload["not_provided_count"]
         )
         payload["other_count"] = max(0, payload["total_count"] - known)
