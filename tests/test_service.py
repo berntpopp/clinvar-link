@@ -146,3 +146,32 @@ async def test_variants_by_gene_empty_filter_is_success_not_error(service):
 async def test_variants_by_gene_unknown_gene_still_not_found(service):
     with pytest.raises(DataNotFoundError):
         await service.get_variants_by_gene("NOTAGENE")
+
+
+async def test_get_variant_garbage_is_invalid_input_not_not_found(service):
+    with pytest.raises(ToolInputError):
+        await service.get_variant("@@bad@@")
+
+
+async def test_get_variant_unknown_id_type_is_invalid_input(service):
+    with pytest.raises(ToolInputError):
+        await service.get_variant("VCV000100001", id_type="banana")
+
+
+async def test_get_variant_recognized_but_absent_still_not_found(service):
+    with pytest.raises(DataNotFoundError):
+        await service.get_variant("VCV999999999")
+
+
+async def test_get_variants_batch_tolerates_malformed_identifier(service):
+    out = await service.get_variants(["VCV000100001", "@@bad@@"])
+    assert out["found_count"] == 1
+    miss = [r for r in out["results"] if not r.get("found")]
+    assert miss and miss[0]["identifier"] == "@@bad@@"
+
+
+async def test_get_variants_batch_unknown_id_type_is_invalid_input(service):
+    # A bad id_type is a structural param error -> fail the whole batch, do not
+    # silently turn every row into a miss.
+    with pytest.raises(ToolInputError):
+        await service.get_variants(["VCV000100001"], id_type="banana")

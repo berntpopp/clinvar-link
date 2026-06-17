@@ -37,6 +37,15 @@ _VCV_RE = re.compile(r"^VCV\d+$", re.IGNORECASE)
 _DIGITS_RE = re.compile(r"^\d+$")
 _HGVS_HINTS = ("c.", "p.", "g.", "n.")
 
+# Accepted ``id_type`` values; anything else is a structural input error.
+_ID_TYPES = frozenset({"auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id"})
+
+
+def _ensure_id_type(id_type: str) -> None:
+    """Raise :class:`ToolInputError` for an ``id_type`` outside the allowlist."""
+    if id_type not in _ID_TYPES:
+        raise ToolInputError(f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})")
+
 # Fields kept in the ``minimal`` variant projection.
 _MINIMAL_FIELDS = (
     "variation_id",
@@ -133,6 +142,7 @@ class ClinVarService:
 
     async def _resolve(self, text: str, id_type: str) -> dict[str, Any] | None:
         """Dispatch identifier resolution by explicit or auto-detected type."""
+        _ensure_id_type(id_type)
         if id_type == "vcv":
             return await asyncio.to_thread(self.repo.get_by_vcv, text)
         if id_type == "variation_id":
@@ -158,10 +168,11 @@ class ClinVarService:
             return await self._maybe_allele_id(text)
         if ":" in text or any(hint in text for hint in _HGVS_HINTS):
             return await asyncio.to_thread(self.repo.get_by_hgvs, text)
-        result = await asyncio.to_thread(self.repo.get_by_hgvs, text)
-        if result is not None:
-            return result
-        return await self._maybe_allele_id(text)
+        raise ToolInputError(
+            "unrecognized identifier shape; expected a VCV accession, dbSNP rsID, "
+            "HGVS expression, ClinVar AlleleID, or VariationID — or call "
+            "search_variants to locate the record"
+        )
 
     async def _maybe_variation_id(self, text: str) -> dict[str, Any] | None:
         """Resolve as a VariationID; non-integer input resolves to ``None``."""
@@ -205,13 +216,19 @@ class ClinVarService:
         """
         if not identifiers:
             raise ToolInputError("identifiers is required (a non-empty list)")
+        # A bad id_type is a structural error: fail the whole batch up front
+        # rather than silently turning every row into a miss in the loop below.
+        _ensure_id_type(id_type)
         capped = list(identifiers)[: settings.MAX_PAGE_SIZE]
         release = await self._release_date()
         results: list[dict[str, Any]] = []
         found_count = 0
         for ident in capped:
             text = ident.strip() if isinstance(ident, str) else ""
-            repo_dict = await self._resolve(text, id_type) if text else None
+            try:
+                repo_dict = await self._resolve(text, id_type) if text else None
+            except ToolInputError:
+                repo_dict = None  # a malformed id in a batch is a miss, not a fatal error
             if repo_dict is None:
                 results.append({"identifier": ident, "found": False})
                 continue
