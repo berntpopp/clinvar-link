@@ -6,14 +6,33 @@ from clinvar_link.mcp.resources import (
     get_capabilities_resource,
     get_license_resource,
 )
+from clinvar_link.models import ClinVarVariant
 
 
-def test_capabilities_lists_five_tools():
+def test_output_cheatsheet_field_names_match_real_output():
+    # The cheatsheet is a discovery aid: every *_field value MUST name a real key
+    # in the variant payload (model field) or an envelope path, else it actively
+    # misleads callers. Regression guard for the gold_stars / vcv_id drift.
+    cheats = get_capabilities_resource()["output_cheatsheet"]
+    model_fields = set(ClinVarVariant.model_fields)
+    for concept, field_name in cheats.items():
+        if field_name.startswith("_meta"):
+            continue
+        assert field_name in model_fields, f"{concept} -> {field_name!r} is not a real output field"
+    # The normalized classification lives in `classification`, the star rating in
+    # `star_rating`, and the variant accession in `vcv_accession`.
+    assert cheats["classification_field"] == "classification"
+    assert cheats["star_rating_field"] == "star_rating"
+    assert cheats["variant_accession_field"] == "vcv_accession"
+
+
+def test_capabilities_lists_core_tools():
     cap = get_capabilities_resource()
     assert cap["research_use_only"] is True
     assert {
         "get_server_capabilities",
         "get_variant",
+        "get_variants",
         "search_variants",
         "get_gene_clinvar_summary",
         "get_variants_by_gene",

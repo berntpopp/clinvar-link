@@ -17,8 +17,20 @@ from typing import Any
 from clinvar_link.config import settings
 from clinvar_link.data.repository import ClinVarRepository
 from clinvar_link.exceptions import DataNotFoundError, ToolInputError
+from clinvar_link.mcp.clinvar_date_cache import (
+    has_cached_clinvar_release_date,
+    set_cached_clinvar_release_date,
+)
 from clinvar_link.models import ClinVarVariant, GeneClinVarSummary
-from clinvar_link.services.citation import gene_citation, recommended_citation
+from clinvar_link.services.citation import (
+    citation_template,
+    gene_citation,
+    recommended_citation,
+)
+
+# List response modes where per-row citations are hoisted to one _meta template
+# and duplicate row fields (cdna_change == name) are dropped to save tokens.
+_LEAN_LIST_MODES = frozenset({"minimal", "compact"})
 
 _RSID_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
 _VCV_RE = re.compile(r"^VCV\d+$", re.IGNORECASE)
@@ -71,10 +83,19 @@ class ClinVarService:
         return self._meta_cache
 
     async def _release_date(self) -> str | None:
-        """Return the ClinVar weekly release date from build provenance."""
+        """Return the ClinVar weekly release date from build provenance.
+
+        Also primes the process-level date cache the envelope/provenance layer
+        reads, so EVERY response — including a cold get_variant issued before
+        get_server_capabilities — can echo the live release (``clinvar_release``)
+        instead of falling back to ``"unknown"``.
+        """
         meta = await self._meta()
-        release = meta.get("clinvar_release_date")
-        return release if release else None
+        raw = meta.get("clinvar_release_date")
+        release = raw if raw else None
+        if release is not None and not has_cached_clinvar_release_date():
+            set_cached_clinvar_release_date(release)
+        return release
 
     async def get_clinvar_meta(self) -> dict[str, Any]:
         """Return build provenance: release date and variant/gene counts."""
@@ -168,6 +189,51 @@ class ClinVarService:
             return None
         return await asyncio.to_thread(self.repo.get_by_allele_id, aid)
 
+    async def get_variants(
+        self,
+        identifiers: list[str],
+        *,
+        id_type: str = "auto",
+        response_mode: str = "compact",
+    ) -> dict[str, Any]:
+        """Resolve many identifiers in one call, collapsing N round-trips into 1.
+
+        Each input maps to one result row that echoes its ``identifier`` and a
+        ``found`` flag; misses are explicit rows (never silently dropped) so the
+        caller can see exactly which identifiers failed. The batch is capped at
+        ``MAX_PAGE_SIZE`` and sets ``truncated`` when the input exceeded it.
+        """
+        if not identifiers:
+            raise ToolInputError("identifiers is required (a non-empty list)")
+        capped = list(identifiers)[: settings.MAX_PAGE_SIZE]
+        release = await self._release_date()
+        results: list[dict[str, Any]] = []
+        found_count = 0
+        for ident in capped:
+            text = ident.strip() if isinstance(ident, str) else ""
+            repo_dict = await self._resolve(text, id_type) if text else None
+            if repo_dict is None:
+                results.append({"identifier": ident, "found": False})
+                continue
+            found_count += 1
+            variant = ClinVarVariant(**repo_dict)
+            variant.recommended_citation = recommended_citation(
+                variant.variation_id, variant.vcv_accession, release
+            )
+            projected = self._project(variant.model_dump(), response_mode)
+            projected["identifier"] = ident
+            projected["found"] = True
+            results.append(projected)
+        out: dict[str, Any] = {
+            "results": results,
+            "count": len(results),
+            "requested": len(capped),
+            "found_count": found_count,
+            "truncated": len(identifiers) > len(capped),
+        }
+        self._lean_list(out, results, release, response_mode)
+        return out
+
     # -- search ----------------------------------------------------------------
 
     async def search_variants(
@@ -194,15 +260,24 @@ class ClinVarService:
             limit=limit,
             offset=offset,
         )
+        total = await asyncio.to_thread(
+            self.repo.count_search,
+            query,
+            gene_symbol=gene_symbol,
+            classification=classification,
+            min_stars=min_stars,
+            assembly=assembly,
+        )
         release = await self._release_date()
         results = [self._to_projected(row, release, response_mode) for row in rows]
-        return {
+        out: dict[str, Any] = {
             "results": results,
             "count": len(results),
-            "limit": limit,
-            "offset": offset,
             "query": query,
+            **self._pagination(total, len(results), limit, offset),
         }
+        self._lean_list(out, results, release, response_mode)
+        return out
 
     # -- gene-scoped views -----------------------------------------------------
 
@@ -257,16 +332,57 @@ class ClinVarService:
         )
         release = await self._release_date()
         results = [self._to_projected(row, release, response_mode) for row in rows]
-        return {
+        out: dict[str, Any] = {
             "gene_symbol": gene_symbol,
             "results": results,
             "count": len(results),
-            "total": total,
-            "limit": limit,
-            "offset": offset,
+            **self._pagination(total, len(results), limit, offset),
         }
+        self._lean_list(out, results, release, response_mode)
+        return out
 
     # -- shaping helpers -------------------------------------------------------
+
+    @staticmethod
+    def _pagination(total: int, returned: int, limit: int, offset: int) -> dict[str, Any]:
+        """Build the shared pagination block so callers can detect truncation.
+
+        ``total_count`` is the full match count (independent of the page);
+        ``has_more`` / ``next_offset`` tell the caller whether — and from where —
+        to fetch the next page without guessing from ``count == limit``.
+        """
+        consumed = offset + returned
+        has_more = consumed < total
+        return {
+            "total_count": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": has_more,
+            "next_offset": consumed if has_more else None,
+        }
+
+    @staticmethod
+    def _lean_list(
+        out: dict[str, Any],
+        results: list[dict[str, Any]],
+        release: str | None,
+        mode: str,
+    ) -> None:
+        """Hoist the citation to one ``_meta`` template and drop duplicate row fields.
+
+        For the token-lean list modes (minimal/compact) the per-row
+        ``recommended_citation`` — identical apart from the IDs — is replaced by a
+        single ``_meta.citation_template`` the caller fills from each row's
+        ``variation_id`` / ``vcv_accession``; ``cdna_change`` is dropped wherever
+        it merely repeats ``name``. Richer modes keep self-contained rows.
+        """
+        if mode not in _LEAN_LIST_MODES:
+            return
+        for row in results:
+            row.pop("recommended_citation", None)
+            if row.get("cdna_change") is not None and row.get("cdna_change") == row.get("name"):
+                row.pop("cdna_change", None)
+        out.setdefault("_meta", {})["citation_template"] = citation_template(release)
 
     def _to_projected(
         self, repo_dict: dict[str, Any], release: str | None, mode: str

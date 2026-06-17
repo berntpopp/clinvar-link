@@ -44,10 +44,11 @@ from clinvar_link.logging_config import configure_logging
 from clinvar_link.mcp.facade import create_clinvar_mcp
 from clinvar_link.server_manager import UnifiedServerManager
 
-# The five tools that make up the ClinVar Link surface (both transports).
+# The six tools that make up the ClinVar Link surface (both transports).
 EXPECTED_TOOLS = {
     "get_server_capabilities",
     "get_variant",
+    "get_variants",
     "search_variants",
     "get_gene_clinvar_summary",
     "get_variants_by_gene",
@@ -102,7 +103,7 @@ async def test_http_health_reports_healthy(built_db: Path, monkeypatch: pytest.M
 # --------------------------------------------------------------------------- #
 
 
-async def test_facade_lists_five_tools_and_get_variant(facade: Any) -> None:
+async def test_facade_lists_tools_and_get_variant(facade: Any) -> None:
     async with Client(facade) as client:
         tools = await client.list_tools()
         names = {t.name for t in tools}

@@ -21,6 +21,13 @@ from typing import Any
 from clinvar_link.exceptions import ClinVarDataError
 
 _FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+
+
+def _like_escape(value: str) -> str:
+    """Escape LIKE wildcards so caller text is matched literally (ESCAPE '\\')."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 # JSON-encoded columns on the ``variant`` table that decode to Python lists.
 _JSON_LIST_FIELDS = ("molecular_consequence", "traits", "rcv_accessions")
 # GRCh38 sorts first, GRCh37 next, then anything else.
@@ -111,7 +118,13 @@ class ClinVarRepository:
         return self._row_to_variant(row) if row is not None else None
 
     def get_by_hgvs(self, hgvs: str) -> dict[str, Any] | None:
-        """Return the first variant matching a normalized HGVS string, or ``None``."""
+        """Return the first variant matching a normalized HGVS string, or ``None``.
+
+        Tries the exact normalized key first, then a gene-qualifier-insensitive
+        match so a clean transcript-qualified expression that omits the ``(GENE)``
+        qualifier (``NM_007294.4:c.5266dupC``) still resolves against the stored
+        canonical key (``NM_007294.4(BRCA1):c.5266dupC``) on the first call.
+        """
         norm = (hgvs or "").strip().lower()
         if not norm:
             return None
@@ -119,6 +132,29 @@ class ClinVarRepository:
             "SELECT v.* FROM hgvs_lookup h JOIN variant v "
             "ON v.variation_id = h.variation_id WHERE h.hgvs_norm = ? LIMIT 1",
             (norm,),
+        ).fetchone()
+        if row is not None:
+            return self._row_to_variant(row)
+        return self._get_by_hgvs_gene_insensitive(norm)
+
+    def _get_by_hgvs_gene_insensitive(self, norm: str) -> dict[str, Any] | None:
+        """Match a stored gene-qualified key when the query omits ``(GENE)``.
+
+        Only fires for an ``accession:change`` shape that has no parenthesised
+        gene before the colon; inserts a single LIKE wildcard for the gene and
+        anchors on the accession prefix + change suffix (both escaped so caller
+        text is matched literally). Widens the gene, never the change.
+        """
+        head, sep, tail = norm.partition(":")
+        if not sep or "(" in head:
+            return None
+        pattern = f"{_like_escape(head)}(%):{_like_escape(tail)}"
+        row = self._conn.execute(
+            "SELECT v.* FROM hgvs_lookup h JOIN variant v "
+            "ON v.variation_id = h.variation_id "
+            "WHERE h.hgvs_norm LIKE ? ESCAPE '\\' "
+            "ORDER BY h.variation_id LIMIT 1",
+            (pattern,),
         ).fetchone()
         return self._row_to_variant(row) if row is not None else None
 
@@ -205,6 +241,53 @@ class ClinVarRepository:
         )
         rows = self._conn.execute(sql, (pattern, pattern, *filter_params, limit, offset)).fetchall()
         return [self._row_to_variant(r) for r in rows]
+
+    def count_search(
+        self,
+        query: str,
+        *,
+        gene_symbol: str | None = None,
+        classification: str | None = None,
+        min_stars: int | None = None,
+        assembly: str | None = None,
+    ) -> int:
+        """Return the total match count for :meth:`search` (for pagination totals).
+
+        Mirrors :meth:`search`'s FTS5 / LIKE-fallback dispatch and filters, but
+        counts rows instead of materializing them, so the service can report
+        ``total_count`` / ``has_more`` without fetching every page.
+        """
+        filter_sql, filter_params = self._search_filters(
+            gene_symbol=gene_symbol,
+            classification=classification,
+            min_stars=min_stars,
+            assembly=assembly,
+        )
+        tokens = _FTS_TOKEN_RE.findall(query or "")
+        if tokens:
+            match = self._fts_query(query)
+            # filter_sql is hardcoded; user values are bound via ``?`` params.
+            sql = (
+                "SELECT COUNT(*) AS n FROM variant_fts f "  # noqa: S608
+                "JOIN variant v ON v.variation_id = f.rowid "
+                "WHERE variant_fts MATCH ?"
+                f"{filter_sql}"
+            )
+            try:
+                row = self._conn.execute(sql, (match, *filter_params)).fetchone()
+                return int(row["n"]) if row is not None else 0
+            except sqlite3.Error:
+                pass  # fall through to LIKE
+        cleaned = (query or "").replace("%", "").replace("_", "").strip().upper()
+        pattern = f"%{cleaned}%"
+        # filter_sql is hardcoded; user values are bound via ``?`` params.
+        sql = (
+            "SELECT COUNT(*) AS n FROM variant v "  # noqa: S608
+            "WHERE (UPPER(v.name) LIKE ? OR UPPER(v.gene_symbol) LIKE ?)"
+            f"{filter_sql}"
+        )
+        row = self._conn.execute(sql, (pattern, pattern, *filter_params)).fetchone()
+        return int(row["n"]) if row is not None else 0
 
     @staticmethod
     def _search_filters(

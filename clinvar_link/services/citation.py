@@ -17,6 +17,22 @@ def recommended_citation(variation_id: int, vcv_accession: str, release_date: st
     )
 
 
+def citation_template(release_date: str | None) -> str:
+    """Build a per-list citation template the client fills from each row's IDs.
+
+    Lifting one template into ``_meta`` (instead of repeating the full
+    recommended_citation on every row) is the largest avoidable token sink in
+    list responses. The ``{variation_id}`` / ``{vcv_accession}`` placeholders are
+    left literal for the caller to substitute from the per-row fields.
+    """
+    rel = f" ClinVar weekly release {release_date}." if release_date else ""
+    return (
+        "ClinVar (NCBI). VariationID {variation_id} ({vcv_accession})."
+        + rel
+        + " https://www.ncbi.nlm.nih.gov/clinvar/variation/{variation_id}/"
+    )
+
+
 def gene_citation(gene_symbol: str, release_date: str | None) -> str:
     """Build the recommended citation for a gene-level ClinVar summary."""
     rel = f" ClinVar weekly release {release_date}." if release_date else ""

@@ -136,24 +136,30 @@ All tools are `READ_ONLY_OPEN_WORLD`. `response_mode ∈ {minimal, compact,
 standard, full}` controls payload size (default `compact`). Errors are returned
 as a typed envelope (never raised), and every response carries
 `_meta.next_commands` — a ready-to-call `{tool, arguments}` list — on success
-**and** error. Every variant/gene result includes a `recommended_citation` and
-the ClinVar release date.
+**and** error. Every response `_meta` also carries the live `clinvar_release` /
+`clinvar_release_date`, a `request_id` (accepted from the client for correlation,
+else minted server-side), and a `latency_ms` hint. Single variant/gene results
+include a `recommended_citation`; **list** responses (`minimal`/`compact`) hoist
+it once to `_meta.citation_template` (fill `{variation_id}` / `{vcv_accession}`
+per row) and expose `total_count` / `has_more` / `next_offset` pagination.
 
 | Tool | Purpose |
 |------|---------|
-| `get_variant` | Resolve one variant by VCV / VariationID / rsID / HGVS / AlleleID → classification, star rating, both-assembly coordinates, traits, RCV accessions. |
-| `search_variants` | Free-text search over names / genes / identifiers; filter by `gene_symbol`, `classification`, `min_stars`, `assembly`; paginate with `limit` / `offset`. |
+| `get_variant` | Resolve one variant by VCV / VariationID / rsID / HGVS / AlleleID → classification, star rating, both-assembly coordinates, traits, RCV accessions. A clean transcript-qualified HGVS resolves even without the `(GENE)` qualifier. |
+| `get_variants` | **Batch** form of `get_variant`: resolve many identifiers in one call (mixable shapes); each row echoes its `identifier` + `found` flag, with `requested` / `found_count` / `truncated`. |
+| `search_variants` | Free-text search over names / genes / identifiers; filter by `gene_symbol`, `classification`, `min_stars`, `assembly`; paginate with `limit` / `offset` + `total_count` / `has_more`. |
 | `get_gene_clinvar_summary` | Per-gene aggregate: counts by classification, star distribution, consequence categories, top traits, `has_pathogenic`. |
 | `get_variants_by_gene` | Per-variant rows for a gene; filter by `classification` / `min_stars`, `sort` (default `stars_desc`), paginate. |
 | `get_server_capabilities` | Discovery surface: tool list, response modes, workflows, live ClinVar release date, error codes, limitations. |
 
 Signatures:
 
-- `get_variant(identifier, id_type="auto", response_mode="compact")`
-- `search_variants(query, gene_symbol?, classification?, min_stars?, assembly?, limit=20, offset=0, response_mode="compact")`
-- `get_gene_clinvar_summary(gene_symbol, response_mode="compact")`
-- `get_variants_by_gene(gene_symbol, classification?, min_stars?, sort="stars_desc", limit=50, offset=0, response_mode="compact")`
-- `get_server_capabilities()`
+- `get_variant(identifier, id_type="auto", response_mode="compact", request_id?)`
+- `get_variants(identifiers, id_type="auto", response_mode="compact", request_id?)`
+- `search_variants(query, gene_symbol?, classification?, min_stars?, assembly?, limit=20, offset=0, response_mode="compact", request_id?)`
+- `get_gene_clinvar_summary(gene_symbol, response_mode="compact", request_id?)`
+- `get_variants_by_gene(gene_symbol, classification?, min_stars?, sort="stars_desc", limit=50, offset=0, response_mode="compact", request_id?)`
+- `get_server_capabilities(request_id?)`
 
 ### Example: `get_variant`
 

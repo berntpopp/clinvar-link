@@ -52,6 +52,22 @@ async def test_response_mode_minimal_trims_keys(mcp):
     assert "coordinates" not in minimal and "coordinates" in full
 
 
+async def test_get_variant_resolves_gene_unqualified_hgvs(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "NM_007294.4:c.5266dupC"})
+    assert out["success"] is True
+    assert out["variation_id"] == 100001
+
+
+async def test_get_variants_batch_tool(mcp):
+    out = await call_tool(mcp, "get_variants", {"identifiers": ["VCV000100001", "VCV999999999"]})
+    assert out["success"] is True
+    assert out["requested"] == 2
+    assert out["found_count"] == 1
+    assert len(out["results"]) == 2
+    assert out["_meta"]["next_commands"]
+    assert out["_meta"]["request_id"]
+
+
 async def test_search_variants_returns_results_and_next_commands(mcp):
     out = await call_tool(mcp, "search_variants", {"query": "BRCA1", "limit": 5})
     assert out["success"] is True
