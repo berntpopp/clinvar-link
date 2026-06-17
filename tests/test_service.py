@@ -218,6 +218,17 @@ async def test_search_reports_capped_total(service):
     assert "total_count_capped" not in out  # only present when capped
 
 
+async def test_gene_summary_buckets_reconcile_to_total(service):
+    out = await service.get_gene_clinvar_summary("BRCA1")
+    buckets = (
+        out["pathogenic_count"] + out["likely_pathogenic_count"] + out["vus_count"]
+        + out["likely_benign_count"] + out["benign_count"] + out["conflicting_count"]
+        + out["not_provided_count"] + out["other_count"]
+    )
+    assert buckets == out["total_count"]
+    assert out["other_count"] >= 0
+
+
 async def test_forced_id_type_mismatch_is_invalid_input(service):
     # A VCV accession forced as variation_id (numeric) must be invalid_input.
     with pytest.raises(ToolInputError):

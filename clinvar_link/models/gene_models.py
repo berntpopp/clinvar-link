@@ -19,6 +19,9 @@ class GeneClinVarSummary(BaseModel):
     not_provided_count: int = Field(
         ..., description="Count of variants with no provided classification."
     )
+    other_count: int = Field(
+        0, description="Variants whose classification falls outside the named buckets."
+    )
     has_pathogenic: bool = Field(
         ..., description="Whether the gene has any pathogenic or likely pathogenic variants."
     )

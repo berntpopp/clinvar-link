@@ -395,6 +395,13 @@ class ClinVarService:
         model = GeneClinVarSummary(**{**summary, "gene_symbol": gene_symbol})
         model.recommended_citation = gene_citation(gene_symbol, release)
         payload = model.model_dump()
+        known = (
+            payload["pathogenic_count"] + payload["likely_pathogenic_count"]
+            + payload["vus_count"] + payload["likely_benign_count"]
+            + payload["benign_count"] + payload["conflicting_count"]
+            + payload["not_provided_count"]
+        )
+        payload["other_count"] = max(0, payload["total_count"] - known)
         if response_mode == "minimal":
             for key in ("consequence_categories", "top_traits", "star_distribution"):
                 payload.pop(key, None)
