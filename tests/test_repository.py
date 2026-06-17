@@ -265,3 +265,13 @@ def test_count_search_caps_at_exact_max(repo):
     assert full == 5 and capped_full is False
     n, capped = repo.count_search("BRCA1", count_exact_max=2)
     assert n == 2 and capped is True
+
+
+def test_gene_stripped_hgvs_key_is_indexed(repo):
+    # The gene-less canonical form must exist as an EQUALITY key (not just resolvable
+    # via the LIKE fallback). Keys are stored lower-cased.
+    for key in ("nm_007294.4:c.5266dupc", "nm_007294.4:c.5333-1g>a"):
+        hit = repo._conn.execute("SELECT 1 FROM hgvs_lookup WHERE hgvs_norm = ?", (key,)).fetchone()
+        assert hit is not None, f"missing gene-stripped key: {key}"
+    # And it resolves to the right variant.
+    assert repo.get_by_hgvs("NM_007294.4:c.5266dupC")["variation_id"] == 100001

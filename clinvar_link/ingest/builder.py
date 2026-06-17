@@ -156,6 +156,21 @@ def _normalize_hgvs(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def _strip_gene_qualifier(expr: str) -> str | None:
+    """Return ``<accession>:<change>`` with the ``(GENE)`` qualifier removed, or None.
+
+    ``NM_007294.4(BRCA1):c.5266dupC`` -> ``NM_007294.4:c.5266dupC``. Returns None
+    when there is no gene parenthesis before the first colon (nothing to strip).
+    """
+    head, sep, tail = expr.partition(":")
+    if not sep or "(" not in head:
+        return None
+    accession = head.split("(", 1)[0].strip()
+    if not accession:
+        return None
+    return f"{accession}:{tail}"
+
+
 def _coord_values(vid: int, row: dict[str, str]) -> tuple[Any, ...]:
     """Build a ``variant_coordinate`` row tuple from a raw TSV row."""
     return (
@@ -370,6 +385,17 @@ def _emit_canonical(
     vcv = _normalize_hgvs(parsed.get("accession") or "")
     if vcv:
         batches.hgvs.append((vcv, vid))
+
+    # Also index the GENE-STRIPPED canonical form so a gene-less but
+    # transcript-qualified query (NM_007294.4:c.5266dupC) resolves via the
+    # equality index instead of the slower LIKE fallback. INSERT OR IGNORE
+    # keeps it a no-op when the name already had no gene qualifier.
+    canonical_nuc = name.split(" (")[0].strip() if " (" in name else name
+    stripped = _strip_gene_qualifier(canonical_nuc)
+    if stripped:
+        stripped_norm = _normalize_hgvs(stripped)
+        if stripped_norm and stripped_norm != _normalize_hgvs(canonical_nuc):
+            batches.hgvs.append((stripped_norm, vid))
 
     gene_symbol = parsed.get("gene_symbol") or ""
     if gene_symbol:
