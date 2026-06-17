@@ -35,10 +35,14 @@ def mcp(tmp_path):
     reset_clinvar_date_cache()
 
 
-async def test_capabilities_lists_all_tools(mcp):
+async def test_capabilities_tools_equal_registered_tools(mcp):
+    from fastmcp import Client
+
     out = await call_tool(mcp, "get_server_capabilities", {})
-    assert out["success"] is True
-    assert _EXPECTED_TOOLS.issubset(set(out["tools"]))
+    async with Client(mcp) as client:
+        registered = {t.name for t in await client.list_tools()}
+    assert set(out["tools"]) == registered  # equality: no over/under-reporting
+    assert registered == _EXPECTED_TOOLS
 
 
 async def test_capabilities_primes_release_date_cache(mcp):
