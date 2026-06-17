@@ -20,6 +20,7 @@ from clinvar_link.mcp.resources import (
     get_capabilities_resource,
     get_license_resource,
     get_usage_resource,
+    get_version_resource,
 )
 from clinvar_link.services import ClinVarService
 
@@ -73,6 +74,14 @@ def register_metadata_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinV
     )
     def research_use_resource() -> dict[str, Any]:
         return {"notice": RESEARCH_USE_NOTICE}
+
+    @mcp.resource(
+        "clinvar://version",
+        annotations=_RESOURCE_ANNOTATIONS,
+        mime_type="application/json",
+    )
+    def version_resource() -> dict[str, Any]:
+        return get_version_resource()
 
 
 async def _coro_capabilities(

@@ -106,12 +106,22 @@ def get_capabilities_resource() -> dict[str, Any]:
             "clinvar://usage": "compact usage notes",
             "clinvar://license": "data license and canonical citation",
             "clinvar://research-use": "research-use-only notice",
+            "clinvar://version": "server + protocol + data-release versions",
         },
     }
     fresh = clinvar_freshness(date, settings.REFRESH_TTL_DAYS) if date else None
     if fresh is not None:
         caps["data_freshness"] = fresh
     return caps
+
+
+def get_version_resource() -> dict[str, Any]:
+    return {
+        "server": "clinvar-link",
+        "server_version": server_version(),
+        "mcp_protocol_version": MCP_PROTOCOL_VERSION,
+        "clinvar_release_date": get_cached_clinvar_release_date(),
+    }
 
 
 def get_usage_resource() -> str:

@@ -5,6 +5,7 @@ from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
 from clinvar_link.mcp.resources import (
     get_capabilities_resource,
     get_license_resource,
+    get_version_resource,
 )
 from clinvar_link.models import ClinVarVariant
 
@@ -90,3 +91,11 @@ async def test_run_mcp_tool_not_found_envelope():
 
     out = await run_mcp_tool("t", boom, context=McpErrorContext(tool_name="t"))
     assert out["success"] is False and out["error_code"] == "not_found"
+
+
+def test_version_resource_shape():
+    v = get_version_resource()
+    assert v["server"] == "clinvar-link"
+    assert isinstance(v["server_version"], str) and v["server_version"]
+    assert "mcp_protocol_version" in v
+    assert "clinvar_release_date" in v  # may be None until the date cache primes
