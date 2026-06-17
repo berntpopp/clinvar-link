@@ -210,3 +210,9 @@ async def test_search_has_more_without_relying_on_count(service):
     assert out["total_count"] is None
     assert out["has_more"] is True
     assert out["next_offset"] == 2
+
+
+async def test_search_reports_capped_total(service):
+    out = await service.search_variants("BRCA1", count_mode="exact", limit=2)
+    assert out["total_count"] in (5,)  # fixture is small; not capped here
+    assert "total_count_capped" not in out  # only present when capped

@@ -327,9 +327,6 @@ class ClinVarService:
             assembly=assembly,
             match_mode=count_match_mode,
             count_mode=count_mode,
-            has_more=has_more,
-            returned=len(rows),
-            offset=offset,
         )
         release = await self._release_date()
         results = [self._to_projected(row, release, response_mode) for row in rows]
@@ -353,22 +350,20 @@ class ClinVarService:
         assembly: str | None,
         match_mode: str,
         count_mode: str,
-        has_more: bool,
-        returned: int,
-        offset: int,
     ) -> tuple[int | None, bool]:
-        """Return (total, capped) for the search count; placeholder for Task 6."""
+        """Return (total, capped) for the search count."""
         if count_mode == "none":
             return None, False
-        total = await asyncio.to_thread(
+        return await asyncio.to_thread(
             self.repo.count_search,
             query,
             gene_symbol=gene_symbol,
             classification=classification,
             min_stars=min_stars,
             assembly=assembly,
+            match_mode=match_mode,
+            count_exact_max=_SEARCH_COUNT_EXACT_MAX,
         )
-        return total, False
 
     # -- gene-scoped views -----------------------------------------------------
 
