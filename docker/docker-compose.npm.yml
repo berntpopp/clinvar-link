@@ -1,0 +1,92 @@
+# Nginx Proxy Manager deployment overlay for clinvar-link.
+#
+# Self-contained (used standalone, not layered on docker-compose.yml): one
+# unified container serves the FastAPI REST API on / and the MCP streamable-HTTP
+# transport on /mcp via a single port (8000). NPM reverse-proxies to the fixed
+# container_name on the shared external npm_default network. Mirrors the
+# gtex-link / mgi-link fleet pattern. First boot pulls the prebuilt ClinVar
+# SQLite bundle from GitHub Releases into the persisted data volume.
+#
+#   docker compose -f docker/docker-compose.npm.yml --env-file .env.docker up -d --build
+name: clinvar-link-npm
+
+services:
+  clinvar_link:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: clinvar-link-npm
+    # NO published host ports - NPM handles all routing via the container name.
+    expose:
+      - "8000"
+    environment:
+      - CLINVAR_LINK_MCP_TRANSPORT=unified
+      - CLINVAR_LINK_MCP_HOST=0.0.0.0
+      - CLINVAR_LINK_MCP_PORT=8000
+      - CLINVAR_LINK_MCP_PATH=/mcp
+      - CLINVAR_LINK_LOG_LEVEL=${LOG_LEVEL_API:-INFO}
+      - CLINVAR_LINK_LOG_FORMAT=json
+      - CLINVAR_LINK_DATA_DIR=/app/data
+      # First boot pulls the latest prebuilt SQLite bundle from GitHub Releases
+      # and atomically installs it (far faster than building from the NCBI dump).
+      - CLINVAR_LINK_BUNDLE_URL=latest
+      - CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link
+      - CLINVAR_LINK_BUILD_LOCAL=false
+      # Stage the downloaded .zst in the app-owned data volume (same fs as the
+      # DB, so the post-decompress swap is atomic; no large root-owned tmpfs).
+      - CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/data
+    # The image ENTRYPOINT bootstraps the index then exec's the unified server,
+    # reading CLINVAR_LINK_MCP_TRANSPORT/HOST/PORT above; no command override.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # First boot downloads (~hundreds of MB) + decompresses the bundle before
+      # /health turns healthy.
+      start_period: 300s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      # TMPDIR=/tmp/clinvar-link (set in the image) - scratch space.
+      - /tmp/clinvar-link:rw,noexec,nosuid,size=256m,mode=1777
+    volumes:
+      # Persist the installed ClinVar SQLite index across container restarts.
+      - clinvar-data:/app/data
+    networks:
+      - clinvar_link_internal_net
+      - npm_proxy_network
+    deploy:
+      resources:
+        limits:
+          memory: ${CLINVAR_API_MEMORY_LIMIT:-1g}
+          cpus: ${CLINVAR_API_CPU_LIMIT:-1.0}
+          pids: 256
+        reservations:
+          memory: 256m
+          cpus: 0.25
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=clinvar-link,environment=production,proxy=npm"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    init: true
+
+volumes:
+  clinvar-data:
+    driver: local
+
+networks:
+  clinvar_link_internal_net:
+    driver: bridge
+    name: clinvar_link_internal_net
+  npm_proxy_network:
+    external: true
+    name: ${NPM_SHARED_NETWORK_NAME:-npm_default}
