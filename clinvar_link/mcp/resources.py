@@ -7,8 +7,10 @@ from typing import Any
 
 from mcp.types import LATEST_PROTOCOL_VERSION as MCP_PROTOCOL_VERSION
 
+from clinvar_link.config import settings
 from clinvar_link.data.repository import ClinVarRepository
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
+from clinvar_link.mcp.freshness import clinvar_freshness
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
 
@@ -43,17 +45,18 @@ def _server_version() -> str:
 
 
 def get_capabilities_resource() -> dict[str, Any]:
-    return {
+    date = get_cached_clinvar_release_date()
+    caps: dict[str, Any] = {
         "server": "clinvar-link",
         "server_version": _server_version(),
         "mcp_protocol_version": MCP_PROTOCOL_VERSION,
         # Version label derived from the same live release date; falls back to
         # the static sentinel only before the date cache has been primed.
-        "clinvar_release": get_cached_clinvar_release_date() or CLINVAR_DATA_RELEASE,
+        "clinvar_release": date or CLINVAR_DATA_RELEASE,
         # Echoes the process-cached live ClinVar release date once the first
         # get_server_capabilities tool call has read it from the DB meta; None
         # until then (the sync resource handler never touches the DB itself).
-        "clinvar_release_date": get_cached_clinvar_release_date(),
+        "clinvar_release_date": date,
         "research_use_only": True,
         "data_source": _DATA_SOURCE_NOTE,
         "tools": list(_TOOLS),
@@ -105,6 +108,10 @@ def get_capabilities_resource() -> dict[str, Any]:
             "clinvar://research-use": "research-use-only notice",
         },
     }
+    fresh = clinvar_freshness(date, settings.REFRESH_TTL_DAYS) if date else None
+    if fresh is not None:
+        caps["data_freshness"] = fresh
+    return caps
 
 
 def get_usage_resource() -> str:

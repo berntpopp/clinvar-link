@@ -24,7 +24,9 @@ from clinvar_link.exceptions import (
     DataNotFoundError,
     ToolInputError,
 )
+from clinvar_link.config import settings
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
+from clinvar_link.mcp.freshness import clinvar_freshness
 from clinvar_link.mcp.resources import CLINVAR_DATA_RELEASE
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,9 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
     }
     if clinvar_date is not None:
         meta["clinvar_release_date"] = clinvar_date
+        fresh = clinvar_freshness(clinvar_date, settings.REFRESH_TTL_DAYS)
+        if fresh is not None:
+            meta.update(fresh)
     if context is not None and context.request_id:
         meta["request_id"] = context.request_id
     return meta

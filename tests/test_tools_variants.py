@@ -24,6 +24,12 @@ async def test_get_variant_by_vcv(mcp):
     assert out["_meta"]["next_commands"]
 
 
+async def test_meta_carries_freshness(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
+    assert isinstance(out["_meta"]["age_days"], int)
+    assert isinstance(out["_meta"]["past_ttl"], bool)
+
+
 async def test_get_variant_by_rsid(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "rs80357906"})
     assert out["success"] is True
