@@ -102,8 +102,8 @@ class ClinVarService:
 
         Also primes the process-level date cache the envelope/provenance layer
         reads, so EVERY response — including a cold get_variant issued before
-        get_server_capabilities — can echo the live release (``clinvar_release``)
-        instead of falling back to ``"unknown"``.
+        get_server_capabilities — can echo the live ``clinvar_release_date``
+        (which is omitted only while the release date is still unknown).
         """
         meta = await self._meta()
         raw = meta.get("clinvar_release_date")
