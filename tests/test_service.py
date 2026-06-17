@@ -216,3 +216,12 @@ async def test_search_reports_capped_total(service):
     out = await service.search_variants("BRCA1", count_mode="exact", limit=2)
     assert out["total_count"] in (5,)  # fixture is small; not capped here
     assert "total_count_capped" not in out  # only present when capped
+
+
+async def test_forced_id_type_mismatch_is_invalid_input(service):
+    # A VCV accession forced as variation_id (numeric) must be invalid_input.
+    with pytest.raises(ToolInputError):
+        await service.get_variant("VCV000100001", id_type="variation_id")
+    # An rsID forced as hgvs (needs ":" or hint) must be invalid_input.
+    with pytest.raises(ToolInputError):
+        await service.get_variant("rs28897672", id_type="hgvs")

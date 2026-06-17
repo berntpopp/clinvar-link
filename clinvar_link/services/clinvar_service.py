@@ -146,9 +146,23 @@ class ClinVarService:
         )
         return self._project(variant.model_dump(), response_mode)
 
+    @staticmethod
+    def _validate_shape(text: str, id_type: str) -> None:
+        """Reject a value whose shape cannot match an explicitly forced id_type."""
+        if id_type == "vcv" and not _VCV_RE.match(text):
+            raise ToolInputError(f"id_type='vcv' requires a VCV accession (got {text!r})")
+        if id_type == "rsid" and not (_RSID_RE.match(text) or _DIGITS_RE.match(text)):
+            raise ToolInputError(f"id_type='rsid' requires an rsID (got {text!r})")
+        if id_type in {"variation_id", "allele_id"} and not _DIGITS_RE.match(text):
+            raise ToolInputError(f"id_type={id_type!r} requires a numeric id (got {text!r})")
+        if id_type == "hgvs" and ":" not in text and not any(h in text for h in _HGVS_HINTS):
+            raise ToolInputError(f"id_type='hgvs' requires an HGVS expression (got {text!r})")
+
     async def _resolve(self, text: str, id_type: str) -> dict[str, Any] | None:
         """Dispatch identifier resolution by explicit or auto-detected type."""
         _ensure_id_type(id_type)
+        if id_type != "auto":
+            self._validate_shape(text, id_type)
         if id_type == "vcv":
             return await asyncio.to_thread(self.repo.get_by_vcv, text)
         if id_type == "variation_id":
