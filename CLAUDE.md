@@ -107,6 +107,11 @@ docker/                     # Dockerfile, compose, entrypoint, README
   `sort_options` in capabilities); a blank `query` with no filter is rejected; a
   recognized-but-absent identifier stays `not_found`. An over-restrictive gene
   filter returns empty success, not `not_found`.
+- **Search behaviour:** `search_variants` defaults to AND-mode (`match_mode=auto`
+  = AND with automatic OR fallback when AND returns nothing). `count_mode` controls
+  whether `total_count`/`total_count_capped` is computed (`exact`, bounded by an
+  internal cap) or skipped (`none`, lowest latency). Gene summaries include
+  `other_count` for variants outside the named classification buckets.
 - **Freshness signal:** `mcp/freshness.py:clinvar_freshness` derives
   `{age_days, past_ttl}` (vs `REFRESH_TTL_DAYS`) from the cached release date;
   merged into `_meta` (every response) and capabilities (`data_freshness`).

@@ -93,3 +93,10 @@ async def test_meta_carries_server_version(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
     assert isinstance(out["_meta"]["server_version"], str)
     assert out["_meta"]["server_version"]  # non-empty
+
+
+async def test_capabilities_advertise_search_controls(mcp):
+    out = await call_tool(mcp, "get_server_capabilities", {})
+    assert "search_controls" in out
+    assert set(out["search_controls"]["match_mode"]) >= {"auto", "and", "or"}
+    assert set(out["search_controls"]["count_mode"]) >= {"exact", "none"}
