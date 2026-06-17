@@ -37,6 +37,14 @@ _ASSEMBLY_ORDER = {"GRCh38": 0, "GRCh37": 1}
 class ClinVarRepository:
     """Read-only access to the built ClinVar SQLite index."""
 
+    # Allow-listed ORDER BY fragments; user input selects a key, never raw SQL.
+    SORT_ORDERS = {
+        "stars_desc": "v.star_rating DESC, v.variation_id",
+        "stars_asc": "v.star_rating ASC, v.variation_id",
+        "name": "v.name COLLATE NOCASE, v.variation_id",
+        "variation_id": "v.variation_id",
+    }
+
     def __init__(self, db_path: Path | str) -> None:
         """Open a read-only connection to the ClinVar database."""
         self._path = Path(db_path)
@@ -334,7 +342,7 @@ class ClinVarRepository:
         where, params = self._gene_filters(
             gene_symbol, classification=classification, min_stars=min_stars
         )
-        order = "v.star_rating DESC, v.variation_id" if sort == "stars_desc" else "v.variation_id"
+        order = self.SORT_ORDERS.get(sort, self.SORT_ORDERS["stars_desc"])
         # ``where``/``order`` are built from hardcoded fragments; user values
         # are bound via ``?`` parameters.
         sql = (

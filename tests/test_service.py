@@ -175,3 +175,8 @@ async def test_get_variants_batch_unknown_id_type_is_invalid_input(service):
     # silently turn every row into a miss.
     with pytest.raises(ToolInputError):
         await service.get_variants(["VCV000100001"], id_type="banana")
+
+
+async def test_variants_by_gene_unknown_sort_is_invalid_input(service):
+    with pytest.raises(ToolInputError):
+        await service.get_variants_by_gene("BRCA1", sort="banana")

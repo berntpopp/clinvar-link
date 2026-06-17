@@ -227,6 +227,17 @@ def test_variants_by_gene_sort_default(repo):
     assert listed == sorted(listed, key=lambda x: -x["star_rating"])
 
 
+def test_variants_by_gene_sort_stars_asc(repo):
+    asc = repo.variants_by_gene("AP5Z1", sort="stars_asc", limit=100)
+    assert asc == sorted(asc, key=lambda x: x["star_rating"])
+
+
+def test_variants_by_gene_sort_name(repo):
+    by_name = repo.variants_by_gene("AP5Z1", sort="name", limit=100)
+    names = [r.get("name") or "" for r in by_name]
+    assert names == sorted(names, key=str.lower)
+
+
 def test_gene_summary_and_meta(repo):
     gs = repo.gene_summary("BRCA1")
     assert gs and gs["total_count"] >= 1

@@ -26,6 +26,13 @@ def test_output_cheatsheet_field_names_match_real_output():
     assert cheats["variant_accession_field"] == "vcv_accession"
 
 
+def test_capabilities_advertises_sort_options():
+    from clinvar_link.data.repository import ClinVarRepository
+
+    caps = get_capabilities_resource()
+    assert caps["sort_options"] == sorted(ClinVarRepository.SORT_ORDERS)
+
+
 def test_capabilities_lists_core_tools():
     cap = get_capabilities_resource()
     assert cap["research_use_only"] is True

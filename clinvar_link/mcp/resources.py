@@ -7,6 +7,7 @@ from typing import Any
 
 from mcp.types import LATEST_PROTOCOL_VERSION as MCP_PROTOCOL_VERSION
 
+from clinvar_link.data.repository import ClinVarRepository
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
@@ -57,6 +58,7 @@ def get_capabilities_resource() -> dict[str, Any]:
         "data_source": _DATA_SOURCE_NOTE,
         "tools": list(_TOOLS),
         "response_modes": ["minimal", "compact", "standard", "full"],
+        "sort_options": sorted(ClinVarRepository.SORT_ORDERS),
         "recommended_workflows": [
             "VCV / rsID / HGVS / AlleleID -> get_variant",
             "several identifiers at once -> get_variants (one batched call)",

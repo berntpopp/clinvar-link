@@ -332,6 +332,10 @@ class ClinVarService:
         """List a gene's variants (projected) with a total for pagination."""
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
+        if sort not in ClinVarRepository.SORT_ORDERS:
+            raise ToolInputError(
+                f"sort must be one of {sorted(ClinVarRepository.SORT_ORDERS)} (got {sort!r})"
+            )
         total = await asyncio.to_thread(
             self.repo.count_variants_by_gene,
             gene_symbol,
