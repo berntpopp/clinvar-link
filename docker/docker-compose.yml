@@ -28,15 +28,13 @@ services:
       CLINVAR_LINK_BUNDLE_URL: latest
       CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
       CLINVAR_LINK_BUILD_LOCAL: "false"
-      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /tmp/clinvar-link
+      # Stage the downloaded .zst in the app-owned data volume (same fs as the
+      # DB, so the post-decompress swap is atomic; no root-owned tmpfs needed).
+      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /app/data
     volumes:
       # Persist the installed SQLite index across container restarts so the
       # first-boot bundle download happens only once.
       - clinvar-data:/app/data
-    tmpfs:
-      # Staging area for the downloaded .zst before it is decompressed and
-      # atomically swapped into the data volume (ephemeral; not persisted).
-      - /tmp/clinvar-link:size=2g
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 30s

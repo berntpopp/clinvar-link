@@ -56,7 +56,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_BUNDLE_URL=latest \
     CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link \
     CLINVAR_LINK_BUILD_LOCAL=false \
-    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/tmp/clinvar-link \
+    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/data \
     CLINVAR_LINK_LOG_FORMAT=json \
     TMPDIR=/tmp/clinvar-link
 
