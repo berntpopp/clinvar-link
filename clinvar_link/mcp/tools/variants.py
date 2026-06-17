@@ -111,12 +111,14 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
+        match_mode: str = "auto",
+        count_mode: str = "exact",
         limit: Annotated[int, Field(ge=1)] = 20,
         offset: Annotated[int, Field(ge=0)] = 0,
         response_mode: str = "compact",
         request_id: str | None = None,
     ) -> dict[str, Any]:
-        """Free-text search across ClinVar variant names, genes, and identifiers. Use this to locate a record when you only have a gene symbol plus a change or other loose text, then re-call get_variant with the returned vcv_accession. Optional filters: gene_symbol, classification, min_stars, assembly. Returns a paginated results list with total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row) instead of repeated per hit."""
+        """Free-text search across ClinVar variant names, genes, and identifiers. Use this to locate a record when you only have a gene symbol plus a change or other loose text, then re-call get_variant with the returned vcv_accession. Optional filters: gene_symbol, classification, min_stars, assembly. match_mode controls token matching: auto (default) tries AND first then falls back to OR; and/or force explicit mode. count_mode=none skips the total count query for faster responses. Returns a paginated results list with total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row) instead of repeated per hit."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().search_variants(
@@ -125,6 +127,8 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 classification=classification,
                 min_stars=min_stars,
                 assembly=assembly,
+                match_mode=match_mode,
+                count_mode=count_mode,
                 limit=limit,
                 offset=offset,
                 response_mode=response_mode,

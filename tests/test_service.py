@@ -190,3 +190,23 @@ async def test_search_blank_query_without_filter_is_invalid_input(service):
 async def test_search_blank_query_with_filter_is_allowed(service):
     out = await service.search_variants("", gene_symbol="TTN")
     assert out["count"] >= 1
+
+
+async def test_search_auto_falls_back_to_or(service):
+    # "BRCA1" AND "Lynch" co-occur in NO variant; OR finds both gene sets.
+    out = await service.search_variants("BRCA1 Lynch")
+    assert out["match_mode"] == "or_fallback"
+    assert out["count"] > 0
+
+
+async def test_search_auto_uses_and_when_it_matches(service):
+    out = await service.search_variants("BRCA1 Cys61Gly")
+    assert out["match_mode"] == "and"
+    assert {r["variation_id"] for r in out["results"]} == {100002}
+
+
+async def test_search_has_more_without_relying_on_count(service):
+    out = await service.search_variants("BRCA1", limit=2, count_mode="none")
+    assert out["total_count"] is None
+    assert out["has_more"] is True
+    assert out["next_offset"] == 2

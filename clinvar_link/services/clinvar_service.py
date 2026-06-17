@@ -40,6 +40,11 @@ _HGVS_HINTS = ("c.", "p.", "g.", "n.")
 # Accepted ``id_type`` values; anything else is a structural input error.
 _ID_TYPES = frozenset({"auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id"})
 
+_MATCH_MODES = frozenset({"auto", "and", "or"})
+_COUNT_MODES = frozenset({"exact", "none"})
+# Cap the search count scan; beyond this we report total_count_capped=True.
+_SEARCH_COUNT_EXACT_MAX = 1000
+
 
 def _ensure_id_type(id_type: str) -> None:
     """Raise :class:`ToolInputError` for an ``id_type`` outside the allowlist."""
@@ -262,28 +267,99 @@ class ClinVarService:
         classification: str | None = None,
         min_stars: int | None = None,
         assembly: str | None = None,
+        match_mode: str = "auto",
+        count_mode: str = "exact",
         limit: int = 20,
         offset: int = 0,
         response_mode: str = "compact",
     ) -> dict[str, Any]:
-        """Free-text search returning projected variant dicts plus pagination."""
+        """Free-text search with AND default, OR fallback, and tiered count."""
         has_filter = bool(gene_symbol or classification or min_stars is not None)
         if not (query or "").strip() and not has_filter:
             raise ToolInputError(
                 "query is required; to list a gene's variants use get_variants_by_gene"
             )
+        if match_mode not in _MATCH_MODES:
+            raise ToolInputError(
+                f"match_mode must be one of {sorted(_MATCH_MODES)} (got {match_mode!r})"
+            )
+        if count_mode not in _COUNT_MODES:
+            raise ToolInputError(
+                f"count_mode must be one of {sorted(_COUNT_MODES)} (got {count_mode!r})"
+            )
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
-        rows = await asyncio.to_thread(
-            self.repo.search,
+        fetch = limit + 1  # over-fetch by one to compute has_more without a count
+
+        async def _do(mode: str) -> list[dict[str, Any]]:
+            return await asyncio.to_thread(
+                self.repo.search,
+                query,
+                gene_symbol=gene_symbol,
+                classification=classification,
+                min_stars=min_stars,
+                assembly=assembly,
+                match_mode=mode,
+                limit=fetch,
+                offset=offset,
+            )
+
+        multi_token = len((query or "").split()) >= 2
+        if match_mode == "auto":
+            rows = await _do("and")
+            used = "and"
+            if not rows and multi_token:
+                or_rows = await _do("or")
+                if or_rows:
+                    rows, used = or_rows, "or_fallback"
+        else:
+            rows = await _do(match_mode)
+            used = match_mode
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        count_match_mode = "or" if used in ("or", "or_fallback") else "and"
+        total, capped = await self._count_for_search(
             query,
             gene_symbol=gene_symbol,
             classification=classification,
             min_stars=min_stars,
             assembly=assembly,
-            limit=limit,
+            match_mode=count_match_mode,
+            count_mode=count_mode,
+            has_more=has_more,
+            returned=len(rows),
             offset=offset,
         )
+        release = await self._release_date()
+        results = [self._to_projected(row, release, response_mode) for row in rows]
+        out: dict[str, Any] = {
+            "results": results,
+            "count": len(results),
+            "query": query,
+            "match_mode": used,
+            **self._pagination(total, has_more, limit, offset, capped=capped),
+        }
+        self._lean_list(out, results, release, response_mode)
+        return out
+
+    async def _count_for_search(
+        self,
+        query: str,
+        *,
+        gene_symbol: str | None,
+        classification: str | None,
+        min_stars: int | None,
+        assembly: str | None,
+        match_mode: str,
+        count_mode: str,
+        has_more: bool,
+        returned: int,
+        offset: int,
+    ) -> tuple[int | None, bool]:
+        """Return (total, capped) for the search count; placeholder for Task 6."""
+        if count_mode == "none":
+            return None, False
         total = await asyncio.to_thread(
             self.repo.count_search,
             query,
@@ -292,16 +368,7 @@ class ClinVarService:
             min_stars=min_stars,
             assembly=assembly,
         )
-        release = await self._release_date()
-        results = [self._to_projected(row, release, response_mode) for row in rows]
-        out: dict[str, Any] = {
-            "results": results,
-            "count": len(results),
-            "query": query,
-            **self._pagination(total, len(results), limit, offset),
-        }
-        self._lean_list(out, results, release, response_mode)
-        return out
+        return total, False
 
     # -- gene-scoped views -----------------------------------------------------
 
@@ -358,7 +425,7 @@ class ClinVarService:
                 "gene_symbol": gene_symbol,
                 "results": [],
                 "count": 0,
-                **self._pagination(0, 0, limit, offset),
+                **self._pagination(0, False, limit, offset),
             }
         rows = await asyncio.to_thread(
             self.repo.variants_by_gene,
@@ -371,11 +438,12 @@ class ClinVarService:
         )
         release = await self._release_date()
         results = [self._to_projected(row, release, response_mode) for row in rows]
+        has_more = (offset + len(results)) < total
         out: dict[str, Any] = {
             "gene_symbol": gene_symbol,
             "results": results,
             "count": len(results),
-            **self._pagination(total, len(results), limit, offset),
+            **self._pagination(total, has_more, limit, offset),
         }
         self._lean_list(out, results, release, response_mode)
         return out
@@ -383,22 +451,25 @@ class ClinVarService:
     # -- shaping helpers -------------------------------------------------------
 
     @staticmethod
-    def _pagination(total: int, returned: int, limit: int, offset: int) -> dict[str, Any]:
-        """Build the shared pagination block so callers can detect truncation.
-
-        ``total_count`` is the full match count (independent of the page);
-        ``has_more`` / ``next_offset`` tell the caller whether — and from where —
-        to fetch the next page without guessing from ``count == limit``.
-        """
-        consumed = offset + returned
-        has_more = consumed < total
-        return {
+    def _pagination(
+        total: int | None,
+        has_more: bool,
+        limit: int,
+        offset: int,
+        *,
+        capped: bool = False,
+    ) -> dict[str, Any]:
+        """Pagination block. ``total`` may be None when the caller skipped counting."""
+        block: dict[str, Any] = {
             "total_count": total,
             "limit": limit,
             "offset": offset,
             "has_more": has_more,
-            "next_offset": consumed if has_more else None,
+            "next_offset": (offset + limit) if has_more else None,
         }
+        if capped:
+            block["total_count_capped"] = True
+        return block
 
     @staticmethod
     def _lean_list(
