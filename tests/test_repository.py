@@ -130,6 +130,36 @@ def test_get_by_hgvs_resolves_canonical_nucleotide_after_lean_build(repo):
     assert repo.get_by_hgvs("p.Gln1756fs") is None
 
 
+def test_get_by_hgvs_resolves_gene_unqualified_nucleotide(repo):
+    # A clean transcript-qualified HGVS that OMITS the (GENE) qualifier resolves
+    # on the first call: the stored canonical key is
+    # "NM_007294.4(BRCA1):c.5266dupC" but a caller naturally writes
+    # "NM_007294.4:c.5266dupC". Gene-insensitive matching bridges the gap so an
+    # agent does not need a search_variants -> get_variant detour.
+    v = repo.get_by_hgvs("NM_007294.4:c.5266dupC")
+    assert v is not None and v["variation_id"] == 100001
+    # Case-insensitive too.
+    assert repo.get_by_hgvs("nm_007294.4:C.5266DUPC")["variation_id"] == 100001
+
+
+def test_get_by_hgvs_gene_unqualified_no_false_positive(repo):
+    # A well-formed but absent change on a real transcript must still miss; the
+    # gene-insensitive fallback widens the gene, never the change.
+    assert repo.get_by_hgvs("NM_007294.4:c.9999A>T") is None
+
+
+def test_count_search_matches_result_total(repo):
+    # count_search returns the full match total independent of limit/offset, so
+    # the service can expose total_count / has_more pagination metadata.
+    total = repo.count_search("AP5Z1")
+    assert total == 5
+    page = repo.search("AP5Z1", limit=2, offset=0)
+    assert len(page) == 2 and total > len(page)
+    # Filters narrow the count consistently with the listing.
+    path_total = repo.count_search("AP5Z1", classification="pathogenic")
+    assert 0 < path_total <= total
+
+
 def test_get_by_hgvs_resolves_hgvs4variation_forms(repo_with_hgvs):
     # After ingesting hgvs4variation, get_by_hgvs resolves the full Nucleotide
     # expression and the full protein expression to the VariationID.
@@ -195,6 +225,17 @@ def test_variants_by_gene_count_and_filters(repo):
 def test_variants_by_gene_sort_default(repo):
     listed = repo.variants_by_gene("MLH1")
     assert listed == sorted(listed, key=lambda x: -x["star_rating"])
+
+
+def test_variants_by_gene_sort_stars_asc(repo):
+    asc = repo.variants_by_gene("AP5Z1", sort="stars_asc", limit=100)
+    assert asc == sorted(asc, key=lambda x: x["star_rating"])
+
+
+def test_variants_by_gene_sort_name(repo):
+    by_name = repo.variants_by_gene("AP5Z1", sort="name", limit=100)
+    names = [r.get("name") or "" for r in by_name]
+    assert names == sorted(names, key=str.lower)
 
 
 def test_gene_summary_and_meta(repo):

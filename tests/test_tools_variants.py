@@ -24,6 +24,12 @@ async def test_get_variant_by_vcv(mcp):
     assert out["_meta"]["next_commands"]
 
 
+async def test_meta_carries_freshness(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
+    assert isinstance(out["_meta"]["age_days"], int)
+    assert isinstance(out["_meta"]["past_ttl"], bool)
+
+
 async def test_get_variant_by_rsid(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "rs80357906"})
     assert out["success"] is True
@@ -50,6 +56,37 @@ async def test_response_mode_minimal_trims_keys(mcp):
     full_payload = set(full) - envelope_keys
     assert minimal_payload < full_payload
     assert "coordinates" not in minimal and "coordinates" in full
+
+
+async def test_get_variant_resolves_gene_unqualified_hgvs(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "NM_007294.4:c.5266dupC"})
+    assert out["success"] is True
+    assert out["variation_id"] == 100001
+
+
+async def test_get_variants_batch_tool(mcp):
+    out = await call_tool(mcp, "get_variants", {"identifiers": ["VCV000100001", "VCV999999999"]})
+    assert out["success"] is True
+    assert out["requested"] == 2
+    assert out["found_count"] == 1
+    assert len(out["results"]) == 2
+    assert out["_meta"]["next_commands"]
+    assert out["_meta"]["request_id"]
+
+
+async def test_get_variant_garbage_returns_invalid_input(mcp):
+    out = await call_tool(mcp, "get_variant", {"identifier": "@@bad@@"})
+    assert out["success"] is False and out["error_code"] == "invalid_input"
+
+
+async def test_search_rejects_nonpositive_limit(mcp):
+    out = await call_tool(mcp, "search_variants", {"query": "BRCA1", "limit": 0})
+    assert out["success"] is False and out["error_code"] == "invalid_input"
+
+
+async def test_search_blank_query_returns_invalid_input(mcp):
+    out = await call_tool(mcp, "search_variants", {"query": "  "})
+    assert out["success"] is False and out["error_code"] == "invalid_input"
 
 
 async def test_search_variants_returns_results_and_next_commands(mcp):

@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 from pydantic import ValidationError as PydanticValidationError
 
+from clinvar_link.config import settings
 from clinvar_link.exceptions import (
     ClinVarDataError,
     ClinVarServerError,
@@ -23,6 +26,7 @@ from clinvar_link.exceptions import (
     ToolInputError,
 )
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
+from clinvar_link.mcp.freshness import clinvar_freshness
 from clinvar_link.mcp.resources import CLINVAR_DATA_RELEASE
 
 logger = logging.getLogger(__name__)
@@ -36,14 +40,6 @@ _RECENT_ERRORS: deque[dict[str, Any]] = deque(maxlen=RECENT_MCP_ERROR_LIMIT)
 RECENT_SCHEMA_DRIFT_LIMIT = 25
 _RECENT_SCHEMA_DRIFT: deque[dict[str, Any]] = deque(maxlen=RECENT_SCHEMA_DRIFT_LIMIT)
 
-# Base `_meta` block merged into every success and error envelope. The
-# `clinvar_release` value lets LLM callers cite the upstream data version
-# alongside the research-use disclaimer.
-_BASE_META = {
-    "unsafe_for_clinical_use": True,
-    "clinvar_release": CLINVAR_DATA_RELEASE,
-}
-
 # Fallback tool used in validation and error envelopes. Points to
 # get_server_capabilities for the discovery surface on error recovery.
 _FALLBACK_TOOL = "get_server_capabilities"
@@ -51,12 +47,18 @@ _FALLBACK_TOOL = "get_server_capabilities"
 
 @dataclass
 class McpErrorContext:
-    """Per-call context passed to the error builder so envelopes can suggest fallbacks."""
+    """Per-call context passed to the error builder so envelopes can suggest fallbacks.
+
+    ``request_id`` correlates a response to server-side logs/traces. It is
+    accepted from the client for idempotency/correlation and minted server-side
+    when absent (see :func:`run_mcp_tool`).
+    """
 
     tool_name: str
     variant_id: str | None = None
     gene_symbol: str | None = None
     query: str | None = None
+    request_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,16 +73,26 @@ class McpToolError(Exception):
 def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
     """Base ``_meta`` provenance merged into every success and error envelope.
 
-    Always carries the research-use flag and ClinVar release label. Once the
-    first capabilities call has read the live release date from the DB meta, it
-    is pinned on every envelope so an LLM citing a ClinVar classification can
-    name the version that produced it. Omitted while still unknown to avoid
-    null noise.
+    Always carries the research-use flag and ClinVar release label. The
+    ``clinvar_release`` version identifier is derived from the same live release
+    date the cache holds, so it is never ``"unknown"`` once the first
+    capabilities call has primed the date; only before priming does it fall back
+    to the static sentinel. ``clinvar_release_date`` is omitted while still
+    unknown to avoid null noise. ``request_id`` (when set on the context)
+    correlates the response to server-side logs/traces.
     """
-    meta: dict[str, Any] = dict(_BASE_META)
     clinvar_date = get_cached_clinvar_release_date()
+    meta: dict[str, Any] = {
+        "unsafe_for_clinical_use": True,
+        "clinvar_release": clinvar_date if clinvar_date else CLINVAR_DATA_RELEASE,
+    }
     if clinvar_date is not None:
         meta["clinvar_release_date"] = clinvar_date
+        fresh = clinvar_freshness(clinvar_date, settings.REFRESH_TTL_DAYS)
+        if fresh is not None:
+            meta.update(fresh)
+    if context is not None and context.request_id:
+        meta["request_id"] = context.request_id
     return meta
 
 
@@ -354,6 +366,16 @@ def clear_recent_schema_drift() -> None:
     _RECENT_SCHEMA_DRIFT.clear()
 
 
+def _augment_meta_observability(
+    payload: dict[str, Any], ctx: McpErrorContext, latency_ms: float
+) -> None:
+    """Stamp request_id (if missing) and latency_ms onto an envelope's ``_meta``."""
+    meta = payload.setdefault("_meta", {})
+    if ctx.request_id and "request_id" not in meta:
+        meta["request_id"] = ctx.request_id
+    meta["latency_ms"] = latency_ms
+
+
 async def run_mcp_tool(
     tool_name: str,
     call: Callable[[], Awaitable[dict[str, Any]]],
@@ -364,19 +386,38 @@ async def run_mcp_tool(
 
     Returning the envelope (rather than raising) means the LLM sees a structured
     failure instead of an `isError: true` MCP response with an opaque message.
+    Every response — success or error — carries an observability ``_meta`` block
+    (``request_id``, ``latency_ms``) and a structured server-side log line keyed
+    by ``tool`` + ``request_id``.
     """
     ctx = context or McpErrorContext(tool_name=tool_name)
+    if ctx.request_id is None:
+        ctx.request_id = uuid4().hex
+    start = time.perf_counter()
     try:
         result = await call()
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
         # Inject research-use meta into every successful dict response unless
         # the tool already provides _meta. A symmetric success:true flag lets
         # callers branch on `success` instead of special-casing `is False`.
         if isinstance(result, dict):
             result.setdefault("success", True)
             existing_meta: dict[str, Any] = result.get("_meta") or {}
-            result["_meta"] = {**existing_meta, **_provenance_meta(ctx)}
+            result["_meta"] = {
+                **existing_meta,
+                **_provenance_meta(ctx),
+                "latency_ms": latency_ms,
+            }
+        logger.info(
+            "mcp_tool_ok tool=%s request_id=%s latency_ms=%s",
+            tool_name,
+            ctx.request_id,
+            latency_ms,
+        )
         return result
     except McpToolError as exc:
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
+        _augment_meta_observability(exc.payload, ctx, latency_ms)
         record_mcp_error(
             tool_name=tool_name,
             error_code=exc.payload.get("error_code", "internal_error"),
@@ -385,11 +426,15 @@ async def run_mcp_tool(
         )
         return exc.payload
     except Exception as exc:  # broad catch is the error-boundary contract
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
         wrapped = mcp_tool_error(exc, ctx)
+        _augment_meta_observability(wrapped.payload, ctx, latency_ms)
         logger.warning(
-            "mcp_tool_error tool=%s code=%s exc=%s",
+            "mcp_tool_error tool=%s code=%s request_id=%s latency_ms=%s exc=%s",
             tool_name,
             wrapped.payload["error_code"],
+            ctx.request_id,
+            latency_ms,
             exc.__class__.__name__,
         )
         record_mcp_error(

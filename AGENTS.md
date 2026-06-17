@@ -34,7 +34,7 @@ directory map.
 - **Citation contract:** every variant/gene result carries a
   `recommended_citation` and the ClinVar release date in `_meta`. Builders live
   in `services/citation.py`. Paste citations verbatim; never fabricate.
-- **Keep the five-tool surface in lockstep:** `mcp/tools/` (registered),
+- **Keep the six-tool surface in lockstep:** `mcp/tools/` (registered),
   `mcp/facade.py`, and `mcp/resources._TOOLS` must agree.
 
 ## Data plane

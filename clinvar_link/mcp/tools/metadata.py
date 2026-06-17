@@ -14,7 +14,7 @@ from clinvar_link.mcp.clinvar_date_cache import (
     has_cached_clinvar_release_date,
     set_cached_clinvar_release_date,
 )
-from clinvar_link.mcp.errors import run_mcp_tool
+from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
 from clinvar_link.mcp.resources import (
     RESEARCH_USE_NOTICE,
     get_capabilities_resource,
@@ -37,12 +37,13 @@ def register_metadata_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinV
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"metadata"},
     )
-    async def get_server_capabilities() -> dict[str, Any]:
-        """Use this for orientation in a new session: the supported tool surface, response modes, recommended workflows, the live ClinVar release date, error codes, and current limitations. Returns ~3kB."""
+    async def get_server_capabilities(request_id: str | None = None) -> dict[str, Any]:
+        """Use this for orientation in a new session: the supported tool surface, response modes, recommended workflows, the live ClinVar release date, error codes, and current limitations. Returns ~3kB. Pass request_id to correlate the response with server logs."""
 
         return await run_mcp_tool(
             "get_server_capabilities",
             lambda: _coro_capabilities(service_factory),
+            context=McpErrorContext(tool_name="get_server_capabilities", request_id=request_id),
         )
 
     @mcp.resource(

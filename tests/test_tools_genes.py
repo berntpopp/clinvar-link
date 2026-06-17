@@ -30,10 +30,17 @@ async def test_gene_summary_not_found_returns_envelope(mcp):
     assert out["error_code"] == "not_found"
 
 
+async def test_variants_by_gene_empty_filter_envelope_success(mcp):
+    out = await call_tool(mcp, "get_variants_by_gene", {"gene_symbol": "BRCA1", "min_stars": 5})
+    assert out["success"] is True
+    assert out["results"] == [] and out["total_count"] == 0
+
+
 async def test_variants_by_gene_sorted_by_stars_desc(mcp):
     out = await call_tool(mcp, "get_variants_by_gene", {"gene_symbol": "BRCA1", "min_stars": 0})
     assert out["success"] is True
-    assert out["total"] >= 1
+    assert out["total_count"] >= 1
+    assert "has_more" in out
     assert out["results"]
     stars = [r["star_rating"] for r in out["results"]]
     assert stars == sorted(stars, reverse=True)

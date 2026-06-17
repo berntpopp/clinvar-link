@@ -7,7 +7,10 @@ from typing import Any
 
 from mcp.types import LATEST_PROTOCOL_VERSION as MCP_PROTOCOL_VERSION
 
+from clinvar_link.config import settings
+from clinvar_link.data.repository import ClinVarRepository
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
+from clinvar_link.mcp.freshness import clinvar_freshness
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
 
@@ -27,6 +30,7 @@ _DATA_SOURCE_NOTE = (
 _TOOLS = [
     "get_server_capabilities",
     "get_variant",
+    "get_variants",
     "search_variants",
     "get_gene_clinvar_summary",
     "get_variants_by_gene",
@@ -41,21 +45,26 @@ def _server_version() -> str:
 
 
 def get_capabilities_resource() -> dict[str, Any]:
-    return {
+    date = get_cached_clinvar_release_date()
+    caps: dict[str, Any] = {
         "server": "clinvar-link",
         "server_version": _server_version(),
         "mcp_protocol_version": MCP_PROTOCOL_VERSION,
-        "clinvar_release": CLINVAR_DATA_RELEASE,
+        # Version label derived from the same live release date; falls back to
+        # the static sentinel only before the date cache has been primed.
+        "clinvar_release": date or CLINVAR_DATA_RELEASE,
         # Echoes the process-cached live ClinVar release date once the first
         # get_server_capabilities tool call has read it from the DB meta; None
         # until then (the sync resource handler never touches the DB itself).
-        "clinvar_release_date": get_cached_clinvar_release_date(),
+        "clinvar_release_date": date,
         "research_use_only": True,
         "data_source": _DATA_SOURCE_NOTE,
         "tools": list(_TOOLS),
         "response_modes": ["minimal", "compact", "standard", "full"],
+        "sort_options": sorted(ClinVarRepository.SORT_ORDERS),
         "recommended_workflows": [
             "VCV / rsID / HGVS / AlleleID -> get_variant",
+            "several identifiers at once -> get_variants (one batched call)",
             "free text / gene + change -> search_variants -> get_variant",
             "gene symbol -> get_gene_clinvar_summary (classification landscape)",
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
@@ -66,10 +75,13 @@ def get_capabilities_resource() -> dict[str, Any]:
             "internal_error",
         ],
         "output_cheatsheet": {
-            "classification_field": "clinical_significance",
+            "classification_field": "classification",
+            "raw_clinical_significance_field": "clinical_significance",
             "review_status_field": "review_status",
-            "star_rating_field": "gold_stars",
-            "variant_id_field": "vcv_id",
+            "star_rating_field": "star_rating",
+            "variant_accession_field": "vcv_accession",
+            "variation_id_field": "variation_id",
+            "citation_field": "recommended_citation",
             "next_commands_field": "_meta.next_commands",
         },
         "limitations": [
@@ -83,6 +95,7 @@ def get_capabilities_resource() -> dict[str, Any]:
             "recommended_entrypoint": "get_server_capabilities",
             "core_workflow_tools": [
                 "get_variant",
+                "get_variants",
                 "search_variants",
                 "get_gene_clinvar_summary",
                 "get_variants_by_gene",
@@ -95,6 +108,10 @@ def get_capabilities_resource() -> dict[str, Any]:
             "clinvar://research-use": "research-use-only notice",
         },
     }
+    fresh = clinvar_freshness(date, settings.REFRESH_TTL_DAYS) if date else None
+    if fresh is not None:
+        caps["data_freshness"] = fresh
+    return caps
 
 
 def get_usage_resource() -> str:
@@ -108,7 +125,9 @@ def get_usage_resource() -> str:
         "- ClinVar AlleleID (integer)\n\n"
         "If the identifier does not resolve, call `search_variants` with the gene "
         "symbol plus the change (or free text) to locate the matching record, then "
-        "re-call `get_variant` with the returned `vcv_id`.\n\n"
+        "re-call `get_variant` with the returned `vcv_accession`.\n\n"
+        "Resolving several variants at once? Call `get_variants(identifiers=[...])` "
+        "to batch the lookups into a single round-trip.\n\n"
         "## Summarize a gene\n"
         "Call `get_gene_clinvar_summary(gene_symbol=...)` for the classification "
         "landscape (counts by clinical significance and review-status star rating). "
@@ -118,7 +137,8 @@ def get_usage_resource() -> str:
         "`minimal | compact | standard | full`. Compact is the default; start there "
         "and widen to `full` only for debugging or full submitter context.\n\n"
         "## Citation contract\n"
-        "Every classification you report MUST cite the ClinVar record (`vcv_id`) and "
+        "Every classification you report MUST cite the ClinVar record "
+        "(`vcv_accession`) and "
         "the data release echoed in `_meta.clinvar_release` / "
         "`_meta.clinvar_release_date`. Canonical source: "
         "ClinVar (NCBI). https://www.ncbi.nlm.nih.gov/clinvar/.\n\n"
@@ -139,7 +159,7 @@ def get_license_resource() -> dict[str, Any]:
         "attribution": "National Center for Biotechnology Information (NCBI), ClinVar.",
         "citation": "ClinVar (NCBI). https://www.ncbi.nlm.nih.gov/clinvar/",
         "homepage": "https://www.ncbi.nlm.nih.gov/clinvar/",
-        "clinvar_release": CLINVAR_DATA_RELEASE,
+        "clinvar_release": get_cached_clinvar_release_date() or CLINVAR_DATA_RELEASE,
         "clinvar_release_date": get_cached_clinvar_release_date(),
         "data_source_note": _DATA_SOURCE_NOTE,
         "research_use_only": True,

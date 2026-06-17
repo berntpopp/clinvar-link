@@ -51,7 +51,7 @@ ingest (download → two-pass parse → atomic build)   clinvar_link/ingest/
   `response_mode`. **Returns plain dicts.**
 - **MCP** (`mcp/`): `facade.py` builds the `FastMCP` server
   (`mask_error_details=True`); `tools/{variants,genes,metadata}.py` register the
-  five tools and build `_meta.next_commands`; `errors.py` wraps each call in
+  six tools and build `_meta.next_commands`; `errors.py` wraps each call in
   `run_mcp_tool` (success/`_meta` envelope, exceptions → typed error dicts);
   `resources.py` serves capabilities/usage/license/research-use;
   `annotations.py` provides `READ_ONLY_OPEN_WORLD`; `prompts.py`,
@@ -99,8 +99,21 @@ docker/                     # Dockerfile, compose, entrypoint, README
 - **Error envelope:** errors are returned as typed dicts, never raised to the
   client. Taxonomy: `not_found`, `invalid_input`, `internal_error` (kept in sync
   with `mcp/resources.get_capabilities_resource` `error_codes`).
+- **Input validation (service-owned):** malformed input is `invalid_input`, not a
+  silent dump or a false `not_found`. Pagination bounds are clamped
+  (`limit` → `[1, MAX_PAGE_SIZE]`, `offset ≥ 0`) and the two list tools also carry
+  `Field(ge=…)` constraints; `id_type` and `sort` are allow-listed
+  (`_ID_TYPES`, `ClinVarRepository.SORT_ORDERS` — the latter advertised as
+  `sort_options` in capabilities); a blank `query` with no filter is rejected; a
+  recognized-but-absent identifier stays `not_found`. An over-restrictive gene
+  filter returns empty success, not `not_found`.
+- **Freshness signal:** `mcp/freshness.py:clinvar_freshness` derives
+  `{age_days, past_ttl}` (vs `REFRESH_TTL_DAYS`) from the cached release date;
+  merged into `_meta` (every response) and capabilities (`data_freshness`).
 - **Tools:** every tool declares `annotations=READ_ONLY_OPEN_WORLD` and carries
-  `_meta.next_commands`. Keep the five-tool surface in lockstep between
+  `_meta.next_commands`. Keep the six-tool surface (`get_variant`,
+  `get_variants` batch, `search_variants`, `get_gene_clinvar_summary`,
+  `get_variants_by_gene`, `get_server_capabilities`) in lockstep between
   `mcp/tools/` (registered), `mcp/facade.py`, and `mcp/resources._TOOLS`.
 - **Citation contract:** every variant/gene result carries a
   `recommended_citation` and the ClinVar release date in `_meta`. Builders are in
