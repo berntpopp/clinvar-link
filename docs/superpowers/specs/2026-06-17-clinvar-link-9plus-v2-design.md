@@ -91,10 +91,11 @@ that. This spec defines the work to push the server past 9/10 across
   echo `match_mode ∈ {and, or_fallback, or}`.
 - **Override:** optional `match_mode` request param (default smart
   `and`→or-fallback; allow forcing `and` or `or`).
-- **Tiered count (PostgREST pattern):** `count_mode ∈ {exact, estimated,
-  none}`. Default = exact **up to a threshold** (e.g. `COUNT_EXACT_MAX = 1000`);
-  beyond it return the capped value with `total_count_capped: true`. `has_more`
-  always derived from a `limit+1` fetch (never needs a count).
+- **Tiered count (PostgREST pattern):** `count_mode ∈ {exact, none}`. `exact`
+  self-caps at a threshold (`_SEARCH_COUNT_EXACT_MAX = 1000`); beyond it returns
+  the capped value with `total_count_capped: true` (this supersedes a separate
+  `estimated` mode). `none` skips counting entirely. `has_more` is always derived
+  from a `limit+1` fetch (never needs a count).
 - **Files:** `data/repository.py` (`_fts_query`, search, `count_search`),
   `services/clinvar_service.py`, `mcp/tools/variants.py` (params), tests.
 - **Basis:** FTS5 implicit-AND default + BM25; PostgREST count tiers;
