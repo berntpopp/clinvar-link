@@ -132,6 +132,11 @@ claude mcp add --transport http clinvar-link --scope user http://127.0.0.1:8000/
 
 ## Tools
 
+Tool names are unprefixed (`get_variant`, not `clinvar_get_variant`): namespacing
+is the gateway's job. This server's `serverInfo.name` is `clinvar-link`, and the
+GeneFoundry router mounts it under the namespace token **`clinvar`**, so leaf
+`get_variant` surfaces as `clinvar_get_variant` at the gateway.
+
 All tools are `READ_ONLY_OPEN_WORLD`. `response_mode ∈ {minimal, compact,
 standard, full}` controls payload size (default `compact`). Errors are returned
 as a typed envelope (never raised), and every response carries
