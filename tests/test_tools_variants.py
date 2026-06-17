@@ -78,6 +78,11 @@ async def test_search_rejects_nonpositive_limit(mcp):
     assert out["success"] is False and out["error_code"] == "invalid_input"
 
 
+async def test_search_blank_query_returns_invalid_input(mcp):
+    out = await call_tool(mcp, "search_variants", {"query": "  "})
+    assert out["success"] is False and out["error_code"] == "invalid_input"
+
+
 async def test_search_variants_returns_results_and_next_commands(mcp):
     out = await call_tool(mcp, "search_variants", {"query": "BRCA1", "limit": 5})
     assert out["success"] is True

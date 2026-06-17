@@ -180,3 +180,13 @@ async def test_get_variants_batch_unknown_id_type_is_invalid_input(service):
 async def test_variants_by_gene_unknown_sort_is_invalid_input(service):
     with pytest.raises(ToolInputError):
         await service.get_variants_by_gene("BRCA1", sort="banana")
+
+
+async def test_search_blank_query_without_filter_is_invalid_input(service):
+    with pytest.raises(ToolInputError):
+        await service.search_variants("   ")
+
+
+async def test_search_blank_query_with_filter_is_allowed(service):
+    out = await service.search_variants("", gene_symbol="TTN")
+    assert out["count"] >= 1

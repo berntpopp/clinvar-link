@@ -266,6 +266,11 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """Free-text search returning projected variant dicts plus pagination."""
+        has_filter = bool(gene_symbol or classification or min_stars is not None)
+        if not (query or "").strip() and not has_filter:
+            raise ToolInputError(
+                "query is required; to list a gene's variants use get_variants_by_gene"
+            )
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
         rows = await asyncio.to_thread(
