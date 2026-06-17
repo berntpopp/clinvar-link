@@ -24,6 +24,9 @@ def test_output_cheatsheet_field_names_match_real_output():
     assert cheats["classification_field"] == "classification"
     assert cheats["star_rating_field"] == "star_rating"
     assert cheats["variant_accession_field"] == "vcv_accession"
+    # The only envelope-path entry must name the real _meta.next_commands path, so
+    # a typo there (silently skipped by the model-field loop above) is still caught.
+    assert cheats["next_commands_field"] == "_meta.next_commands"
 
 
 def test_capabilities_advertises_sort_options():
