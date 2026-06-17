@@ -133,3 +133,16 @@ async def test_search_negative_limit_is_clamped_not_unbounded(service):
 async def test_variants_by_gene_negative_offset_clamped(service):
     out = await service.get_variants_by_gene("BRCA1", min_stars=0, offset=-5)
     assert out["offset"] == 0
+
+
+async def test_variants_by_gene_empty_filter_is_success_not_error(service):
+    # Existing gene + impossible filter (min_stars above the 0-4 range) -> empty
+    # success, NOT a not_found error.
+    out = await service.get_variants_by_gene("BRCA1", min_stars=5)
+    assert out["gene_symbol"].upper() == "BRCA1"
+    assert out["results"] == [] and out["count"] == 0 and out["total_count"] == 0
+
+
+async def test_variants_by_gene_unknown_gene_still_not_found(service):
+    with pytest.raises(DataNotFoundError):
+        await service.get_variants_by_gene("NOTAGENE")

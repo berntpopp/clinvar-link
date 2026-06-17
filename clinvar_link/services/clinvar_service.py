@@ -322,7 +322,17 @@ class ClinVarService:
             min_stars=min_stars,
         )
         if total == 0:
-            raise DataNotFoundError(f"No ClinVar variants for gene {gene_symbol!r}")
+            gene_total = await asyncio.to_thread(self.repo.count_variants_by_gene, gene_symbol)
+            if gene_total == 0:
+                raise DataNotFoundError(f"No ClinVar variants for gene {gene_symbol!r}")
+            # Gene exists; the filter simply excluded everything -> empty success
+            # (consistent with search_variants and out-of-range offset).
+            return {
+                "gene_symbol": gene_symbol,
+                "results": [],
+                "count": 0,
+                **self._pagination(0, 0, limit, offset),
+            }
         rows = await asyncio.to_thread(
             self.repo.variants_by_gene,
             gene_symbol,
