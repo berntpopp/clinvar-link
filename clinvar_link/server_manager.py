@@ -128,7 +128,8 @@ class UnifiedServerManager:
                     release_date = meta.get("release_date")
             return {
                 "status": "healthy",
-                "transport": self._current_transport,
+                "version": __version__,
+                "transport": "streamable-http-stateless",
                 "clinvar_release_date": release_date,
             }
 
