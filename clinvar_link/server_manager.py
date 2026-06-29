@@ -106,10 +106,14 @@ class UnifiedServerManager:
             openapi_url="/openapi.json" if enable_docs else None,
         )
         app.add_middleware(CorrelationIdMiddleware)
+        cors_origins = settings.cors_origins_list
+        # Never pair wildcard origins with credentials: browsers reject that
+        # combination and it is a CORS anti-pattern (reflected-origin credential
+        # exposure). Allow credentials only when an explicit allowlist is set.
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=settings.cors_origins_list,
-            allow_credentials=True,
+            allow_origins=cors_origins,
+            allow_credentials=cors_origins != ["*"],
             allow_methods=["*"],
             allow_headers=["*"],
         )
