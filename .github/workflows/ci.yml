@@ -17,13 +17,14 @@ jobs:
   quality:
     name: Format, lint, typecheck, tests, and coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
@@ -33,13 +34,15 @@ jobs:
           enable-cache: true
           version: "0.8.7"
 
-      # Tests run against the committed fixture (tests/fixtures/), so CI never
-      # downloads the multi-gigabyte ClinVar bulk release.
       - name: Install dependencies
         run: uv sync --group dev --frozen
 
-      - name: Run local CI checks
+      # Static checks + a single parallel test run (xdist). Fast feedback on every PR.
+      - name: Run CI checks (format, lint, typecheck, tests)
         run: make ci-local
 
-      - name: Run coverage
+      # Coverage gate runs only on push to main to avoid a second full test run on
+      # every PR iteration (concurrency-cancel + this split are the compute savers).
+      - name: Coverage gate
+        if: github.event_name == 'push'
         run: make test-cov
