@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from fastmcp import FastMCP
 
+from clinvar_link import __version__
 from clinvar_link.mcp.errors import install_validation_error_handler
 from clinvar_link.mcp.output_validation import install_output_validation_error_handler
 from clinvar_link.mcp.prompts import register_workflow_prompts
@@ -54,6 +55,7 @@ def create_clinvar_mcp(
 
     mcp = FastMCP(
         name="clinvar-link",
+        version=__version__,
         instructions=_INSTRUCTIONS,
         mask_error_details=True,
     )
