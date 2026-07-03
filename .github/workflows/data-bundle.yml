@@ -1,0 +1,104 @@
+name: Data bundle
+
+# Automate what was a manual operator step: build the ClinVar SQLite index from the
+# current NCBI variant_summary dump and publish it as a `bundle-<YYYY-MM-DD>` GitHub
+# Release, so the runtime bundle (BUNDLE_URL=latest) stays fresh on its own.
+#
+# `clinvar-link-data publish --build` owns the whole producer path — download +
+# build the index, pack the `.zst` + `.sha256`, and idempotently create/upload the
+# `bundle-<YYYY-MM-DD>` Release via `gh`. This workflow just schedules it and guards
+# against a wasted ~5 GB rebuild when the newest Release is already at/after the
+# upstream dump date.
+
+on:
+  schedule:
+    # Fridays 05:37 UTC — after NCBI's Thursday weekly ClinVar refresh (offset from
+    # the other scheduled jobs in this repo).
+    - cron: "37 5 * * 5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build and publish even if a Release is already current."
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: data-bundle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: Build and publish SQLite bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # create/upload GitHub Releases
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Free disk space
+        # The build needs ~7 GB free (~950 MB download + ~4.8 GB SQLite + ~1 GB .zst);
+        # drop preinstalled toolchains the runner does not need for this job.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          version: "0.8.7"
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Decide whether a rebuild is needed
+        id: decide
+        run: |
+          set -euo pipefail
+          url="https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
+          lm="$(curl -sIL "$url" | tr -d '\r' | awk -F': ' 'tolower($1)=="last-modified"{v=$2} END{print v}')"
+          if [ -z "$lm" ]; then
+            echo "::warning::Could not read upstream Last-Modified; proceeding with a build."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          upstream="$(date -u -d "$lm" +%Y-%m-%d)"
+          echo "Upstream variant_summary dated: $upstream"
+          latest="$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName \
+            --jq '[.[].tagName | select(startswith("bundle-")) | ltrimstr("bundle-")] | sort | last // ""')"
+          echo "Latest published bundle date: ${latest:-<none>}"
+          if [ "${{ inputs.force }}" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "force=true -> publishing regardless."
+            exit 0
+          fi
+          # Skip only when an equal-or-newer bundle already exists (lexical YYYY-MM-DD compare).
+          if [[ -n "$latest" && ! "$latest" < "$upstream" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Latest bundle ($latest) is already >= upstream ($upstream) - nothing to do."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream ($upstream) is newer than latest bundle (${latest:-none}) - rebuilding."
+          fi
+
+      - name: Build and publish bundle
+        if: ${{ steps.decide.outputs.publish == 'true' }}
+        run: uv run clinvar-link-data publish --build --repo "${{ github.repository }}"
+
+      - name: Show latest releases
+        if: ${{ steps.decide.outputs.publish == 'true' }}
+        run: gh release list --repo "${{ github.repository }}" --limit 3
