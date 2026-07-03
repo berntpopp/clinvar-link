@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clinvar-link"
-dynamic = ["version"]
+version = "0.2.2"
 description = "MCP server grounding variant-pathogenicity questions in NCBI ClinVar."
 readme = "README.md"
 authors = [{ name = "Bernt Popp" }]
@@ -67,11 +67,10 @@ Homepage = "https://github.com/berntpopp/clinvar-link"
 Repository = "https://github.com/berntpopp/clinvar-link"
 Issues = "https://github.com/berntpopp/clinvar-link/issues"
 
-# Single source of truth for the version: clinvar_link/__init__.py (__version__).
-# Keep this in sync with the git release tag; .github/workflows/release.yml
-# fails the release if the tag and this version diverge.
-[tool.hatch.version]
-path = "clinvar_link/__init__.py"
+# Single source of truth for the version: [project].version above. The package
+# exposes it as clinvar_link.__version__ by reading the installed distribution
+# metadata (see clinvar_link/__init__.py). Keep [project].version in sync with
+# the git release tag.
 
 # Ship the SQLite schema + review-status YAML as package data. hgnc-link relies
 # on hatchling's default inclusion of non-.py files inside the package dir
