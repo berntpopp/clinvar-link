@@ -53,16 +53,15 @@ def actionable_output_validation_error(
     record_mcp_error(
         tool_name=tool_name,
         error_code="output_validation_failed",
-        message=payload["message"],
-        raw_message=message,
+        exc_type="OutputValidationError",
     )
     # Also surface the event on the dedicated schema-drift ring so an LLM
     # hitting the output_validation_failed envelope can inspect which
-    # fields/tools are drifting.
+    # fields/tools are drifting. Only the parsed schema field is retained; the
+    # raw SDK validation string is dropped (it can echo user identifiers).
     record_schema_drift(
         tool_name=tool_name,
         error_field=error_field,
-        message=message,
     )
     return payload
 
