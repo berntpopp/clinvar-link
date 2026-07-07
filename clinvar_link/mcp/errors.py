@@ -301,8 +301,7 @@ def install_validation_error_handler(mcp_server: Any) -> None:
                 record_mcp_error(
                     tool_name=str(getattr(_tool, "name", "unknown")),
                     error_code="invalid_input",
-                    message=envelope["message"],
-                    raw_message=str(exc),
+                    exc_type=exc.__class__.__name__,
                 )
                 convert_result = getattr(_tool, "convert_result", None)
                 if callable(convert_result):
@@ -341,13 +340,21 @@ def mcp_tool_error(exc: BaseException, context: McpErrorContext) -> McpToolError
     return McpToolError(payload)
 
 
-def record_mcp_error(*, tool_name: str, error_code: str, message: str, raw_message: str) -> None:
+def record_mcp_error(*, tool_name: str, error_code: str, exc_type: str) -> None:
+    """Append a business-error event to the bounded diagnostics ring.
+
+    Stores only low-cardinality, non-PII fields: the tool name, the classified
+    ``error_code``, and the exception *type* name. Raw exception text (and the
+    derived envelope ``message``) is deliberately NOT retained — it can embed
+    user-supplied identifiers (VCV / rsID / HGVS / free-text queries) that may be
+    GDPR Art. 9 patient-derived data, and this ring is readable back as
+    diagnostics.
+    """
     _RECENT_ERRORS.append(
         {
             "tool_name": tool_name,
             "error_code": error_code,
-            "message": message,
-            "raw_message": raw_message[:500],
+            "exc_type": exc_type,
         }
     )
 
@@ -360,19 +367,26 @@ def clear_recent_errors() -> None:
     _RECENT_ERRORS.clear()
 
 
-def record_schema_drift(*, tool_name: str, error_field: str | None, message: str) -> None:
+_SCHEMA_DRIFT_MESSAGE = "Tool response did not match its declared MCP output schema."
+
+
+def record_schema_drift(*, tool_name: str, error_field: str | None) -> None:
     """Append an output-schema-drift event to the bounded ring.
 
     Separate from record_mcp_error so an LLM can distinguish business errors
     (not_found, invalid_input) from infrastructure events (a stored row no
     longer matches our declared output_schema, which usually means we need to
     widen a model).
+
+    Stores only the parsed ``error_field`` (a schema property name) plus a fixed
+    message; the raw SDK validation string is NOT retained because it can echo
+    user-supplied identifiers into this readable-back diagnostics ring.
     """
     _RECENT_SCHEMA_DRIFT.append(
         {
             "tool_name": tool_name,
             "error_field": error_field,
-            "message": message[:300],
+            "message": _SCHEMA_DRIFT_MESSAGE,
         }
     )
 
@@ -440,8 +454,7 @@ async def run_mcp_tool(
         record_mcp_error(
             tool_name=tool_name,
             error_code=exc.payload.get("error_code", "internal_error"),
-            message=exc.payload.get("message", ""),
-            raw_message=str(exc),
+            exc_type=exc.__class__.__name__,
         )
         return exc.payload
     except Exception as exc:  # broad catch is the error-boundary contract
@@ -459,7 +472,6 @@ async def run_mcp_tool(
         record_mcp_error(
             tool_name=tool_name,
             error_code=wrapped.payload["error_code"],
-            message=wrapped.payload["message"],
-            raw_message=str(exc),
+            exc_type=exc.__class__.__name__,
         )
         return wrapped.payload
