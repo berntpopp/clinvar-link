@@ -261,7 +261,7 @@ wheels = [
 
 [[package]]
 name = "clinvar-link"
-version = "0.2.5"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "asgi-correlation-id" },
