@@ -53,6 +53,23 @@ def test_download_source_stream_limit_preserves_existing(tmp_path: Path) -> None
     assert list(tmp_path.glob("*.download.tmp")) == []
 
 
+@respx.mock
+def test_download_source_rejects_redirect_without_following(tmp_path: Path) -> None:
+    source = "https://ftp.ncbi.nlm.nih.gov/source.gz"
+    target = respx.get("https://evil.example/source.gz").mock(
+        return_value=httpx.Response(200, content=b"evil")
+    )
+    respx.get(source).mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/source.gz"})
+    )
+    destination = tmp_path / "source.gz"
+    destination.write_bytes(b"old-valid")
+    with pytest.raises(DownloadError, match="HTTP 302"):
+        download_source(source, destination, cache_path=tmp_path / "cache.json")
+    assert target.called is False
+    assert destination.read_bytes() == b"old-valid"
+
+
 def test_open_source_rejects_expanded_gzip_over_limit(tmp_path: Path) -> None:
     source = tmp_path / "source.txt.gz"
     with gzip.open(source, "wb") as handle:
