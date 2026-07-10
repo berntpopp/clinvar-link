@@ -54,6 +54,8 @@ _ZST_NAME = "clinvar.sqlite.zst"
 _BUNDLE_SUFFIX = ".sqlite.zst"
 _DATE_PREFIX_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 _BUNDLE_HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com"})
+_RELEASES_PER_PAGE = 5
+_MAX_RELEASE_PAGES = 20
 
 
 def _read_limited_response(
@@ -169,6 +171,43 @@ def _github_headers() -> dict[str, str]:
     }
 
 
+def _select_bundle_asset(payload: object, asset_name: str) -> tuple[str, str] | None:
+    if not isinstance(payload, dict):
+        return None
+    tag = str(payload.get("tag_name", ""))
+    assets = payload.get("assets", [])
+    if not isinstance(assets, list):
+        return None
+
+    fallback: str | None = None
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name", ""))
+        download_url = asset.get("browser_download_url")
+        if not download_url:
+            continue
+        if name == asset_name:
+            return str(download_url), tag
+        if fallback is None and name.endswith(_BUNDLE_SUFFIX):
+            fallback = str(download_url)
+    return (fallback, tag) if fallback is not None else None
+
+
+def _read_github_json(
+    client: httpx.Client, url: str, max_bytes: int, max_seconds: float | None
+) -> object:
+    with client.stream("GET", url, headers=_github_headers(), follow_redirects=False) as response:
+        response.raise_for_status()
+        return json.loads(
+            _read_limited_response(
+                response,
+                max_bytes=max_bytes,
+                max_seconds=max_seconds,
+            )
+        )
+
+
 def resolve_latest_asset(
     repo: str,
     *,
@@ -176,57 +215,47 @@ def resolve_latest_asset(
     max_bytes: int = 1 << 20,
     max_seconds: float | None = None,
 ) -> tuple[str, str]:
-    """Resolve the newest release's bundle asset for ``repo``.
+    """Resolve the newest release containing a bundle asset for ``repo``.
 
     Returns ``(browser_download_url, tag_name)`` for the asset whose name equals
     ``asset_name``; otherwise the first asset ending in ``.sqlite.zst``. Raises
     :class:`DownloadError` when the API call fails or no bundle asset exists.
     """
-    url = f"{_GITHUB_API}/repos/{repo}/releases/latest"
+    started = time.monotonic()
     try:
         with httpx.Client(follow_redirects=False, timeout=_TIMEOUT) as client:
-            with client.stream(
-                "GET", url, headers=_github_headers(), follow_redirects=False
-            ) as response:
-                response.raise_for_status()
-                payload = json.loads(
-                    _read_limited_response(
-                        response,
-                        max_bytes=max_bytes,
-                        max_seconds=max_seconds,
-                    )
+            for page in range(1, _MAX_RELEASE_PAGES + 1):
+                remaining = None
+                if max_seconds is not None:
+                    remaining = max_seconds - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise DownloadError(
+                            f"GitHub release discovery exceeded {max_seconds:g} seconds"
+                        )
+                url = (
+                    f"{_GITHUB_API}/repos/{repo}/releases?per_page={_RELEASES_PER_PAGE}&page={page}"
                 )
+                releases = _read_github_json(client, url, max_bytes, remaining)
+                if not isinstance(releases, list):
+                    break
+                for release in releases:
+                    selected = _select_bundle_asset(release, asset_name)
+                    if selected is not None:
+                        return selected
+                if len(releases) < _RELEASES_PER_PAGE:
+                    break
     except httpx.HTTPStatusError as exc:
         raise DownloadError(
-            f"GET {url} failed: HTTP {exc.response.status_code}",
+            f"GET {exc.request.url} failed: HTTP {exc.response.status_code}",
             status_code=exc.response.status_code,
         ) from exc
     except (httpx.HTTPError, json.JSONDecodeError) as exc:
-        raise DownloadError(f"GET {url} failed: {exc}") from exc
+        raise DownloadError(f"GitHub release discovery failed for {repo}: {exc}") from exc
 
-    tag = str(payload.get("tag_name", "")) if isinstance(payload, dict) else ""
-    assets = payload.get("assets", []) if isinstance(payload, dict) else []
-
-    exact: str | None = None
-    fallback: str | None = None
-    for asset in assets:
-        name = str(asset.get("name", ""))
-        download_url = asset.get("browser_download_url")
-        if not download_url:
-            continue
-        if name == asset_name:
-            exact = str(download_url)
-            break
-        if fallback is None and name.endswith(_BUNDLE_SUFFIX):
-            fallback = str(download_url)
-
-    selected = exact or fallback
-    if selected is None:
-        raise DownloadError(
-            f"no bundle asset (name '{asset_name}' or '*{_BUNDLE_SUFFIX}') "
-            f"in the latest release of {repo}"
-        )
-    return selected, tag
+    raise DownloadError(
+        f"no bundle asset (name '{asset_name}' or '*{_BUNDLE_SUFFIX}') "
+        f"in the latest {_RELEASES_PER_PAGE * _MAX_RELEASE_PAGES} releases of {repo}"
+    )
 
 
 def fetch_sibling_sha256(
