@@ -152,22 +152,24 @@ def test_pack_bundle_missing_db(tmp_path: Path) -> None:
 @respx.mock
 def test_resolve_latest_asset_picks_named_asset() -> None:
     repo = "owner/repo"
-    respx.get(f"https://api.github.com/repos/{repo}/releases/latest").mock(
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=1").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "tag_name": "bundle-2026-01-01",
-                "assets": [
-                    {
-                        "name": "other.txt",
-                        "browser_download_url": "https://dl.test/other.txt",
-                    },
-                    {
-                        "name": "clinvar.sqlite.zst",
-                        "browser_download_url": "https://dl.test/clinvar.sqlite.zst",
-                    },
-                ],
-            },
+            json=[
+                {
+                    "tag_name": "bundle-2026-01-01",
+                    "assets": [
+                        {
+                            "name": "other.txt",
+                            "browser_download_url": "https://dl.test/other.txt",
+                        },
+                        {
+                            "name": "clinvar.sqlite.zst",
+                            "browser_download_url": "https://dl.test/clinvar.sqlite.zst",
+                        },
+                    ],
+                }
+            ],
         )
     )
 
@@ -179,18 +181,20 @@ def test_resolve_latest_asset_picks_named_asset() -> None:
 @respx.mock
 def test_resolve_latest_asset_falls_back_to_suffix() -> None:
     repo = "owner/repo"
-    respx.get(f"https://api.github.com/repos/{repo}/releases/latest").mock(
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=1").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "tag_name": "bundle-x",
-                "assets": [
-                    {
-                        "name": "snapshot-2026.sqlite.zst",
-                        "browser_download_url": "https://dl.test/snapshot.sqlite.zst",
-                    },
-                ],
-            },
+            json=[
+                {
+                    "tag_name": "bundle-x",
+                    "assets": [
+                        {
+                            "name": "snapshot-2026.sqlite.zst",
+                            "browser_download_url": "https://dl.test/snapshot.sqlite.zst",
+                        },
+                    ],
+                }
+            ],
         )
     )
 
@@ -202,11 +206,68 @@ def test_resolve_latest_asset_falls_back_to_suffix() -> None:
 @respx.mock
 def test_resolve_latest_asset_no_asset_raises() -> None:
     repo = "owner/repo"
-    respx.get(f"https://api.github.com/repos/{repo}/releases/latest").mock(
-        return_value=httpx.Response(200, json={"tag_name": "v1", "assets": []})
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=1").mock(
+        return_value=httpx.Response(200, json=[])
     )
     with pytest.raises(DownloadError):
         resolve_latest_asset(repo, asset_name="clinvar.sqlite.zst")
+
+
+@respx.mock
+def test_resolve_latest_asset_skips_assetless_code_release() -> None:
+    repo = "owner/repo"
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=1").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"tag_name": "v0.2.4", "assets": []},
+                {
+                    "tag_name": "bundle-2026-07-07",
+                    "assets": [
+                        {
+                            "name": "clinvar.sqlite.zst",
+                            "browser_download_url": "https://dl.test/clinvar.sqlite.zst",
+                        }
+                    ],
+                },
+            ],
+        )
+    )
+
+    url, tag = resolve_latest_asset(repo, asset_name="clinvar.sqlite.zst")
+
+    assert url == "https://dl.test/clinvar.sqlite.zst"
+    assert tag == "bundle-2026-07-07"
+
+
+@respx.mock
+def test_resolve_latest_asset_checks_later_bounded_page() -> None:
+    repo = "owner/repo"
+    page_one = [{"tag_name": f"v1.0.{index}", "assets": []} for index in range(5)]
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=1").mock(
+        return_value=httpx.Response(200, json=page_one)
+    )
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=2").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "tag_name": "bundle-2026-01-01",
+                    "assets": [
+                        {
+                            "name": "clinvar.sqlite.zst",
+                            "browser_download_url": "https://dl.test/clinvar.sqlite.zst",
+                        }
+                    ],
+                }
+            ],
+        )
+    )
+
+    url, tag = resolve_latest_asset(repo, asset_name="clinvar.sqlite.zst")
+
+    assert url == "https://dl.test/clinvar.sqlite.zst"
+    assert tag == "bundle-2026-01-01"
 
 
 # -- fetch_sibling_sha256 ------------------------------------------------------
@@ -288,13 +349,15 @@ def test_pull_latest_happy(tmp_path: Path) -> None:
     repo = "owner/repo"
     asset_url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
 
-    respx.get(f"https://api.github.com/repos/{repo}/releases/latest").mock(
+    respx.get(f"https://api.github.com/repos/{repo}/releases?per_page=5&page=1").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "tag_name": "bundle-2026-01-01",
-                "assets": [{"name": "clinvar.sqlite.zst", "browser_download_url": asset_url}],
-            },
+            json=[
+                {
+                    "tag_name": "bundle-2026-01-01",
+                    "assets": [{"name": "clinvar.sqlite.zst", "browser_download_url": asset_url}],
+                }
+            ],
         )
     )
     respx.get(asset_url).mock(return_value=httpx.Response(200, content=zst_bytes))
