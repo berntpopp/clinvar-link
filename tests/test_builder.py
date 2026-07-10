@@ -4,16 +4,19 @@ These run entirely offline: the builder consumes the committed TSV fixture and
 the downloader test mocks NCBI with ``respx`` (a 200 then a conditional 304).
 """
 
+import gzip
 import hashlib
 import json
 import sqlite3
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
 from clinvar_link.config import Settings
-from clinvar_link.ingest.builder import build_database
+from clinvar_link.exceptions import DownloadError
+from clinvar_link.ingest.builder import _open_source, build_database
 from clinvar_link.ingest.downloader import download_source
 
 FIXTURE = Path(__file__).parent / "fixtures" / "variant_summary_sample.txt"
@@ -36,6 +39,44 @@ EXPECTED_INDEXES = {
     "idx_hgvs_norm",
     "idx_gene_index",
 }
+
+
+@respx.mock
+def test_download_source_stream_limit_preserves_existing(tmp_path: Path) -> None:
+    url = "https://ftp.ncbi.nlm.nih.gov/source.gz"
+    destination = tmp_path / "source.gz"
+    destination.write_bytes(b"old-valid")
+    respx.get(url).mock(return_value=httpx.Response(200, content=b"123456789"))
+    with pytest.raises(DownloadError, match="exceeded 8 bytes"):
+        download_source(url, destination, cache_path=tmp_path / "cache.json", max_bytes=8)
+    assert destination.read_bytes() == b"old-valid"
+    assert list(tmp_path.glob("*.download.tmp")) == []
+
+
+@respx.mock
+def test_download_source_rejects_redirect_without_following(tmp_path: Path) -> None:
+    source = "https://ftp.ncbi.nlm.nih.gov/source.gz"
+    target = respx.get("https://evil.example/source.gz").mock(
+        return_value=httpx.Response(200, content=b"evil")
+    )
+    respx.get(source).mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/source.gz"})
+    )
+    destination = tmp_path / "source.gz"
+    destination.write_bytes(b"old-valid")
+    with pytest.raises(DownloadError, match="HTTP 302"):
+        download_source(source, destination, cache_path=tmp_path / "cache.json")
+    assert target.called is False
+    assert destination.read_bytes() == b"old-valid"
+
+
+def test_open_source_rejects_expanded_gzip_over_limit(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt.gz"
+    with gzip.open(source, "wb") as handle:
+        handle.write(b"x" * 33)
+    with pytest.raises(DownloadError, match="expanded source exceeded 32 bytes"):
+        with _open_source(source, max_expanded_bytes=32) as handle:
+            handle.read()
 
 
 def test_build_dedup_and_meta(tmp_path):

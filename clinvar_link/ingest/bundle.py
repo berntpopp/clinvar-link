@@ -21,10 +21,12 @@ stays flat regardless of database size, and the final install is an atomic
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sqlite3
 import tempfile
+import time
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -34,6 +36,12 @@ import httpx
 import zstandard
 
 from clinvar_link.exceptions import DownloadError
+from clinvar_link.ingest.download_security import (
+    DownloadPolicy,
+    copy_bounded,
+    open_validated_stream,
+    stream_atomic,
+)
 
 if TYPE_CHECKING:
     from clinvar_link.config import Settings
@@ -45,6 +53,31 @@ _GITHUB_API = "https://api.github.com"
 _ZST_NAME = "clinvar.sqlite.zst"
 _BUNDLE_SUFFIX = ".sqlite.zst"
 _DATE_PREFIX_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+_BUNDLE_HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com"})
+
+
+def _read_limited_response(
+    response: httpx.Response,
+    *,
+    max_bytes: int,
+    max_seconds: float | None,
+) -> bytes:
+    raw_length = response.headers.get("Content-Length")
+    try:
+        content_length = int(raw_length) if raw_length is not None else None
+    except ValueError:
+        content_length = None
+    if content_length is not None and content_length > max_bytes:
+        raise DownloadError(f"metadata Content-Length {content_length} exceeds {max_bytes} bytes")
+    started = time.monotonic()
+    body = bytearray()
+    for chunk in response.iter_bytes(_CHUNK_SIZE):
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            raise DownloadError(f"metadata exceeded {max_bytes} bytes")
+        if max_seconds is not None and time.monotonic() - started > max_seconds:
+            raise DownloadError(f"metadata download exceeded {max_seconds:g} seconds")
+    return bytes(body)
 
 
 def _read_release_date(db_path: Path) -> str | None:
@@ -136,7 +169,13 @@ def _github_headers() -> dict[str, str]:
     }
 
 
-def resolve_latest_asset(repo: str, *, asset_name: str) -> tuple[str, str]:
+def resolve_latest_asset(
+    repo: str,
+    *,
+    asset_name: str,
+    max_bytes: int = 1 << 20,
+    max_seconds: float | None = None,
+) -> tuple[str, str]:
     """Resolve the newest release's bundle asset for ``repo``.
 
     Returns ``(browser_download_url, tag_name)`` for the asset whose name equals
@@ -145,16 +184,24 @@ def resolve_latest_asset(repo: str, *, asset_name: str) -> tuple[str, str]:
     """
     url = f"{_GITHUB_API}/repos/{repo}/releases/latest"
     try:
-        with httpx.Client(follow_redirects=True, timeout=_TIMEOUT) as client:
-            response = client.get(url, headers=_github_headers())
-            response.raise_for_status()
-            payload = response.json()
+        with httpx.Client(follow_redirects=False, timeout=_TIMEOUT) as client:
+            with client.stream(
+                "GET", url, headers=_github_headers(), follow_redirects=False
+            ) as response:
+                response.raise_for_status()
+                payload = json.loads(
+                    _read_limited_response(
+                        response,
+                        max_bytes=max_bytes,
+                        max_seconds=max_seconds,
+                    )
+                )
     except httpx.HTTPStatusError as exc:
         raise DownloadError(
             f"GET {url} failed: HTTP {exc.response.status_code}",
             status_code=exc.response.status_code,
         ) from exc
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, json.JSONDecodeError) as exc:
         raise DownloadError(f"GET {url} failed: {exc}") from exc
 
     tag = str(payload.get("tag_name", "")) if isinstance(payload, dict) else ""
@@ -182,14 +229,33 @@ def resolve_latest_asset(repo: str, *, asset_name: str) -> tuple[str, str]:
     return selected, tag
 
 
-def fetch_sibling_sha256(url: str) -> str:
+def fetch_sibling_sha256(
+    url: str,
+    *,
+    max_bytes: int = 1 << 20,
+    max_seconds: float | None = None,
+) -> str:
     """Fetch ``{url}.sha256`` and return its leading whitespace-delimited digest."""
     sha_url = f"{url}.sha256"
     try:
-        with httpx.Client(follow_redirects=True, timeout=_TIMEOUT) as client:
-            response = client.get(sha_url, headers={"User-Agent": _USER_AGENT})
-            response.raise_for_status()
-            text = response.text
+        policy = DownloadPolicy(
+            allowed_hosts=_BUNDLE_HOSTS,
+            max_bytes=max_bytes,
+            max_seconds=max_seconds,
+        )
+        with httpx.Client(follow_redirects=False, timeout=_TIMEOUT) as client:
+            with open_validated_stream(
+                client,
+                sha_url,
+                headers={"User-Agent": _USER_AGENT},
+                policy=policy,
+            ) as response:
+                response.raise_for_status()
+                text = _read_limited_response(
+                    response,
+                    max_bytes=max_bytes,
+                    max_seconds=max_seconds,
+                ).decode("utf-8", errors="replace")
     except httpx.HTTPStatusError as exc:
         raise DownloadError(
             f"GET {sha_url} failed: HTTP {exc.response.status_code}",
@@ -201,7 +267,59 @@ def fetch_sibling_sha256(url: str) -> str:
     tokens = text.split()
     if not tokens:
         raise DownloadError(f"empty sha256 sidecar at {sha_url}")
-    return tokens[0]
+    digest = tokens[0]
+    if re.fullmatch(r"[0-9a-fA-F]{64}", digest) is None:
+        raise DownloadError(f"invalid SHA-256 in sidecar at {sha_url}")
+    return digest.lower()
+
+
+def _decompress_bundle(
+    zst_path: Path,
+    db_path: Path,
+    *,
+    max_expanded_bytes: int,
+) -> int:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".sqlite.tmp")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        decompressor = zstandard.ZstdDecompressor()
+        with zst_path.open("rb") as zst_source:
+            with decompressor.stream_reader(zst_source) as reader, tmp_path.open("wb") as writer:
+                bytes_db = copy_bounded(
+                    reader,
+                    writer,
+                    max_bytes=max_expanded_bytes,
+                    label="expanded bundle",
+                )
+        os.replace(tmp_path, db_path)
+        return bytes_db
+    except (OSError, zstandard.ZstdError) as exc:
+        raise DownloadError(f"failed to install bundle into {db_path}: {exc}") from exc
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _decompress_bundle_bytes_for_test(
+    compressed: bytes,
+    db_path: Path,
+    *,
+    max_expanded_bytes: int,
+) -> int:
+    """Exercise the production decompression path without a network request."""
+    fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".zst.tmp")
+    os.close(fd)
+    zst_path = Path(tmp_name)
+    try:
+        zst_path.write_bytes(compressed)
+        return _decompress_bundle(
+            zst_path,
+            db_path,
+            max_expanded_bytes=max_expanded_bytes,
+        )
+    finally:
+        zst_path.unlink(missing_ok=True)
 
 
 def download_verify_install(
@@ -210,6 +328,9 @@ def download_verify_install(
     db_path: Path,
     staging_dir: Path,
     expected_sha256: str,
+    max_compressed_bytes: int = 2 << 30,
+    max_expanded_bytes: int = 8 << 30,
+    max_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Download, verify, decompress, and atomically install a bundle.
 
@@ -222,23 +343,39 @@ def download_verify_install(
 
     Returns a dict: ``db_path``, ``bytes_compressed``, ``bytes_db``.
     """
+    if re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256) is None:
+        raise DownloadError("invalid expected bundle SHA-256")
+    expected_sha256 = expected_sha256.lower()
     staging_dir.mkdir(parents=True, exist_ok=True)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    zst_path = staging_dir / _ZST_NAME
+    fd, zst_name = tempfile.mkstemp(dir=staging_dir, suffix=".zst.download")
+    os.close(fd)
+    zst_path = Path(zst_name)
+    zst_path.unlink(missing_ok=True)
 
     digest = hashlib.sha256()
-    bytes_compressed = 0
     try:
-        with (
-            httpx.Client(follow_redirects=True, timeout=_TIMEOUT) as client,
-            client.stream("GET", asset_url, headers={"User-Agent": _USER_AGENT}) as response,
-        ):
-            response.raise_for_status()
-            with zst_path.open("wb") as handle:
-                for chunk in response.iter_bytes(_CHUNK_SIZE):
-                    handle.write(chunk)
-                    digest.update(chunk)
-                    bytes_compressed += len(chunk)
+        policy = DownloadPolicy(
+            allowed_hosts=_BUNDLE_HOSTS,
+            max_bytes=max_compressed_bytes,
+            max_seconds=max_seconds,
+        )
+        with httpx.Client(follow_redirects=False, timeout=_TIMEOUT) as client:
+            with open_validated_stream(
+                client,
+                asset_url,
+                headers={"User-Agent": _USER_AGENT},
+                policy=policy,
+            ) as response:
+                response.raise_for_status()
+                bytes_compressed = stream_atomic(
+                    response,
+                    zst_path,
+                    max_bytes=max_compressed_bytes,
+                    hasher=digest,
+                    max_seconds=max_seconds,
+                    chunk_size=_CHUNK_SIZE,
+                )
     except httpx.HTTPStatusError as exc:
         zst_path.unlink(missing_ok=True)
         raise DownloadError(
@@ -254,18 +391,12 @@ def download_verify_install(
         zst_path.unlink(missing_ok=True)
         raise DownloadError(f"bundle sha256 mismatch: expected {expected_sha256}, got {actual}")
 
-    fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".sqlite.tmp")
-    os.close(fd)
-    tmp_path = Path(tmp_name)
     try:
-        decompressor = zstandard.ZstdDecompressor()
-        with zst_path.open("rb") as src, tmp_path.open("wb") as dst:
-            decompressor.copy_stream(src, dst, read_size=_CHUNK_SIZE, write_size=_CHUNK_SIZE)
-        bytes_db = tmp_path.stat().st_size
-        os.replace(tmp_path, db_path)
-    except (OSError, zstandard.ZstdError) as exc:
-        tmp_path.unlink(missing_ok=True)
-        raise DownloadError(f"failed to install bundle into {db_path}: {exc}") from exc
+        bytes_db = _decompress_bundle(
+            zst_path,
+            db_path,
+            max_expanded_bytes=max_expanded_bytes,
+        )
     finally:
         zst_path.unlink(missing_ok=True)
 
@@ -299,19 +430,29 @@ def pull_latest(config: Settings) -> dict[str, Any]:
         release_tag = "bundle-pinned"
     elif bundle_url == "latest":
         asset_url, release_tag = resolve_latest_asset(
-            config.GITHUB_REPO, asset_name=config.BUNDLE_ASSET_NAME
+            config.GITHUB_REPO,
+            asset_name=config.BUNDLE_ASSET_NAME,
+            max_bytes=config.METADATA_MAX_BYTES,
+            max_seconds=config.MAX_DOWNLOAD_SECONDS,
         )
     else:
         raise DownloadError(
             f"invalid BUNDLE_URL {bundle_url!r}: expected 'latest', '', or a full URL"
         )
 
-    expected_sha256 = fetch_sibling_sha256(asset_url)
+    expected_sha256 = config.BUNDLE_EXPECTED_SHA256 or fetch_sibling_sha256(
+        asset_url,
+        max_bytes=config.METADATA_MAX_BYTES,
+        max_seconds=config.MAX_DOWNLOAD_SECONDS,
+    )
     install = download_verify_install(
         asset_url,
         db_path=config.db_path,
         staging_dir=config.BUNDLE_DOWNLOAD_DIR,
         expected_sha256=expected_sha256,
+        max_compressed_bytes=config.BUNDLE_MAX_BYTES,
+        max_expanded_bytes=config.BUNDLE_MAX_EXPANDED_BYTES,
+        max_seconds=config.MAX_DOWNLOAD_SECONDS,
     )
 
     return {
