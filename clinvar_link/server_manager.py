@@ -16,19 +16,13 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Any, cast
 
-# fastmcp >=3.4.3 defaults http_host_origin_protection on, which returns 421
-# Misdirected Request for any proxied /mcp request whose Host is not localhost
-# (e.g. traffic from the genefoundry-router). NPM already validates the Host
-# via server_name + TLS SNI, so disable the redundant app-layer guard. This is
-# a no-op on fastmcp <3.4.3 (the setting does not exist yet), so it is safe to
-# land before the version bump that would otherwise break federation.
-import fastmcp
 import structlog
 import uvicorn
 from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
+from fastmcp.server.http import HostOriginGuardMiddleware
 
 from clinvar_link import __version__
 from clinvar_link.config import ServerConfig, settings
@@ -36,9 +30,6 @@ from clinvar_link.exceptions import ConfigurationError, MCPIntegrationError, Sta
 from clinvar_link.logging_config import configure_logging
 from clinvar_link.mcp.facade import create_clinvar_mcp
 from clinvar_link.services.clinvar_service import ClinVarService
-
-if hasattr(fastmcp.settings, "http_host_origin_protection"):
-    fastmcp.settings.http_host_origin_protection = False
 
 _BUILD_HINT = "Build it with 'clinvar-link-data build' before starting the server."
 
@@ -127,6 +118,12 @@ class UnifiedServerManager:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        app.add_middleware(
+            HostOriginGuardMiddleware,
+            allowed_hosts=config.allowed_hosts,
+            allowed_origins=config.allowed_origins,
+            mode="strict",
+        )
 
         @app.get("/health")
         async def health() -> dict[str, Any]:
@@ -154,6 +151,28 @@ class UnifiedServerManager:
             return mcp
         except Exception as e:
             raise MCPIntegrationError(f"Failed to create MCP server: {e}", "mcp") from e
+
+    async def _create_unified_app(self, config: ServerConfig) -> FastAPI:
+        """Create the FastAPI host and mount the strictly guarded MCP app."""
+        self.app = await self._create_fastapi_app(config)
+
+        def service_factory() -> ClinVarService:
+            if self.app is None:
+                raise RuntimeError("FastAPI host not initialized")
+            return cast(ClinVarService, self.app.state.clinvar_service)
+
+        self.mcp = self._create_mcp_server(service_factory)
+        mcp_http_app = self.mcp.http_app(
+            path=config.mcp_path,
+            stateless_http=True,
+            json_response=True,
+            host_origin_protection=True,
+            allowed_hosts=config.allowed_hosts,
+            allowed_origins=config.allowed_origins,
+        )
+        self._compose_lifespan(self.app, mcp_http_app)
+        self.app.mount("/", mcp_http_app)
+        return self.app
 
     @staticmethod
     def _compose_lifespan(app: FastAPI, mcp_app: Any) -> None:
@@ -187,25 +206,7 @@ class UnifiedServerManager:
             configure_logging(config.log_level, log_format)
             self.logger = structlog.get_logger("clinvar_link")
 
-            self.app = await self._create_fastapi_app(config)
-
-            def service_factory() -> ClinVarService:
-                if self.app is None:
-                    raise RuntimeError("FastAPI host not initialized")
-                return cast(ClinVarService, self.app.state.clinvar_service)
-
-            self.mcp = self._create_mcp_server(service_factory)
-            # Bake the MCP path ("/mcp") into the ASGI sub-app's own routes and
-            # mount it at the project root. Mounting at "/mcp" instead would make
-            # the streamable-http endpoint live at "/mcp/" and turn POST /mcp into
-            # a 307 redirect; the rest of the fleet serves /mcp directly. The
-            # FastAPI host's own routes (/health, /api/...) are registered before
-            # this mount and therefore take precedence.
-            mcp_http_app = self.mcp.http_app(
-                path=config.mcp_path, stateless_http=True, json_response=True
-            )
-            self._compose_lifespan(self.app, mcp_http_app)
-            self.app.mount("/", mcp_http_app)
+            self.app = await self._create_unified_app(config)
 
             self.logger.info(f"MCP HTTP at http://{config.host}:{config.port}{config.mcp_path}")
             self.logger.info(f"Health at http://{config.host}:{config.port}/health")

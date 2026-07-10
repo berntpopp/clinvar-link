@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Any
 
 from fastmcp import FastMCP
-from pydantic import Field
 
+from clinvar_link.exceptions import ToolInputError
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
 from clinvar_link.services import ClinVarService
@@ -113,14 +113,18 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         assembly: str | None = None,
         match_mode: str = "auto",
         count_mode: str = "exact",
-        limit: Annotated[int, Field(ge=1)] = 20,
-        offset: Annotated[int, Field(ge=0)] = 0,
+        limit: int = 20,
+        offset: int = 0,
         response_mode: str = "compact",
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """Free-text search across ClinVar variant names, genes, and identifiers. Use this to locate a record when you only have a gene symbol plus a change or other loose text, then re-call get_variant with the returned vcv_accession. Optional filters: gene_symbol, classification, min_stars, assembly. match_mode controls token matching: auto (default) tries AND first then falls back to OR; and/or force explicit mode. count_mode=none skips the total count query for faster responses. Returns a paginated results list with total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row) instead of repeated per hit."""
 
         async def _call() -> dict[str, Any]:
+            if limit < 1:
+                raise ToolInputError("limit must be at least 1")
+            if offset < 0:
+                raise ToolInputError("offset must be at least 0")
             result = await service_factory().search_variants(
                 query,
                 gene_symbol=gene_symbol,

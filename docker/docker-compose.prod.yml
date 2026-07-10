@@ -13,6 +13,7 @@ services:
     environment:
       CLINVAR_LINK_LOG_LEVEL: INFO
       CLINVAR_LINK_LOG_FORMAT: json
+      CLINVAR_LINK_MCP_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
     # Expose-only behind the reverse proxy. !reset (not []) is required: Compose
     # MERGES list fields across -f overlays, so a plain `ports: []` would NOT drop
     # the base file's published "${CLINVAR_LINK_HOST_PORT:-8000}:8000" mapping — it

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Any
 
 from fastmcp import FastMCP
-from pydantic import Field
 
+from clinvar_link.exceptions import ToolInputError
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
 from clinvar_link.services import ClinVarService
@@ -64,14 +64,18 @@ def register_gene_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarSe
         classification: str | None = None,
         min_stars: int | None = None,
         sort: str = "stars_desc",
-        limit: Annotated[int, Field(ge=1)] = 50,
-        offset: Annotated[int, Field(ge=0)] = 0,
+        limit: int = 50,
+        offset: int = 0,
         response_mode: str = "compact",
         request_id: str | None = None,
     ) -> dict[str, Any]:
         """List the ClinVar variants for a gene as per-variant rows (each with classification and star rating). Use this after get_gene_clinvar_summary to enumerate individual records; narrow with classification / min_stars and paginate with limit / offset (response carries total_count / has_more / next_offset). Default sort is stars_desc (highest review confidence first). In minimal/compact mode the citation is hoisted once to _meta.citation_template instead of repeated per row."""
 
         async def _call() -> dict[str, Any]:
+            if limit < 1:
+                raise ToolInputError("limit must be at least 1")
+            if offset < 0:
+                raise ToolInputError("offset must be at least 0")
             result = await service_factory().get_variants_by_gene(
                 gene_symbol,
                 classification=classification,

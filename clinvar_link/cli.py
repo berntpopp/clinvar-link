@@ -54,6 +54,8 @@ def serve(
         host=host,
         port=port,
         mcp_path=mcp_path,
+        allowed_hosts=settings.MCP_ALLOWED_HOSTS,
+        allowed_origins=settings.MCP_ALLOWED_ORIGINS,
         enable_docs=not disable_docs,
         log_level=log_level,
     )

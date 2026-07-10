@@ -279,6 +279,8 @@ All settings use the flat `CLINVAR_LINK_` env prefix (or an `.env` file; see
 | `CLINVAR_LINK_MCP_HOST` | `127.0.0.1` | Bind host. |
 | `CLINVAR_LINK_MCP_PORT` | `8000` | Bind port. |
 | `CLINVAR_LINK_MCP_PATH` | `/mcp` | MCP endpoint path. |
+| `CLINVAR_LINK_MCP_ALLOWED_HOSTS` | `["localhost","127.0.0.1","::1"]` | Exact Host values accepted by the request guard; production adds the public proxy hostname. Write IPv6 entries bare, without brackets. |
+| `CLINVAR_LINK_MCP_ALLOWED_ORIGINS` | `[]` | Browser-origin admission gate; include every origin CORS is intended to serve. Requests without Origin remain valid. |
 | `CLINVAR_LINK_LOG_LEVEL` | `INFO` | Log level. |
 | `CLINVAR_LINK_LOG_FORMAT` | `json` | `json` (prod) or `console` (dev). |
 | `CLINVAR_LINK_CORS_ORIGINS` | `*` | Comma-separated allowed origins. |
