@@ -22,6 +22,7 @@ from clinvar_link.config import Settings
 from clinvar_link.exceptions import DownloadError
 from clinvar_link.ingest.builder import build_database
 from clinvar_link.ingest.bundle import (
+    _decompress_bundle_bytes_for_test,
     download_verify_install,
     fetch_sibling_sha256,
     pack_bundle,
@@ -48,6 +49,56 @@ def _open_ro(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@respx.mock
+def test_bundle_rejects_unapproved_intermediate_redirect(tmp_path: Path) -> None:
+    asset = "https://github.com/berntpopp/clinvar-link/releases/download/v1/clinvar.sqlite.zst"
+    blocked = respx.get("https://evil.example/payload").mock(return_value=httpx.Response(200))
+    respx.get(asset).mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/payload"})
+    )
+    with pytest.raises(DownloadError, match=r"host evil\.example is not allowed"):
+        download_verify_install(
+            asset,
+            db_path=tmp_path / "db.sqlite",
+            staging_dir=tmp_path,
+            expected_sha256="a" * 64,
+            max_compressed_bytes=1024,
+            max_expanded_bytes=1024,
+        )
+    assert blocked.called is False
+
+
+@respx.mock
+def test_checksum_sidecar_requires_sha256_hex() -> None:
+    url = "https://github.com/owner/repo/releases/download/v1/db.zst"
+    respx.get(f"{url}.sha256").mock(return_value=httpx.Response(200, text="not-a-digest db.zst"))
+    with pytest.raises(DownloadError, match="invalid SHA-256"):
+        fetch_sibling_sha256(url)
+
+
+def test_bundle_expansion_limit_preserves_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "clinvar.sqlite"
+    db_path.write_bytes(b"old-db")
+    compressed = zstandard.ZstdCompressor().compress(b"x" * 65)
+    with pytest.raises(DownloadError, match="expanded bundle exceeded 64 bytes"):
+        _decompress_bundle_bytes_for_test(compressed, db_path, max_expanded_bytes=64)
+    assert db_path.read_bytes() == b"old-db"
+
+
+@respx.mock
+def test_invalid_expected_sha256_is_rejected_before_download(tmp_path: Path) -> None:
+    asset = "https://github.com/owner/repo/releases/download/v1/db.zst"
+    route = respx.get(asset).mock(return_value=httpx.Response(200, content=b"payload"))
+    with pytest.raises(DownloadError, match="invalid expected bundle SHA-256"):
+        download_verify_install(
+            asset,
+            db_path=tmp_path / "db.sqlite",
+            staging_dir=tmp_path,
+            expected_sha256="not-a-digest",
+        )
+    assert route.called is False
 
 
 # -- pack_bundle ---------------------------------------------------------------
@@ -163,7 +214,7 @@ def test_resolve_latest_asset_no_asset_raises() -> None:
 
 @respx.mock
 def test_fetch_sibling_sha256_parses_first_token() -> None:
-    url = "https://dl.test/clinvar.sqlite.zst"
+    url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
     digest = "a" * 64
     respx.get(f"{url}.sha256").mock(
         return_value=httpx.Response(200, text=f"{digest}  clinvar.sqlite.zst\n")
@@ -185,7 +236,7 @@ def _packed_fixture(tmp_path: Path) -> tuple[bytes, str]:
 @respx.mock
 def test_download_verify_install_happy(tmp_path: Path) -> None:
     zst_bytes, sha = _packed_fixture(tmp_path)
-    asset_url = "https://dl.test/clinvar.sqlite.zst"
+    asset_url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
     respx.get(asset_url).mock(return_value=httpx.Response(200, content=zst_bytes))
 
     db_path = tmp_path / "install" / "clinvar.sqlite"
@@ -211,7 +262,7 @@ def test_download_verify_install_happy(tmp_path: Path) -> None:
 @respx.mock
 def test_download_verify_install_bad_sha_leaves_no_db(tmp_path: Path) -> None:
     zst_bytes, _ = _packed_fixture(tmp_path)
-    asset_url = "https://dl.test/clinvar.sqlite.zst"
+    asset_url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
     respx.get(asset_url).mock(return_value=httpx.Response(200, content=zst_bytes))
 
     db_path = tmp_path / "install" / "clinvar.sqlite"
@@ -235,7 +286,7 @@ def test_download_verify_install_bad_sha_leaves_no_db(tmp_path: Path) -> None:
 def test_pull_latest_happy(tmp_path: Path) -> None:
     zst_bytes, sha = _packed_fixture(tmp_path)
     repo = "owner/repo"
-    asset_url = "https://dl.test/clinvar.sqlite.zst"
+    asset_url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
 
     respx.get(f"https://api.github.com/repos/{repo}/releases/latest").mock(
         return_value=httpx.Response(

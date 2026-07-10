@@ -16,7 +16,9 @@ from pathlib import Path
 
 import httpx
 
+from clinvar_link.config import settings
 from clinvar_link.exceptions import DownloadError
+from clinvar_link.ingest.download_security import stream_atomic
 
 _CHUNK_SIZE = 1 << 16
 _TIMEOUT = httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)
@@ -42,17 +44,26 @@ def _write_cache(
     cache_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def _stream_to_file(response: httpx.Response, path: Path) -> str:
+def _stream_to_file(
+    response: httpx.Response,
+    path: Path,
+    *,
+    max_bytes: int,
+    max_seconds: float | None,
+) -> str:
     """Stream the response body to ``path``, returning its SHA-256 hex digest.
 
     Hashing happens inline as chunks are written, so the body is only read once.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
-    with path.open("wb") as handle:
-        for chunk in response.iter_bytes(_CHUNK_SIZE):
-            handle.write(chunk)
-            digest.update(chunk)
+    stream_atomic(
+        response,
+        path,
+        max_bytes=max_bytes,
+        hasher=digest,
+        max_seconds=max_seconds,
+        chunk_size=_CHUNK_SIZE,
+    )
     return digest.hexdigest()
 
 
@@ -62,6 +73,8 @@ def download_source(
     *,
     cache_path: Path,
     force: bool = False,
+    max_bytes: int | None = None,
+    max_seconds: float | None = None,
 ) -> dict[str, str | None]:
     """Conditionally download ``url`` to ``dest_path``.
 
@@ -74,6 +87,8 @@ def download_source(
     ``etag``, ``last_modified``, ``sha256`` (the body digest on a 200; ``None``
     on a 304 since no body was transferred).
     """
+    max_bytes = settings.SOURCE_MAX_BYTES if max_bytes is None else max_bytes
+    max_seconds = settings.MAX_DOWNLOAD_SECONDS if max_seconds is None else max_seconds
     headers = {"User-Agent": _USER_AGENT}
     if not force:
         cached = _read_cache(cache_path).get(url, {})
@@ -84,7 +99,7 @@ def download_source(
 
     try:
         with (
-            httpx.Client(follow_redirects=True, timeout=_TIMEOUT) as client,
+            httpx.Client(follow_redirects=False, timeout=_TIMEOUT) as client,
             client.stream("GET", url, headers=headers) as response,
         ):
             if response.status_code == httpx.codes.NOT_MODIFIED:
@@ -98,7 +113,12 @@ def download_source(
             response.raise_for_status()
             etag = response.headers.get("ETag")
             last_modified = response.headers.get("Last-Modified")
-            sha256 = _stream_to_file(response, dest_path)
+            sha256 = _stream_to_file(
+                response,
+                dest_path,
+                max_bytes=max_bytes,
+                max_seconds=max_seconds,
+            )
     except httpx.HTTPStatusError as exc:
         raise DownloadError(
             f"GET {url} failed: HTTP {exc.response.status_code}",

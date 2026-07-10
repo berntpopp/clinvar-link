@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root is the parent of the package directory (``clinvar_link/``); the
@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     HGVS4VARIATION_URL: str = (
         "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz"
     )
+    SOURCE_MAX_BYTES: int = Field(
+        default=1 << 30,
+        gt=0,
+        description="Raw source limit; measured 414 MiB on 2026-07-10; override if needed.",
+    )
+    SOURCE_MAX_EXPANDED_BYTES: int = Field(
+        default=8 << 30,
+        gt=0,
+        description="Expanded source limit; measured below 4 GiB on 2026-07-10; override if needed.",
+    )
 
     # Prebuilt-bundle distribution. Instead of building the index locally, clients
     # can fetch a zstd-compressed SQLite snapshot published to GitHub Releases by
@@ -86,6 +96,27 @@ class Settings(BaseSettings):
     BUNDLE_ASSET_NAME: str = "clinvar.sqlite.zst"
     # Staging directory for the downloaded ``.zst`` before decompression.
     BUNDLE_DOWNLOAD_DIR: Path = _DEFAULT_DATA_DIR
+    BUNDLE_EXPECTED_SHA256: str | None = None
+    BUNDLE_MAX_BYTES: int = Field(
+        default=2 << 30,
+        gt=0,
+        description="Bundle limit; measured below 1 GiB on 2026-07-10; override if needed.",
+    )
+    BUNDLE_MAX_EXPANDED_BYTES: int = Field(
+        default=8 << 30,
+        gt=0,
+        description="Expanded DB limit; measured below 4 GiB on 2026-07-10; override if needed.",
+    )
+    METADATA_MAX_BYTES: int = Field(
+        default=1 << 20,
+        gt=0,
+        description="Release metadata limit; measured below 512 KiB on 2026-07-10; override if needed.",
+    )
+    MAX_DOWNLOAD_SECONDS: float = Field(
+        default=3600.0,
+        gt=0,
+        description="Total download limit; measured under 1800 seconds on 2026-07-10; override if needed.",
+    )
 
     # Cache Configuration
     CACHE_SIZE: int = 1024  # Maximum number of records to cache

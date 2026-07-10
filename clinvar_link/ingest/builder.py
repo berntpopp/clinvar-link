@@ -20,7 +20,6 @@ place with :func:`os.replace`, so readers never see a half-built database.
 from __future__ import annotations
 
 import csv
-import gzip
 import hashlib
 import json
 import os
@@ -34,6 +33,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
+from clinvar_link.ingest.download_security import open_source_text
 from clinvar_link.ingest.parsing import GeneAccumulator, load_star_map, parse_variant_row
 
 if TYPE_CHECKING:
@@ -42,7 +42,6 @@ if TYPE_CHECKING:
 SCHEMA_VERSION = 1
 _INSERT_BATCH = 2000
 _HASH_CHUNK = 1 << 20
-
 # Assembly preference for choosing the canonical ``variant`` row.
 _PRIORITY: dict[str, int] = {"GRCh38": 3, "GRCh37": 2, "na": 1}
 
@@ -104,16 +103,10 @@ def _priority(assembly: str) -> int:
 
 
 @contextmanager
-def _open_source(path: Path) -> Iterator[TextIO]:
+def _open_source(path: Path, *, max_expanded_bytes: int) -> Iterator[TextIO]:
     """Open the source TSV, transparently decompressing ``.gz`` inputs."""
-    if path.suffix == ".gz":
-        handle: TextIO = gzip.open(path, "rt", encoding="utf-8", errors="replace")  # noqa: SIM115
-    else:
-        handle = open(path, encoding="utf-8", errors="replace")  # noqa: SIM115
-    try:
+    with open_source_text(path, max_expanded_bytes=max_expanded_bytes) as handle:
         yield handle
-    finally:
-        handle.close()
 
 
 def _sha256(path: Path) -> str:
@@ -136,10 +129,10 @@ def _int_or_none(value: str) -> int | None:
         return None
 
 
-def _scan_winning(path: Path) -> dict[int, int]:
+def _scan_winning(path: Path, *, max_expanded_bytes: int) -> dict[int, int]:
     """Pass 1: map each VariationID to the max assembly priority seen for it."""
     winning: dict[int, int] = {}
-    with _open_source(path) as handle:
+    with _open_source(path, max_expanded_bytes=max_expanded_bytes) as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             vid = _int_or_none(row.get("VariationID", "") or "")
@@ -296,14 +289,17 @@ _HGVS4VAR_EXPR_COLS = (6, 8)
 _HGVS4VAR_MIN_FIELDS = 13
 
 
-def _load_hgvs4variation(conn: sqlite3.Connection, path: Path, emitted: set[int]) -> int:
+def _load_hgvs4variation(
+    conn: sqlite3.Connection,
+    path: Path,
+    emitted: set[int],
+    *,
+    max_expanded_bytes: int,
+) -> int:
     """Index the precise coding/protein HGVS expressions from ``hgvs4variation.txt[.gz]``.
 
-    For each data row whose VariationID was kept (in ``emitted``) and is not a
-    ``genomic``-Type row (huge ``g.`` coordinate strings, low value for lookups),
-    inserts the normalized full NucleotideExpression (col 6) and ProteinExpression
-    (col 8) into ``hgvs_lookup``. The bare short forms (NucleotideChange col 7,
-    ProteinChange col 9) are ambiguous and deliberately skipped. Inserts use
+    For each kept, non-genomic row, inserts the normalized full nucleotide and
+    protein expressions into ``hgvs_lookup``. Ambiguous bare changes are skipped. Inserts use
     ``INSERT OR IGNORE`` against the UNIQUE ``idx_hgvs_norm`` so the GRCh37/GRCh38
     rows that repeat the same expression collapse to one ``(hgvs_norm,
     variation_id)`` row. Streams the file and flushes in bounded batches so memory
@@ -321,7 +317,7 @@ def _load_hgvs4variation(conn: sqlite3.Connection, path: Path, emitted: set[int]
             inserted += len(pending)
             pending.clear()
 
-    with _open_source(path) as handle:
+    with _open_source(path, max_expanded_bytes=max_expanded_bytes) as handle:
         reader = csv.reader(handle, delimiter="\t")
         for fields in reader:
             if not fields or fields[0].startswith("#"):
@@ -492,7 +488,10 @@ def build_database(
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     star_map = load_star_map()
 
-    winning = _scan_winning(source_path)
+    winning = _scan_winning(
+        source_path,
+        max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES,
+    )
 
     fd, tmp_name = tempfile.mkstemp(dir=config.DATA_DIR, suffix=".sqlite.tmp")
     os.close(fd)
@@ -525,7 +524,10 @@ def build_database(
             gene_display: dict[str, str] = {}
             emitted: set[int] = set()
 
-            with _open_source(source_path) as handle:
+            with _open_source(
+                source_path,
+                max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES,
+            ) as handle:
                 reader = csv.DictReader(handle, delimiter="\t")
                 for row in reader:
                     vid = _int_or_none(row.get("VariationID", "") or "")
@@ -551,7 +553,12 @@ def build_database(
             # kept variants. Runs before the deferred indexes so idx_hgvs_norm is
             # built once over the full table at the end.
             if hgvs_source_path is not None:
-                _load_hgvs4variation(conn, hgvs_source_path, emitted)
+                _load_hgvs4variation(
+                    conn,
+                    hgvs_source_path,
+                    emitted,
+                    max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES,
+                )
 
             gene_count = _write_gene_summaries(conn, accumulators, gene_display)
             sha256 = source_sha256 if source_sha256 is not None else _sha256(source_path)
