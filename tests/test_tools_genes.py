@@ -47,6 +47,17 @@ async def test_variants_by_gene_sorted_by_stars_desc(mcp):
     assert out["_meta"]["next_commands"]
 
 
+@pytest.mark.parametrize("arguments", [{"limit": 0}, {"offset": -1}])
+async def test_variants_by_gene_rejects_invalid_pagination(mcp, arguments):
+    out = await call_tool(
+        mcp,
+        "get_variants_by_gene",
+        {"gene_symbol": "BRCA1", **arguments},
+    )
+    assert out["success"] is False
+    assert out["error_code"] == "invalid_input"
+
+
 async def test_gene_not_found_recovery_is_gene_specific(mcp):
     out = await call_tool(mcp, "get_gene_clinvar_summary", {"gene_symbol": "NOSUCHGENE"})
     assert out["success"] is False and out["error_code"] == "not_found"
