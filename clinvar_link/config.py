@@ -8,7 +8,7 @@ to fetch it from (``SOURCE_URL``), and when it is considered stale
 (``REFRESH_TTL_DAYS``) rather than upstream API endpoints/timeouts.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -29,6 +29,8 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8000
     mcp_path: str = "/mcp"
+    allowed_hosts: list[str] = field(default_factory=lambda: ["localhost", "127.0.0.1", "::1"])
+    allowed_origins: list[str] = field(default_factory=list)
     enable_docs: bool = True
     log_level: str = "INFO"
 
@@ -40,6 +42,8 @@ class ServerConfig:
             host=settings.MCP_HOST,
             port=settings.MCP_PORT,
             mcp_path=settings.MCP_PATH,
+            allowed_hosts=settings.MCP_ALLOWED_HOSTS,
+            allowed_origins=settings.MCP_ALLOWED_ORIGINS,
             enable_docs=settings.ENABLE_SWAGGER,
             log_level=settings.LOG_LEVEL,
         )
@@ -127,6 +131,14 @@ class Settings(BaseSettings):
     MCP_HOST: str = "127.0.0.1"
     MCP_PORT: int = 8000
     MCP_PATH: str = "/mcp"
+    MCP_ALLOWED_HOSTS: list[str] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1", "::1"],
+        description="Exact Host header values accepted by the request guard.",
+    )
+    MCP_ALLOWED_ORIGINS: list[str] = Field(
+        default_factory=list,
+        description="Browser Origin values accepted by the request guard.",
+    )
 
     # Logging Configuration
     LOG_LEVEL: str = "INFO"
@@ -164,6 +176,14 @@ class Settings(BaseSettings):
         """Ensure MCP path starts with /."""
         if not v.startswith("/"):
             return f"/{v}"
+        return v
+
+    @field_validator("MCP_ALLOWED_HOSTS")
+    @classmethod
+    def reject_wildcard_hosts(cls, v: list[str]) -> list[str]:
+        """Require exact production Host values rather than wildcard patterns."""
+        if any(any(marker in host for marker in "*?[]") for host in v):
+            raise ValueError("wildcard patterns are not allowed in MCP_ALLOWED_HOSTS")
         return v
 
     @model_validator(mode="after")

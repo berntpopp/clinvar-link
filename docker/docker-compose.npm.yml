@@ -25,6 +25,7 @@ services:
       - CLINVAR_LINK_MCP_HOST=0.0.0.0
       - CLINVAR_LINK_MCP_PORT=8000
       - CLINVAR_LINK_MCP_PATH=/mcp
+      - 'CLINVAR_LINK_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
       - CLINVAR_LINK_LOG_LEVEL=${LOG_LEVEL_API:-INFO}
       - CLINVAR_LINK_LOG_FORMAT=json
       - CLINVAR_LINK_DATA_DIR=/app/data
@@ -39,7 +40,7 @@ services:
     # The image ENTRYPOINT bootstraps the index then exec's the unified server,
     # reading CLINVAR_LINK_MCP_TRANSPORT/HOST/PORT above; no command override.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
