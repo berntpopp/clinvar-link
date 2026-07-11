@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 
 from clinvar_link import __version__
 from clinvar_link.mcp.errors import install_validation_error_handler
+from clinvar_link.mcp.log_filters import install_external_error_filter
 from clinvar_link.mcp.output_validation import (
     install_output_validation_error_handler,
     install_protocol_error_handler,
@@ -69,4 +70,11 @@ def create_clinvar_mcp(
     # Outermost on CallToolRequest: masks FastMCP core not-found dispatch errors
     # (unknown tool/resource/prompt) that would otherwise echo the caller name/URI.
     install_protocol_error_handler(mcp)
+    # Layer 5: scrub the caller-supplied name/URI (and its forbidden code points)
+    # out of FastMCP/mcp framework LOG records — the pre-middleware DEBUG source
+    # loggers ("Handler called: …", "Tool cache miss for …") and the session-layer
+    # ROOT "Failed to validate request: <malformed URI>" record — at ALL levels.
+    # Installed after the framework handlers exist so its non-propagating Rich sinks
+    # are also covered.
+    install_external_error_filter()
     return mcp
