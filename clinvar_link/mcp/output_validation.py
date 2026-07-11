@@ -19,7 +19,9 @@ from clinvar_link.mcp.errors import (
     _provenance_meta,
     record_mcp_error,
     record_schema_drift,
+    sanitize_envelope,
 )
+from clinvar_link.mcp.untrusted_content import sanitize_message
 
 OUTPUT_VALIDATION_PREFIX = "Output validation error:"
 _REQUIRED_PROPERTY_RE = re.compile(r"'(?P<field>[^']+)' is a required property")
@@ -50,6 +52,9 @@ def actionable_output_validation_error(
             **_provenance_meta(),
         },
     }
+    # Defensive backstop: the raw SDK message is never surfaced (only the parsed,
+    # sanitized schema field), but strip code points from every leaf regardless.
+    payload = sanitize_envelope(payload)
     record_mcp_error(
         tool_name=tool_name,
         error_code="output_validation_failed",
@@ -106,5 +111,7 @@ def install_output_validation_error_handler(mcp_server: Any) -> None:
 def _output_validation_field(message: str) -> str | None:
     match = _REQUIRED_PROPERTY_RE.search(message)
     if match is not None:
-        return match.group("field")
+        # Code-point-strip the parsed schema property before it reaches the
+        # caller payload, the suggested_action, and the schema-drift ring.
+        return sanitize_message(match.group("field"))
     return None

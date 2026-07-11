@@ -89,8 +89,10 @@ class DownloadError(ClinVarServerError):
 class ToolInputError(ValueError):
     """Local pre-lookup validation failure.
 
-    The message is developer-authored and contains no user-supplied values, so
-    it is safe to surface verbatim in tool error envelopes.
+    The message is server-side diagnostic detail only. Several call sites
+    interpolate the caller's input (``got {value!r}``), so it is NEVER surfaced
+    verbatim: the MCP error boundary emits a FIXED, error-code-specific public
+    message (see ``mcp/errors.py``) and keeps this text in the exception chain.
     """
 
     pass

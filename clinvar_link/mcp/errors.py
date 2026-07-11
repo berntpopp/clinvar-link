@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
+from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from pydantic import ValidationError as PydanticValidationError
 
 from clinvar_link.config import settings
@@ -28,7 +30,11 @@ from clinvar_link.exceptions import (
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 from clinvar_link.mcp.freshness import clinvar_freshness
 from clinvar_link.mcp.resources import server_version
-from clinvar_link.mcp.untrusted_content import UntrustedTextLimitError
+from clinvar_link.mcp.untrusted_content import (
+    FORBIDDEN_CODEPOINTS,
+    UntrustedTextLimitError,
+    sanitize_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,13 +101,75 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
     return meta
 
 
-def _safe_message(exc: BaseException) -> str:
-    text = str(exc) or exc.__class__.__name__
-    # ClinVar lookups are user-input shaped; trim long tracebacks/identifiers.
-    return text[:240]
+# Fixed, error-code-specific PUBLIC messages. A classified exception's own
+# str() is built from caller input (identifiers, queries) or internal detail,
+# which can carry injection prose that survives code-point stripping — so the
+# caller-visible message NEVER interpolates that text. Actionable, server-authored
+# guidance travels in the fixed `recovery` field and `next_commands`; the raw
+# detail stays only in the (server-side) exception chain, and is never logged.
+_PUBLIC_MESSAGES: dict[str, str] = {
+    "not_found": "No matching ClinVar record was found for the request.",
+    "invalid_input": "The request was rejected as invalid.",
+    "internal_error": "An internal error occurred while handling the request.",
+    "response_too_large": (
+        "The response exceeded the allowed size limit; narrow the request "
+        "(lower limit or a leaner response_mode)."
+    ),
+}
+
+
+def _strip_forbidden(text: str) -> str:
+    """Code-point-strip a string WITHOUT the length cap.
+
+    Used by the recursive whole-envelope pass, where a server-authored
+    ``recovery`` string may legitimately exceed the message cap; only the
+    forbidden control/zero-width/bidi/NUL code points are removed.
+    """
+    return "".join(char for char in text if ord(char) not in FORBIDDEN_CODEPOINTS)
+
+
+def _has_forbidden_codepoints(text: str) -> bool:
+    return any(ord(char) in FORBIDDEN_CODEPOINTS for char in text)
+
+
+def sanitize_envelope(payload: Any) -> Any:
+    """Recursively code-point-strip every string leaf of an error payload.
+
+    The final backstop over the WHOLE envelope — message, recovery, field_errors,
+    fallback_args, request_id, and every ``_meta.next_commands[*].arguments``
+    value — so no forbidden control/zero-width/bidi/NUL code point survives in
+    either ``structured_content`` or the ``TextContent`` JSON mirror, whatever
+    path built the field. Applied ON TOP OF the fixed-message + input-rejection
+    discipline (it strips code points, it does not neutralize prose); dict keys
+    are server-defined and preserved as-is, only values are stripped.
+    """
+    if isinstance(payload, str):
+        return _strip_forbidden(payload)
+    if isinstance(payload, dict):
+        return {key: sanitize_envelope(value) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [sanitize_envelope(item) for item in payload]
+    return payload
 
 
 _GENE_TOOLS = frozenset({"get_gene_clinvar_summary", "get_variants_by_gene"})
+
+
+def _clean_context_value(value: str | None) -> str | None:
+    """Normalize a context echo value for ``fallback_args`` / ``next_commands``.
+
+    Returns the stripped value, or ``None`` when it is blank OR carries any fenced
+    forbidden code point. A recovery-argument field is a ready-to-execute
+    suggestion, so a code-point-bearing identifier is OMITTED rather than echoed
+    as a sanitized copy (per the fence's "prefer omitting over sanitizing for
+    hint/recovery/argument fields" rule).
+    """
+    if not value:
+        return None
+    stripped = value.strip()
+    if not stripped or _has_forbidden_codepoints(stripped):
+        return None
+    return stripped
 
 
 def _fallback_for(context: McpErrorContext) -> tuple[str, dict[str, Any] | None]:
@@ -113,18 +181,20 @@ def _fallback_for(context: McpErrorContext) -> tuple[str, dict[str, Any] | None]
     context so the LLM gets a ready-to-call next step.
 
     Whitespace-only values for query/variant_id/gene_symbol are treated as absent
-    so blank strings are never echoed into fallback_args or next_commands.
+    so blank strings are never echoed into fallback_args or next_commands; values
+    carrying forbidden code points are likewise omitted (see _clean_context_value).
     """
-    query = (context.query or "").strip() or None
-    variant_id = (context.variant_id or "").strip() or None
+    query = _clean_context_value(context.query)
+    variant_id = _clean_context_value(context.variant_id)
+    gene_symbol = _clean_context_value(context.gene_symbol)
     if context.tool_name == "get_variant":
         if query:
             return "search_variants", {"query": query}
         if variant_id:
             return "search_variants", {"query": variant_id}
         return "search_variants", None
-    if context.gene_symbol and context.gene_symbol.strip():
-        return "get_gene_clinvar_summary", {"gene_symbol": context.gene_symbol.strip()}
+    if gene_symbol:
+        return "get_gene_clinvar_summary", {"gene_symbol": gene_symbol}
     if query:
         return "search_variants", {"query": query}
     return "get_server_capabilities", None
@@ -213,33 +283,104 @@ def _recovery_text(error_code: str, fallback_tool: str | None, tool_name: str | 
     )
 
 
-def _envelope_message(exc: BaseException, error_code: str) -> str:
-    """Return a message safe to surface to LLM callers.
+def _envelope_message(error_code: str) -> str:
+    """Return a FIXED, error-code-specific public message.
 
-    Validation errors use a canned prefix so callers can pattern-match without
-    receiving raw user input. Internal errors are fully opaque to avoid leaking
-    implementation details or sensitive values.
+    NEVER interpolates caller input or exception text: a classified exception's
+    own str() is built from the caller's identifier/query (or internal detail)
+    and can carry injection prose that code-point stripping does not remove, so
+    the surfaced message is a fixed server-authored string keyed only by the
+    classified error code. Actionable guidance travels in the fixed `recovery`
+    field and `next_commands`.
     """
-    if isinstance(exc, ToolInputError):
-        # Developer-authored guard string (static or parameter NAMES only, no user
-        # values), so it is safe to surface verbatim instead of redacting.
-        return _safe_message(exc)
-    if error_code == "invalid_input":
-        return f"Invalid input: {exc.__class__.__name__}"
-    if error_code == "internal_error":
-        return f"Internal error: {exc.__class__.__name__}"
-    return _safe_message(exc)
+    return _PUBLIC_MESSAGES.get(error_code, "The request could not be completed.")
+
+
+# Map a pydantic error `type` to a FIXED reason. The pydantic `msg` can echo the
+# rejected input value and the `loc` (for an unexpected keyword argument) is a
+# caller-controlled name, so neither is surfaced verbatim.
+_PYDANTIC_REASONS: dict[str, str] = {
+    "missing": "required field is missing",
+    "missing_argument": "required argument is missing",
+    "int_parsing": "expected an integer",
+    "int_type": "expected an integer",
+    "float_parsing": "expected a number",
+    "float_type": "expected a number",
+    "string_type": "expected a string",
+    "bool_parsing": "expected a boolean",
+    "bool_type": "expected a boolean",
+    "list_type": "expected a list",
+    "dict_type": "expected an object",
+    "value_error": "value was rejected as invalid",
+    "greater_than": "value is out of range",
+    "greater_than_equal": "value is out of range",
+    "less_than": "value is out of range",
+    "less_than_equal": "value is out of range",
+    "unexpected_keyword_argument": "unexpected argument",
+    "extra_forbidden": "unexpected argument",
+}
+# For these error types the ``loc`` is a CALLER-INVENTED argument name (not a
+# declared parameter), so it is redacted wholesale rather than echoed.
+_UNKNOWN_ARG_TYPES = frozenset({"unexpected_keyword_argument", "extra_forbidden"})
+_SAFE_FIELD_NAME_RE = re.compile(r"^[A-Za-z0-9_.]{1,64}$")
+
+
+def _safe_field_name(loc: Any) -> str:
+    """Return a code-point-free, identifier-validated declared field name.
+
+    The ``loc`` of a normal field error names a DECLARED parameter (safe to echo);
+    it is still code-point-stripped and shape-validated, collapsing to ``"unknown"``
+    if it is not identifier-shaped.
+    """
+    name = sanitize_message(".".join(str(part) for part in loc) if loc else "")
+    return name if _SAFE_FIELD_NAME_RE.match(name) else "unknown"
 
 
 def _extract_field_errors(errors: list[Any]) -> list[dict[str, str]]:
-    """Flatten Pydantic validation errors into {field, reason} dicts."""
+    """Flatten pydantic validation errors into {field, reason} dicts.
+
+    Both members are fixed/redacted: an unexpected-argument name (caller-invented)
+    is redacted to ``"unknown"``; a declared field name is code-point-stripped and
+    identifier-validated; and the reason is a FIXED string keyed by the pydantic
+    error ``type`` — never the pydantic ``msg``, which can echo the rejected input.
+    """
     result: list[dict[str, str]] = []
     for err in errors:
-        loc = err.get("loc", ())
-        field_name = ".".join(str(x) for x in loc) if loc else "unknown"
-        reason = err.get("msg", str(err.get("type", "invalid")))
+        etype = str(err.get("type", "invalid"))
+        field_name = (
+            "unknown" if etype in _UNKNOWN_ARG_TYPES else _safe_field_name(err.get("loc", ()))
+        )
+        reason = _PYDANTIC_REASONS.get(etype, "value was rejected as invalid")
         result.append({"field": field_name, "reason": reason})
     return result
+
+
+def _validation_error_payload(field_errors: list[dict[str, str]]) -> dict[str, Any]:
+    """Build the fixed arg-validation envelope (recursively code-point-stripped).
+
+    The public ``message`` is fixed and the ``field_errors`` are already
+    fixed/redacted (see :func:`_extract_field_errors`); the final
+    :func:`sanitize_envelope` pass is a defensive backstop over every leaf.
+    """
+    payload: dict[str, Any] = {
+        "success": False,
+        "error_code": "invalid_input",
+        "message": _PUBLIC_MESSAGES["invalid_input"],
+        "retryable": False,
+        "recovery_action": "reformulate_input",
+        "fallback_tool": _FALLBACK_TOOL,
+        "fallback_args": {},
+        "field_errors": field_errors,
+        "recovery": (
+            "Inputs failed validation. Check field_errors for the field + reason and call "
+            f"{_FALLBACK_TOOL} for the accepted tool surface and identifier shapes."
+        ),
+        "_meta": {
+            "next_commands": [{"tool": _FALLBACK_TOOL, "arguments": {}}],
+            **_provenance_meta(),
+        },
+    }
+    return cast(dict[str, Any], sanitize_envelope(payload))
 
 
 def mcp_validation_tool_error(
@@ -248,26 +389,44 @@ def mcp_validation_tool_error(
     exc: PydanticValidationError,
 ) -> McpToolError:
     """Build a sanitized validation failure raised before tool execution starts."""
-    field_errors = _extract_field_errors(list(exc.errors()))
-    payload: dict[str, Any] = {
-        "success": False,
-        "error_code": "invalid_input",
-        "message": "Invalid MCP arguments.",
-        "retryable": False,
-        "recovery_action": "reformulate_input",
-        "fallback_tool": _FALLBACK_TOOL,
-        "fallback_args": {},
-        "field_errors": field_errors,
-        "recovery": (
-            "Inputs failed validation. Check field_errors for details and call "
-            f"{_FALLBACK_TOOL} for the accepted tool surface and identifier shapes."
-        ),
-        "_meta": {
-            "next_commands": [{"tool": _FALLBACK_TOOL, "arguments": {}}],
-            **_provenance_meta(),
-        },
-    }
-    return McpToolError(payload)
+    return McpToolError(_validation_error_payload(_extract_field_errors(list(exc.errors()))))
+
+
+class _ValidationLogFilter(logging.Filter):
+    """Drop FastMCP's arg-validation WARNING record.
+
+    FastMCP logs ``"Invalid arguments for tool %r: %s"`` with the pydantic error
+    detail, which embeds the raw caller-supplied argument value/name (including
+    forbidden code points), inside its own tool-call handler. Suppress that
+    specific record so caller input never lands in a server log; the caller still
+    receives a fixed, sanitized envelope from :func:`install_validation_error_handler`.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.msg if isinstance(record.msg, str) else ""
+        return not msg.startswith("Invalid arguments for tool")
+
+
+_VALIDATION_LOG_FILTER = _ValidationLogFilter()
+
+
+def _install_validation_log_filter() -> None:
+    """Idempotently attach the arg-validation log filter to FastMCP's logger."""
+    fastmcp_logger = logging.getLogger("fastmcp.server.server")
+    if not any(isinstance(f, _ValidationLogFilter) for f in fastmcp_logger.filters):
+        fastmcp_logger.addFilter(_VALIDATION_LOG_FILTER)
+
+
+def _pydantic_cause(exc: BaseException) -> PydanticValidationError | None:
+    """Return the pydantic ValidationError in an exception's cause chain, if any."""
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        if isinstance(cur, PydanticValidationError):
+            return cur
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    return None
 
 
 def install_validation_error_handler(mcp_server: Any) -> None:
@@ -277,7 +436,14 @@ def install_validation_error_handler(mcp_server: Any) -> None:
     legacy ``_tool_manager._tools`` mapping. We probe both so the handler keeps
     working across FastMCP minor versions. Tools without a ``run`` method (e.g.
     resources or prompts that happen to share the registry) are skipped.
+
+    FastMCP 3.x re-raises pydantic argument-validation failures as its OWN
+    ``fastmcp.exceptions.ValidationError`` (with the pydantic error in
+    ``__cause__``), NOT a bare pydantic error — so we catch both. Otherwise the
+    FastMCP error surfaces the raw offending argument value/name (with code
+    points) verbatim to the caller.
     """
+    _install_validation_log_filter()
     candidates: list[Any] = []
     local_provider = getattr(mcp_server, "_local_provider", None)
     components = getattr(local_provider, "_components", None)
@@ -301,11 +467,10 @@ def install_validation_error_handler(mcp_server: Any) -> None:
         ) -> Any:
             try:
                 return await _original_run(arguments)
-            except PydanticValidationError as exc:
-                envelope = mcp_validation_tool_error(
-                    tool_name=str(getattr(_tool, "name", "unknown")),
-                    exc=exc,
-                ).payload
+            except (PydanticValidationError, FastMCPValidationError) as exc:
+                pyd = exc if isinstance(exc, PydanticValidationError) else _pydantic_cause(exc)
+                field_errors = _extract_field_errors(list(pyd.errors())) if pyd is not None else []
+                envelope = _validation_error_payload(field_errors)
                 record_mcp_error(
                     tool_name=str(getattr(_tool, "name", "unknown")),
                     error_code="invalid_input",
@@ -333,7 +498,7 @@ def mcp_tool_error(exc: BaseException, context: McpErrorContext) -> McpToolError
     payload = {
         "success": False,
         "error_code": error_code,
-        "message": _envelope_message(exc, error_code),
+        "message": _envelope_message(error_code),
         "retryable": retryable,
         "recovery_action": _recovery_action(error_code, retryable),
         "fallback_tool": fallback_tool,
@@ -434,6 +599,9 @@ async def run_mcp_tool(
     ctx = context or McpErrorContext(tool_name=tool_name)
     if ctx.request_id is None:
         ctx.request_id = uuid4().hex
+    # request_id is caller-supplied for correlation; strip forbidden code points
+    # so it cannot inject controls into a log line or the echoed _meta.request_id.
+    ctx.request_id = _strip_forbidden(ctx.request_id)
     start = time.perf_counter()
     try:
         result = await call()
@@ -464,7 +632,8 @@ async def run_mcp_tool(
             error_code=exc.payload.get("error_code", "internal_error"),
             exc_type=exc.__class__.__name__,
         )
-        return exc.payload
+        # Final recursive backstop: no forbidden code point survives on any leaf.
+        return cast(dict[str, Any], sanitize_envelope(exc.payload))
     except Exception as exc:  # broad catch is the error-boundary contract
         latency_ms = round((time.perf_counter() - start) * 1000, 2)
         wrapped = mcp_tool_error(exc, ctx)
@@ -482,4 +651,5 @@ async def run_mcp_tool(
             error_code=wrapped.payload["error_code"],
             exc_type=exc.__class__.__name__,
         )
-        return wrapped.payload
+        # Final recursive backstop: no forbidden code point survives on any leaf.
+        return cast(dict[str, Any], sanitize_envelope(wrapped.payload))

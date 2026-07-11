@@ -22,6 +22,7 @@ from clinvar_link.mcp.clinvar_date_cache import (
     set_cached_clinvar_release_date,
 )
 from clinvar_link.mcp.untrusted_content import (
+    FORBIDDEN_CODEPOINTS,
     UntrustedText,
     enforce_untrusted_text_limits,
     fence_untrusted_text,
@@ -66,6 +67,20 @@ def _ensure_id_type(id_type: str) -> None:
     """Raise :class:`ToolInputError` for an ``id_type`` outside the allowlist."""
     if id_type not in _ID_TYPES:
         raise ToolInputError(f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})")
+
+
+def _reject_forbidden_codepoints(value: str, *, field: str) -> None:
+    """Reject a free-text input carrying fenced forbidden code points.
+
+    Control/zero-width/bidi/NUL code points have no place in a ClinVar identifier
+    or query; they are a smuggling vector into caller-visible strings and into the
+    per-item rows of an otherwise-successful batch response. Reject them at the
+    tool boundary with a FIXED message that never echoes the offending value, so a
+    hostile input cannot ride into any surfaced string. ``field`` is a fixed,
+    server-authored parameter name (never caller data).
+    """
+    if any(ord(char) in FORBIDDEN_CODEPOINTS for char in value):
+        raise ToolInputError(f"{field} contains forbidden control or bidirectional characters")
 
 
 # Fields kept in the ``minimal`` variant projection.
@@ -150,6 +165,7 @@ class ClinVarService:
         text = (identifier or "").strip()
         if not text:
             raise ToolInputError("identifier is required")
+        _reject_forbidden_codepoints(text, field="identifier")
 
         repo_dict = await self._resolve(text, id_type)
         if repo_dict is None:
@@ -254,6 +270,11 @@ class ClinVarService:
         """
         if not identifiers:
             raise ToolInputError("identifiers is required (a non-empty list)")
+        # Reject the batch if any identifier carries forbidden code points, so a
+        # hostile value cannot ride into a per-item (otherwise-successful) miss row.
+        for ident in identifiers:
+            if isinstance(ident, str):
+                _reject_forbidden_codepoints(ident, field="identifiers")
         # A bad id_type is a structural error: fail the whole batch up front
         # rather than silently turning every row into a miss in the loop below.
         _ensure_id_type(id_type)
@@ -312,6 +333,9 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """Free-text search with AND default, OR fallback, and tiered count."""
+        _reject_forbidden_codepoints(query or "", field="query")
+        if gene_symbol:
+            _reject_forbidden_codepoints(gene_symbol, field="gene_symbol")
         has_filter = bool(gene_symbol or classification or min_stars is not None)
         if not (query or "").strip() and not has_filter:
             raise ToolInputError(
@@ -416,6 +440,7 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """Return the precomputed per-gene ClinVar summary with a citation."""
+        _reject_forbidden_codepoints(gene_symbol or "", field="gene_symbol")
         summary = await asyncio.to_thread(self.repo.gene_summary, gene_symbol)
         if summary is None:
             raise DataNotFoundError(f"No ClinVar gene summary for {gene_symbol!r}")
@@ -452,6 +477,7 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """List a gene's variants (projected) with a total for pagination."""
+        _reject_forbidden_codepoints(gene_symbol or "", field="gene_symbol")
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
         if sort not in ClinVarRepository.SORT_ORDERS:
