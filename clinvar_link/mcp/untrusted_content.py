@@ -100,3 +100,29 @@ def enforce_untrusted_text_limits(
         raise UntrustedTextLimitError(
             f"untrusted total {total} bytes exceeds ceiling {max_total_text_bytes}"
         )
+
+
+#: Length cap for caller-visible free-text message/error strings (fleet norm).
+MAX_MESSAGE_CHARS = 280
+
+
+def sanitize_message(text: str) -> str:
+    """Strip the fence's forbidden control/zero-width/bidi/NUL code points + length-cap.
+
+    A defensive backstop applied to EVERY caller-visible message/error/diagnostics
+    string. A caller-influenced value echoed into an error frame (an identifier, a
+    rejected argument name, a classified exception's own text) must never smuggle
+    control, zero-width, bidirectional, or NUL code points into that frame — in
+    either the ``structured_content`` or the ``TextContent`` JSON mirror. Reuses the
+    fence's ``FORBIDDEN_CODEPOINTS`` so the message surface and the data surface
+    strip the identical set.
+
+    This strips code points only; it does NOT neutralize injection *prose*. Any
+    string whose prose is attacker-influenceable (e.g. a raw upstream response
+    body) must be severed to a fixed, server-authored message at its source, not
+    merely passed through here. ClinVar Link reads a local SQLite index, so it has
+    no upstream HTTP body to sever; caller-visible messages are server-authored
+    guidance in which this strips code points defensively.
+    """
+    clean = "".join(char for char in text if ord(char) not in FORBIDDEN_CODEPOINTS)
+    return clean[:MAX_MESSAGE_CHARS]
