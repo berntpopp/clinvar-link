@@ -10,6 +10,7 @@ from fastmcp import FastMCP
 from clinvar_link.exceptions import ToolInputError
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
+from clinvar_link.mcp.output_schemas import VARIANT_LIST_OUTPUT_SCHEMA, VARIANT_OUTPUT_SCHEMA
 from clinvar_link.services import ClinVarService
 
 
@@ -21,6 +22,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         title="Get ClinVar Variant",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"variant"},
+        output_schema=VARIANT_OUTPUT_SCHEMA,
     )
     async def get_variant(
         identifier: str,
@@ -66,6 +68,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         title="Get ClinVar Variants (batch)",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"variant"},
+        output_schema=VARIANT_LIST_OUTPUT_SCHEMA,
     )
     async def get_variants(
         identifiers: list[str],
@@ -104,6 +107,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         title="Search ClinVar Variants",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"variant"},
+        output_schema=VARIANT_LIST_OUTPUT_SCHEMA,
     )
     async def search_variants(
         query: str,

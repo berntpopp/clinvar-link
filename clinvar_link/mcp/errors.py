@@ -28,6 +28,7 @@ from clinvar_link.exceptions import (
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 from clinvar_link.mcp.freshness import clinvar_freshness
 from clinvar_link.mcp.resources import server_version
+from clinvar_link.mcp.untrusted_content import UntrustedTextLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,13 @@ def _classify(
         return "invalid_input", False, tool, args
     if isinstance(exc, PydanticValidationError):
         return "invalid_input", False, _FALLBACK_TOOL, {}
+    if isinstance(exc, UntrustedTextLimitError):
+        # A v1.1 fenced-text ceiling (object count / per-object / total bytes)
+        # was exceeded. This is a server-side response-shaping limit, not a
+        # caller mistake, so it gets its own explicit code rather than folding
+        # into the generic ValueError -> invalid_input branch below or (worse)
+        # falling through to internal_error.
+        return "response_too_large", False, _FALLBACK_TOOL, {}
     if isinstance(exc, ValueError):
         return "invalid_input", False, _FALLBACK_TOOL, {}
     if isinstance(exc, ClinVarDataError):

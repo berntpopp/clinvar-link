@@ -110,9 +110,11 @@ async def test_facade_lists_tools_and_get_variant(facade: Any) -> None:
         assert names == EXPECTED_TOOLS
 
         res = await client.call_tool("get_variant", {"identifier": "VCV000100001"})
-        data = getattr(res, "data", None)
-        if data is None:
-            data = res.structured_content
+        # get_variant declares an output_schema (v1.1 traits[] fencing), so
+        # FastMCP's client reconstructs `.data` into a generated pydantic
+        # model instead of a plain dict; `.structured_content` is always the
+        # raw dict the server emitted.
+        data = res.structured_content
 
     assert data["success"] is True
     assert data["classification"] == "pathogenic"

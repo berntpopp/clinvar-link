@@ -21,6 +21,11 @@ from clinvar_link.mcp.clinvar_date_cache import (
     has_cached_clinvar_release_date,
     set_cached_clinvar_release_date,
 )
+from clinvar_link.mcp.untrusted_content import (
+    UntrustedText,
+    enforce_untrusted_text_limits,
+    fence_untrusted_text,
+)
 from clinvar_link.models import ClinVarVariant, GeneClinVarSummary
 from clinvar_link.services.citation import (
     citation_template,
@@ -31,6 +36,17 @@ from clinvar_link.services.citation import (
 # List response modes where per-row citations are hoisted to one _meta template
 # and duplicate row fields (cdna_change == name) are dropped to save tokens.
 _LEAN_LIST_MODES = frozenset({"minimal", "compact"})
+
+# Response-Envelope v1.1: the batch/list tools (get_variants, search_variants,
+# get_variants_by_gene) aggregate every row's fenced trait objects into ONE
+# enforce_untrusted_text_limits call over the WHOLE response. Trait count per
+# variant is not capped by the model, so up to MAX_PAGE_SIZE rows each
+# carrying several conditions is a legitimate, non-hostile shape; a generous
+# ceiling avoids raising on a real multi-condition batch while the 2 MiB/object
+# and 8 MiB/total byte ceilings (always enforced, never overridden) remain the
+# real DoS backstop. get_variant (single row) and get_gene_clinvar_summary
+# (top_traits capped at 5 by ingest) keep the library default of 128.
+_LIST_TOOL_MAX_OBJECTS = 10_000
 
 _RSID_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
 _VCV_RE = re.compile(r"^VCV\d+$", re.IGNORECASE)
@@ -144,7 +160,9 @@ class ClinVarService:
         variant.recommended_citation = recommended_citation(
             variant.variation_id, variant.vcv_accession, release
         )
-        return self._project(variant.model_dump(), response_mode)
+        projected, fenced = self._project(variant.model_dump(), response_mode)
+        enforce_untrusted_text_limits(fenced)
+        return projected
 
     @staticmethod
     def _validate_shape(text: str, id_type: str) -> None:
@@ -242,6 +260,7 @@ class ClinVarService:
         capped = list(identifiers)[: settings.MAX_PAGE_SIZE]
         release = await self._release_date()
         results: list[dict[str, Any]] = []
+        all_fenced: list[UntrustedText] = []
         found_count = 0
         for ident in capped:
             text = ident.strip() if isinstance(ident, str) else ""
@@ -257,10 +276,15 @@ class ClinVarService:
             variant.recommended_citation = recommended_citation(
                 variant.variation_id, variant.vcv_accession, release
             )
-            projected = self._project(variant.model_dump(), response_mode)
+            projected, fenced = self._project(variant.model_dump(), response_mode)
+            all_fenced.extend(fenced)
             projected["identifier"] = ident
             projected["found"] = True
             results.append(projected)
+        # v1.1: enforce over every fenced object the WHOLE response emits, not
+        # per row — a batch tool's real cap is settings.MAX_PAGE_SIZE rows, each
+        # with an uncapped condition list, so the ceiling is generous.
+        enforce_untrusted_text_limits(all_fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
         out: dict[str, Any] = {
             "results": results,
             "count": len(results),
@@ -343,7 +367,11 @@ class ClinVarService:
             count_mode=count_mode,
         )
         release = await self._release_date()
-        results = [self._to_projected(row, release, response_mode) for row in rows]
+        projected_rows = [self._to_projected(row, release, response_mode) for row in rows]
+        results = [row for row, _ in projected_rows]
+        all_fenced = [obj for _, fenced in projected_rows for obj in fenced]
+        # v1.1: one response-wide enforcement call, not per row (§ get_variants).
+        enforce_untrusted_text_limits(all_fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
         out: dict[str, Any] = {
             "results": results,
             "count": len(results),
@@ -405,6 +433,8 @@ class ClinVarService:
             + payload["not_provided_count"]
         )
         payload["other_count"] = max(0, payload["total_count"] - known)
+        fenced = self._fence_top_traits(payload, gene_symbol)
+        enforce_untrusted_text_limits(fenced)
         if response_mode == "minimal":
             for key in ("consequence_categories", "top_traits", "star_distribution"):
                 payload.pop(key, None)
@@ -456,7 +486,11 @@ class ClinVarService:
             offset=offset,
         )
         release = await self._release_date()
-        results = [self._to_projected(row, release, response_mode) for row in rows]
+        projected_rows = [self._to_projected(row, release, response_mode) for row in rows]
+        results = [row for row, _ in projected_rows]
+        all_fenced = [obj for _, fenced in projected_rows for obj in fenced]
+        # v1.1: one response-wide enforcement call, not per row (§ get_variants).
+        enforce_untrusted_text_limits(all_fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
         has_more = (offset + len(results)) < total
         out: dict[str, Any] = {
             "gene_symbol": gene_symbol,
@@ -515,13 +549,65 @@ class ClinVarService:
 
     def _to_projected(
         self, repo_dict: dict[str, Any], release: str | None, mode: str
-    ) -> dict[str, Any]:
-        """Validate a repo row, attach its citation, and project it."""
+    ) -> tuple[dict[str, Any], list[UntrustedText]]:
+        """Validate a repo row, attach its citation, and project it.
+
+        Returns the projected row alongside the v1.1 fenced objects it emitted,
+        so a list-tool caller can aggregate every row's fenced objects into one
+        response-wide ``enforce_untrusted_text_limits`` call instead of
+        enforcing per row.
+        """
         variant = ClinVarVariant(**repo_dict)
         variant.recommended_citation = recommended_citation(
             variant.variation_id, variant.vcv_accession, release
         )
         return self._project(variant.model_dump(), mode)
+
+    @staticmethod
+    def _fence_traits(payload: dict[str, Any], record_id_base: str) -> list[UntrustedText]:
+        """Fence each ``traits[i].name`` in place as a v1.1 ``untrusted_text`` object.
+
+        Mutates ``payload["traits"]`` so every downstream projection (full,
+        standard, compact) reads the already-fenced value; the compact
+        projection then merely extracts the now-typed object instead of the
+        bare string it used to. Returns the fenced objects for the caller to
+        aggregate into one response-wide limits check.
+        """
+        fenced: list[UntrustedText] = []
+        for i, trait in enumerate(payload.get("traits") or []):
+            if not isinstance(trait, dict):
+                continue
+            raw = trait.get("name")
+            if not isinstance(raw, str):
+                continue
+            obj = fence_untrusted_text(
+                raw, source="clinvar", record_id=f"{record_id_base}#trait:{i}"
+            )
+            trait["name"] = obj.model_dump(mode="json")
+            fenced.append(obj)
+        return fenced
+
+    @staticmethod
+    def _fence_top_traits(payload: dict[str, Any], gene_symbol: str) -> list[UntrustedText]:
+        """Fence each ``top_traits[i].trait`` label in place as v1.1 ``untrusted_text``.
+
+        NOTE: the stored key is ``trait`` (see
+        :mod:`clinvar_link.ingest.parsing` ``compute_stats``), not ``name`` as
+        the :class:`~clinvar_link.models.gene_models.GeneClinVarSummary`
+        docstring example suggests — that example is documentation drift, not
+        a second field. This fences the field that is actually emitted.
+        """
+        fenced: list[UntrustedText] = []
+        for i, entry in enumerate(payload.get("top_traits") or []):
+            if not isinstance(entry, dict):
+                continue
+            raw = entry.get("trait")
+            if not isinstance(raw, str):
+                continue
+            obj = fence_untrusted_text(raw, source="clinvar", record_id=f"{gene_symbol}#trait:{i}")
+            entry["trait"] = obj.model_dump(mode="json")
+            fenced.append(obj)
+        return fenced
 
     @staticmethod
     def _trim_full(payload: dict[str, Any]) -> dict[str, Any]:
@@ -538,31 +624,46 @@ class ClinVarService:
                         coord.pop(key, None)
         return payload
 
-    def _project(self, payload: dict[str, Any], mode: str) -> dict[str, Any]:
+    @staticmethod
+    def _project(payload: dict[str, Any], mode: str) -> tuple[dict[str, Any], list[UntrustedText]]:
         """Project a full variant payload down to the requested verbosity.
 
         Pure dict transform; tolerant of missing keys. ``full`` returns the
-        payload with null trait ids and 'na' alleles stripped.
+        payload with null trait ids and 'na' alleles stripped. Every mode that
+        can emit ``traits`` (all but ``minimal``) fences each trait name as
+        v1.1 ``untrusted_text``, since compact mode's "trait names only"
+        projection is still the same upstream free text and must be fenced
+        too, not just the full/standard object form. Only traits that survive
+        into the actual response are fenced — fencing (and thus limit
+        -checking) a trait compact mode discards would inflate the
+        response-wide object count against text that never leaves the server.
         """
+        if mode == "minimal":
+            out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
+            return out, []
+
+        record_id_base = payload.get("vcv_accession") or str(payload.get("variation_id") or "")
+
         if mode == "full":
-            return self._trim_full(payload)
+            fenced = ClinVarService._fence_traits(payload, record_id_base)
+            return ClinVarService._trim_full(payload), fenced
 
         out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
-        if mode == "minimal":
-            return out
-
         for key in _COMPACT_EXTRA_FIELDS:
             if key in payload:
                 out[key] = payload[key]
 
         if mode == "standard":
+            fenced = ClinVarService._fence_traits(payload, record_id_base)
             out["traits"] = payload.get("traits", [])
             for key in _STANDARD_EXTRA_FIELDS:
                 if key in payload:
                     out[key] = payload[key]
-            return out
+            return out, fenced
 
-        # compact (default): trait names only, capped at 5.
-        traits = payload.get("traits", []) or []
-        out["traits"] = [t.get("name") for t in traits if isinstance(t, dict)][:5]
-        return out
+        # compact (default): fence only the first 5 traits — the truncation
+        # this projection actually emits.
+        capped_traits = (payload.get("traits") or [])[:5]
+        fenced = ClinVarService._fence_traits({"traits": capped_traits}, record_id_base)
+        out["traits"] = [t.get("name") for t in capped_traits if isinstance(t, dict)]
+        return out, fenced

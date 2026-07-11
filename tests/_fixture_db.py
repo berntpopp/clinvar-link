@@ -28,14 +28,24 @@ def build_service(tmp_path: Path) -> ClinVarService:
 async def call_tool(mcp: Any, name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Call an MCP tool through the in-memory FastMCP client and return its dict.
 
-    FastMCP returns a CallToolResult; the structured dict is exposed as
-    ``.data`` (newer FastMCP) and falls back to ``.structured_content``.
+    FastMCP returns a CallToolResult with a raw ``.structured_content`` dict
+    (always present, exactly as the server emitted it) and an ergonomic
+    ``.data`` attribute. For tools that declare an ``output_schema`` (v1.1
+    fenced tools: get_variant / get_variants / search_variants /
+    get_variants_by_gene / get_gene_clinvar_summary), FastMCP's client
+    reconstructs ``.data`` into a *generated pydantic model instance* from
+    that schema rather than a plain dict, so tests must prefer the guaranteed
+    -dict ``.structured_content`` and only fall back to ``.data`` when it is
+    itself already a dict (tools with no output_schema).
     """
     from fastmcp import Client
 
     async with Client(mcp) as client:
         res = await client.call_tool(name, args)
+    structured = getattr(res, "structured_content", None)
+    if isinstance(structured, dict):
+        return structured
     data = getattr(res, "data", None)
-    if data is not None:
+    if isinstance(data, dict):
         return data
     return res.structured_content

@@ -74,6 +74,7 @@ def get_capabilities_resource() -> dict[str, Any]:
             "not_found",
             "invalid_input",
             "internal_error",
+            "response_too_large",
         ],
         "output_cheatsheet": {
             "classification_field": "classification",

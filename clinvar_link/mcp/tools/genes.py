@@ -10,6 +10,7 @@ from fastmcp import FastMCP
 from clinvar_link.exceptions import ToolInputError
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
+from clinvar_link.mcp.output_schemas import GENE_SUMMARY_OUTPUT_SCHEMA, VARIANT_LIST_OUTPUT_SCHEMA
 from clinvar_link.services import ClinVarService
 
 
@@ -21,6 +22,7 @@ def register_gene_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarSe
         title="Get Gene ClinVar Summary",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"gene"},
+        output_schema=GENE_SUMMARY_OUTPUT_SCHEMA,
     )
     async def get_gene_clinvar_summary(
         gene_symbol: str,
@@ -58,6 +60,7 @@ def register_gene_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarSe
         title="Get ClinVar Variants by Gene",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"gene"},
+        output_schema=VARIANT_LIST_OUTPUT_SCHEMA,
     )
     async def get_variants_by_gene(
         gene_symbol: str,
