@@ -8,7 +8,10 @@ from fastmcp import FastMCP
 
 from clinvar_link import __version__
 from clinvar_link.mcp.errors import install_validation_error_handler
-from clinvar_link.mcp.output_validation import install_output_validation_error_handler
+from clinvar_link.mcp.output_validation import (
+    install_output_validation_error_handler,
+    install_protocol_error_handler,
+)
 from clinvar_link.mcp.prompts import register_workflow_prompts
 from clinvar_link.mcp.resources import RESEARCH_USE_NOTICE
 from clinvar_link.mcp.tools import register_clinvar_tools
@@ -63,4 +66,7 @@ def create_clinvar_mcp(
     register_workflow_prompts(mcp)
     install_validation_error_handler(mcp)
     install_output_validation_error_handler(mcp)
+    # Outermost on CallToolRequest: masks FastMCP core not-found dispatch errors
+    # (unknown tool/resource/prompt) that would otherwise echo the caller name/URI.
+    install_protocol_error_handler(mcp)
     return mcp

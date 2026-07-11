@@ -94,7 +94,10 @@ async def _coro_capabilities(
         try:
             meta = await service_factory().get_clinvar_meta()
             set_cached_clinvar_release_date(meta.get("release_date"))
-        except Exception:
-            # Do not cache the failure; the next call retries.
-            logger.debug("clinvar release-date priming failed", exc_info=True)
+        except Exception as exc:
+            # Do not cache the failure; the next call retries. Log only a fixed
+            # event + the exception CLASS — never the traceback or str(exc), which
+            # can reproduce a hostile upstream failure's code points/prose verbatim
+            # in the formatted logs.
+            logger.debug("clinvar release-date priming failed (%s)", type(exc).__name__)
     return get_capabilities_resource()
