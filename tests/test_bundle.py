@@ -20,6 +20,7 @@ from typer.testing import CliRunner
 
 from clinvar_link.config import Settings
 from clinvar_link.exceptions import DownloadError
+from clinvar_link.ingest import bundle
 from clinvar_link.ingest.builder import build_database
 from clinvar_link.ingest.bundle import (
     _decompress_bundle_bytes_for_test,
@@ -321,6 +322,50 @@ def test_download_verify_install_happy(tmp_path: Path) -> None:
 
 
 @respx.mock
+def test_exact_bundle_verifies_expanded_digest_and_schema(tmp_path: Path) -> None:
+    zst_bytes, sha = _packed_fixture(tmp_path)
+    with zstandard.ZstdDecompressor().stream_reader(zst_bytes) as reader:
+        expanded = reader.read()
+    file_sha = hashlib.sha256(expanded).hexdigest()
+    expanded_sha = hashlib.sha256(
+        f"clinvar.sqlite\0{0o444:04o}\0{len(expanded)}\0{file_sha}\n".encode()
+    ).hexdigest()
+    asset_url = (
+        "https://github.com/berntpopp/clinvar-link/releases/download/"
+        "bundle-2026-01-01/clinvar.sqlite.zst"
+    )
+    respx.get(asset_url).mock(return_value=httpx.Response(200, content=zst_bytes))
+
+    result = download_verify_install(
+        asset_url,
+        db_path=tmp_path / "reference" / "clinvar.sqlite",
+        staging_dir=tmp_path / "staging",
+        expected_sha256=sha,
+        expected_expanded_sha256=expanded_sha,
+        expected_schema_version="1.0.0",
+    )
+
+    assert result["expanded_sha256"] == expanded_sha
+    assert result["schema_version"] == "1.0.0"
+
+
+@respx.mock
+def test_exact_bundle_rejects_wrong_expanded_digest(tmp_path: Path) -> None:
+    zst_bytes, sha = _packed_fixture(tmp_path)
+    asset_url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
+    respx.get(asset_url).mock(return_value=httpx.Response(200, content=zst_bytes))
+    with pytest.raises(DownloadError, match="expanded bundle sha256 mismatch"):
+        download_verify_install(
+            asset_url,
+            db_path=tmp_path / "reference" / "clinvar.sqlite",
+            staging_dir=tmp_path / "staging",
+            expected_sha256=sha,
+            expected_expanded_sha256="0" * 64,
+            expected_schema_version="1.0.0",
+        )
+
+
+@respx.mock
 def test_download_verify_install_bad_sha_leaves_no_db(tmp_path: Path) -> None:
     zst_bytes, _ = _packed_fixture(tmp_path)
     asset_url = "https://release-assets.githubusercontent.com/clinvar.sqlite.zst"
@@ -370,6 +415,7 @@ def test_pull_latest_happy(tmp_path: Path) -> None:
         DB_FILENAME="clinvar.sqlite",
         GITHUB_REPO=repo,
         BUNDLE_URL="latest",
+        DEVELOPMENT_LATEST=True,
     )
     result = pull_latest(cfg)
 
@@ -496,3 +542,28 @@ def test_cli_publish_no_build_missing_db_errors(
     result = runner.invoke(cli_mod.app, ["publish", "--no-build", "--no-upload"])
     assert result.exit_code == 1
     assert "no index at" in result.output
+
+
+def test_expanded_tree_sha256_streams_and_never_buffers_the_whole_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The expanded ClinVar index is multi-GB: hashing it must not read it into RAM.
+
+    Reading the whole file (``Path.read_bytes()``) made the data-init sidecar exceed
+    its container memory limit and get OOM-killed (exit 137) before it could install
+    the bundle.
+    """
+    payload = b"clinvar-bundle-bytes" * 4096
+    db = tmp_path / "clinvar.sqlite"
+    db.write_bytes(payload)
+
+    def _explode(self: Path, *args: object, **kwargs: object) -> bytes:
+        raise AssertionError("the expanded bundle must be hashed as a stream")
+
+    monkeypatch.setattr(Path, "read_bytes", _explode)
+
+    file_sha256 = hashlib.sha256(payload).hexdigest()
+    identity = f"clinvar.sqlite\0{0o444:04o}\0{len(payload)}\0{file_sha256}\n"
+    expected = hashlib.sha256(identity.encode()).hexdigest()
+
+    assert bundle._expanded_tree_sha256(db, "clinvar.sqlite") == expected

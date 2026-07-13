@@ -28,15 +28,19 @@ services:
       - 'CLINVAR_LINK_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
       - CLINVAR_LINK_LOG_LEVEL=${LOG_LEVEL_API:-INFO}
       - CLINVAR_LINK_LOG_FORMAT=json
-      - CLINVAR_LINK_DATA_DIR=/app/data
+      - CLINVAR_LINK_ENVIRONMENT=development
+      - CLINVAR_LINK_DATA_DIR=/data/current
+      - CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/data
       # First boot pulls the latest prebuilt SQLite bundle from GitHub Releases
       # and atomically installs it (far faster than building from the NCBI dump).
+      # `latest` is a floating pin, so it is only accepted with DEVELOPMENT_LATEST.
       - CLINVAR_LINK_BUNDLE_URL=latest
+      - CLINVAR_LINK_DEVELOPMENT_LATEST=true
       - CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link
       - CLINVAR_LINK_BUILD_LOCAL=false
       # Stage the downloaded .zst in the app-owned data volume (same fs as the
       # DB, so the post-decompress swap is atomic; no large root-owned tmpfs).
-      - CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/data
+      - CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/data
     # The image ENTRYPOINT bootstraps the index then exec's the unified server,
     # reading CLINVAR_LINK_MCP_TRANSPORT/HOST/PORT above; no command override.
     healthcheck:
@@ -50,11 +54,11 @@ services:
     restart: unless-stopped
     read_only: true
     tmpfs:
-      # TMPDIR=/tmp/clinvar-link (set in the image) - scratch space.
-      - /tmp/clinvar-link:rw,noexec,nosuid,size=256m,mode=1777
+      # TMPDIR=/tmp (set in the image) - scratch space.
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
     volumes:
       # Persist the installed ClinVar SQLite index across container restarts.
-      - clinvar-data:/app/data
+      - clinvar-data:/data
     networks:
       - clinvar_link_internal_net
       - npm_proxy_network

@@ -8,6 +8,7 @@ to fetch it from (``SOURCE_URL``), and when it is considered stale
 (``REFRESH_TTL_DAYS``) rather than upstream API endpoints/timeouts.
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -19,6 +20,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # default data directory lives alongside the source tree at ``<repo_root>/data``.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_DATA_DIR = _REPO_ROOT / "data"
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_RELEASE_TAG_RE = re.compile(r"^bundle-\d{4}-\d{2}-\d{2}$")
 
 
 @dataclass
@@ -93,14 +96,21 @@ class Settings(BaseSettings):
     # asset (``"latest"`` resolves the newest release asset, ``""`` disables the
     # bundle path, or a full ``.sqlite.zst`` URL pins a specific snapshot).
     GITHUB_REPO: str = "berntpopp/clinvar-link"
-    BUNDLE_URL: str = "latest"
+    ENVIRONMENT: Literal["development", "production"] = "development"
+    BUNDLE_URL: str = ""
+    DEVELOPMENT_LATEST: bool = False
+    BUNDLE_RELEASE_TAG: str | None = None
+    BUNDLE_PATH: Path | None = None
     # Fall back to a full local build when no prebuilt bundle is available.
     BUILD_LOCAL: bool = False
     # Stable asset name uploaded by CI for the prebuilt snapshot.
     BUNDLE_ASSET_NAME: str = "clinvar.sqlite.zst"
     # Staging directory for the downloaded ``.zst`` before decompression.
     BUNDLE_DOWNLOAD_DIR: Path = _DEFAULT_DATA_DIR
+    BUNDLE_REFERENCE_ROOT: Path = _DEFAULT_DATA_DIR
     BUNDLE_EXPECTED_SHA256: str | None = None
+    BUNDLE_EXPECTED_EXPANDED_SHA256: str | None = None
+    BUNDLE_EXPECTED_SCHEMA_VERSION: str | None = None
     BUNDLE_MAX_BYTES: int = Field(
         default=2 << 30,
         gt=0,
@@ -196,6 +206,31 @@ class Settings(BaseSettings):
         """
         if self.BUNDLE_DOWNLOAD_DIR == _DEFAULT_DATA_DIR:
             object.__setattr__(self, "BUNDLE_DOWNLOAD_DIR", self.DATA_DIR)
+        if self.BUNDLE_REFERENCE_ROOT == _DEFAULT_DATA_DIR:
+            object.__setattr__(self, "BUNDLE_REFERENCE_ROOT", self.DATA_DIR)
+        if self.BUNDLE_URL == "latest" and not self.DEVELOPMENT_LATEST:
+            raise ValueError("BUNDLE_URL=latest requires DEVELOPMENT_LATEST=true")
+        if self.ENVIRONMENT == "production":
+            if self.DEVELOPMENT_LATEST:
+                raise ValueError("production rejects development_latest")
+            if not self.BUNDLE_RELEASE_TAG or not _RELEASE_TAG_RE.fullmatch(
+                self.BUNDLE_RELEASE_TAG
+            ):
+                raise ValueError("production requires an exact bundle release tag")
+            if self.BUNDLE_PATH is None:
+                marker = f"/download/{self.BUNDLE_RELEASE_TAG}/"
+                if not self.BUNDLE_URL.startswith("https://") or marker not in self.BUNDLE_URL:
+                    raise ValueError("production bundle URL must bind the exact release tag")
+            if not self.BUNDLE_EXPECTED_SHA256 or not _SHA256_RE.fullmatch(
+                self.BUNDLE_EXPECTED_SHA256
+            ):
+                raise ValueError("production requires an exact compressed SHA-256")
+            if not self.BUNDLE_EXPECTED_EXPANDED_SHA256 or not _SHA256_RE.fullmatch(
+                self.BUNDLE_EXPECTED_EXPANDED_SHA256
+            ):
+                raise ValueError("production requires an exact expanded SHA-256")
+            if self.BUNDLE_EXPECTED_SCHEMA_VERSION != "1.0.0":
+                raise ValueError("production requires compatible schema version 1.0.0")
         return self
 
     @property

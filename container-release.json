@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "dockerfile": "docker/Dockerfile",
+  "target": "production",
+  "platform": "linux/amd64",
+  "service": {
+    "compose_files": [
+      "docker/docker-compose.yml",
+      "docker/docker-compose.prod.yml"
+    ],
+    "name": "clinvar-link",
+    "container_port": 8000,
+    "health_path": "/health",
+    "mcp_path": "/mcp",
+    "startup_timeout_seconds": 300,
+    "auxiliary": [
+      {
+        "name": "clinvar-data-init",
+        "role": "init",
+        "egress": "approved-networks",
+        "writable_targets": [
+          "/data",
+          "/tmp"
+        ]
+      }
+    ]
+  },
+  "data": {
+    "mode": "external-reference",
+    "release_tag": "bundle-2026-07-07",
+    "digest": "sha256:52eed6e488f9934432034449281afb73ed699a1b7e39cd85c0a1e731d82e48a8",
+    "image_allowlist": [
+      "opt/venv/lib/python3.12/site-packages/clinvar_link/data/__init__.py",
+      "opt/venv/lib/python3.12/site-packages/clinvar_link/data/indexes.sql",
+      "opt/venv/lib/python3.12/site-packages/clinvar_link/data/repository.py",
+      "opt/venv/lib/python3.12/site-packages/clinvar_link/data/review_status_stars.yaml",
+      "opt/venv/lib/python3.12/site-packages/clinvar_link/data/schema.sql"
+    ]
+  },
+  "definitions": {
+    "contract": "data-bound"
+  },
+  "smoke": {
+    "profile": "immutable-bundle"
+  }
+}

@@ -2,11 +2,114 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from clinvar_link.config import ServerConfig, Settings, settings
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+_SHA = "a" * 64
+_EXPANDED_SHA = "b" * 64
+
+
+def _production_settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "ENVIRONMENT": "production",
+        "DATA_DIR": Path("/reference/current"),
+        "BUNDLE_REFERENCE_ROOT": Path("/reference"),
+        "BUNDLE_URL": (
+            "https://github.com/berntpopp/clinvar-link/releases/download/"
+            "bundle-2026-07-10/clinvar.sqlite.zst"
+        ),
+        "BUNDLE_RELEASE_TAG": "bundle-2026-07-10",
+        "BUNDLE_EXPECTED_SHA256": _SHA,
+        "BUNDLE_EXPECTED_EXPANDED_SHA256": _EXPANDED_SHA,
+        "BUNDLE_EXPECTED_SCHEMA_VERSION": "1.0.0",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"BUNDLE_URL": "latest"}, "latest"),
+        ({"BUNDLE_RELEASE_TAG": None}, "release tag"),
+        ({"BUNDLE_EXPECTED_SHA256": None}, "compressed SHA-256"),
+        ({"BUNDLE_EXPECTED_EXPANDED_SHA256": None}, "expanded SHA-256"),
+    ],
+)
+def test_production_requires_exact_bundle_identity(
+    override: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _production_settings(**override)
+
+
+def test_production_rejects_development_latest() -> None:
+    with pytest.raises(ValidationError, match="development_latest"):
+        _production_settings(DEVELOPMENT_LATEST=True)
+
+
+def test_development_latest_is_explicit_opt_in() -> None:
+    with pytest.raises(ValidationError, match="DEVELOPMENT_LATEST"):
+        Settings(BUNDLE_URL="latest")
+    assert Settings(BUNDLE_URL="latest", DEVELOPMENT_LATEST=True).BUNDLE_URL == "latest"
+
+
+def test_vendored_data_contract_matches_recorded_hash() -> None:
+    schema = ROOT / "vendor/genefoundry/data-release-manifest.schema.json"
+    recorded = (ROOT / "vendor/genefoundry/CONTRACT_SHA256").read_text().strip()
+    assert hashlib.sha256(schema.read_bytes()).hexdigest() == recorded
+
+
+def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
+    workflow = (ROOT / ".github/workflows/data-bundle.yml").read_text()
+    assert "build:" in workflow and "publish:" in workflow
+    assert "draft=true" in workflow
+    assert "actions/attest-build-provenance@43d14" in workflow
+    assert "gh release verify-asset" in workflow
+    assert "--clobber" not in workflow
+
+
+def test_production_compose_splits_init_and_read_only_reference() -> None:
+    base = (ROOT / "docker/docker-compose.yml").read_text()
+    production = (ROOT / "docker/docker-compose.prod.yml").read_text()
+    assert "clinvar-data-init:" in base
+    # The init sidecar owns the writable reference volume; the server only reads it.
+    assert "clinvar-reference:/data\n" in base
+    assert "clinvar-reference:/data:ro" in base
+    assert "clinvar-reference:/data:ro" in production
+    assert "CLINVAR_LINK_ENVIRONMENT: production" in production
+    assert "CLINVAR_LINK_BUNDLE_RELEASE_TAG" in production
+    assert "CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256" in production
+    # Production installs exactly the pinned release rather than reusing the volume.
+    assert '["clinvar-link-data", "pull"]' in production
+
+
+def test_release_config_declares_the_init_sidecar_role() -> None:
+    """The central compose gate authorizes the sidecar by role, never by name."""
+    config = json.loads((ROOT / "container-release.json").read_text())
+    (auxiliary,) = config["service"]["auxiliary"]
+    assert auxiliary["name"] == "clinvar-data-init"
+    assert auxiliary["role"] == "init"
+    # The bundle is fetched from GitHub Releases, so the sidecar needs egress.
+    assert auxiliary["egress"] == "approved-networks"
+    assert sorted(auxiliary["writable_targets"]) == ["/data", "/tmp"]  # noqa: S108
+    assert config["smoke"]["profile"] == "immutable-bundle"
+
+
+def test_compose_declares_no_top_level_extension_fields() -> None:
+    """`docker compose config` emits `x-*` verbatim and the central policy rejects it."""
+    for name in ("docker-compose.yml", "docker-compose.prod.yml"):
+        text = (ROOT / "docker" / name).read_text()
+        assert not any(line.startswith("x-") for line in text.splitlines())
 
 
 def test_settings_loads_with_defaults() -> None:

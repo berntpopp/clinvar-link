@@ -441,7 +441,9 @@ def publish(
     tag = str(info["release_tag"])
     try:
         if _gh_release_exists(tag, repo):
-            _run_gh(["release", "upload", tag, zst_path, sha256_path, "--clobber", "--repo", repo])
+            raise RuntimeError(
+                f"release {tag} already exists; immutable bundle assets cannot be replaced"
+            )
         else:
             create_args = [
                 "release",

@@ -1,0 +1,20 @@
+name: Container release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: container-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  attestations: write
+  contents: write
+  id-token: write
+  packages: write
+
+jobs:
+  release:
+    uses: berntpopp/genefoundry-router/.github/workflows/_container-release.yml@58d011d9c72efe90337244342fdec703f2b5b4b9

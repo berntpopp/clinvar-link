@@ -1,25 +1,80 @@
 name: clinvar-link
 
+# Two services, one image:
+#
+#   clinvar-data-init  (Container Release role: `init`)  one-shot; materializes the
+#                      verified ClinVar reference bundle into the `clinvar-reference`
+#                      named volume, then exits.
+#   clinvar-link       (application)                     waits for the init to complete
+#                      successfully, then mounts the same volume READ-ONLY and serves.
+#
+# The reference volume is mounted at /data on both services: /data and /tmp are the
+# only writable targets the central compose policy approves, so every path either
+# container writes lives under one of them.
+#
+# NOTE: no top-level `x-*` anchors. `docker compose config` emits extension fields
+# verbatim and the central policy rejects unapproved top-level keys, so the shared
+# blocks are anchored on real service keys instead.
+
 services:
-  clinvar-link:
-    build:
+  clinvar-data-init:
+    build: &build
       context: ..
       dockerfile: docker/Dockerfile
       target: production
-    container_name: clinvar-link
-    # Dev/local only — loopback-bound (127.0.0.1) so copying this file to a
-    # server never publishes the unauthenticated backend on the public IP
-    # (Docker would otherwise bind 0.0.0.0 and bypass the host firewall).
-    # Production fronts the container with a reverse proxy via the prod/npm
-    # overlays (ports: !reset []). Backends are unauthenticated by design.
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0}
+        VCS_REF: ${VCS_REF:-0000000000000000000000000000000000000000}
+        BUILD_DATE: ${BUILD_DATE:-1970-01-01T00:00:00Z}
+    image: clinvar-link:latest
+    # Explicit, shell-free argv. Dev/local resolves the newest published bundle; the
+    # production overlay pins an exact release and switches to `pull`.
+    entrypoint: ["clinvar-link-data", "bootstrap"]
+    environment: &data-environment
+      CLINVAR_LINK_ENVIRONMENT: development
+      CLINVAR_LINK_DATA_DIR: /data/current
+      CLINVAR_LINK_BUNDLE_REFERENCE_ROOT: /data
+      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /data
+      CLINVAR_LINK_BUNDLE_URL: latest
+      CLINVAR_LINK_DEVELOPMENT_LATEST: "true"
+      CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
+      CLINVAR_LINK_BUILD_LOCAL: "false"
+    volumes:
+      - clinvar-reference:/data
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+          pids: 128
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  clinvar-link:
+    build: *build
+    image: clinvar-link:latest
+    depends_on:
+      clinvar-data-init:
+        condition: service_completed_successfully
+    # Dev/local only — loopback-bound (127.0.0.1) so copying this file to a server
+    # never publishes the unauthenticated backend on the public IP. Production fronts
+    # the container with a reverse proxy via the prod/npm overlays (ports: !reset []).
     ports:
       - "127.0.0.1:${CLINVAR_LINK_HOST_PORT:-8000}:8000"
-    env_file:
-      - path: ../.env
-        required: false
-      - path: ../.env.docker
-        required: false
     environment:
+      <<: *data-environment
       CLINVAR_LINK_MCP_TRANSPORT: unified
       CLINVAR_LINK_MCP_HOST: 0.0.0.0
       CLINVAR_LINK_MCP_PORT: 8000
@@ -27,69 +82,35 @@ services:
       CLINVAR_LINK_MCP_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1"]'
       CLINVAR_LINK_LOG_LEVEL: INFO
       CLINVAR_LINK_LOG_FORMAT: json
-      CLINVAR_LINK_DATA_DIR: /app/data
-      # First boot downloads the latest prebuilt SQLite bundle from GitHub
-      # Releases (~hundreds of MB) and atomically installs it; set
-      # CLINVAR_LINK_BUILD_LOCAL=true to build from source instead (heavy).
-      CLINVAR_LINK_BUNDLE_URL: latest
-      CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
-      CLINVAR_LINK_BUILD_LOCAL: "false"
-      # Stage the downloaded .zst in the app-owned data volume (same fs as the
-      # DB, so the post-decompress swap is atomic; no root-owned tmpfs needed).
-      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /app/data
+    # The index is materialized by clinvar-data-init; the server only ever reads it.
     volumes:
-      # Persist the installed SQLite index across container restarts so the
-      # first-boot bundle download happens only once.
-      - clinvar-data:/app/data
+      - clinvar-reference:/data:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      # First boot pulls the prebuilt SQLite bundle (~hundreds of MB) and
-      # decompresses it before /health turns healthy — far faster than a build.
-      start_period: 300s
+      start_period: 30s
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+          pids: 256
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    networks:
-      - clinvar-network
-
-  # Weekly refresh: a maintainer republishes the bundle from their workstation
-  # (`clinvar-link-data publish`); production refresh is just a `pull` of the
-  # newest snapshot. Two common options:
-  #
-  # 1. Host cron invoking the one-shot refresh runner below (uncomment it first):
-  #      17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml run --rm refresh
-  #
-  # 2. Host cron exec'ing into the running container:
-  #      17 3 * * 1  docker compose -f /opt/clinvar-link/docker/docker-compose.yml exec clinvar-link clinvar-link-data pull
-  #
-  # Uncomment to enable the sidecar runner (invoked via `run --rm refresh`):
-  # refresh:
-  #   profiles: ["tools"]
-  #   build:
-  #     context: ..
-  #     dockerfile: docker/Dockerfile
-  #     target: production
-  #   entrypoint: ["clinvar-link-data", "pull"]
-  #   environment:
-  #     CLINVAR_LINK_DATA_DIR: /app/data
-  #     CLINVAR_LINK_BUNDLE_URL: latest
-  #     CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
-  #     CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /tmp/clinvar-link
-  #   volumes:
-  #     - clinvar-data:/app/data
-  #   networks:
-  #     - clinvar-network
 
 volumes:
-  clinvar-data:
-    driver: local
-
-networks:
-  clinvar-network:
-    driver: bridge
+  clinvar-reference:

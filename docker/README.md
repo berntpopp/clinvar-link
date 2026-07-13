@@ -79,11 +79,16 @@ Or exec into the running container:
 
 ## Volume
 
-The installed SQLite index lives under `CLINVAR_LINK_DATA_DIR` (`/app/data`),
-persisted in the `clinvar-data` named volume across container restarts so the
-first-boot bundle download happens only once. The downloaded `.zst` is staged
-in an ephemeral tmpfs at `CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR` (`/tmp/clinvar-link`)
-before being decompressed and swapped into the volume.
+The `clinvar-data-init` sidecar materializes the verified bundle into the
+`clinvar-reference` named volume, mounted at `/data`, and exits; `clinvar-link`
+then mounts the same volume **read-only** and serves from it. The index lives at
+`CLINVAR_LINK_DATA_DIR` (`/data/current`), a symlink to the sha256-addressed
+directory of the installed bundle, so the volume can hold several versions and
+the swap is atomic. The downloaded `.zst` is staged in
+`CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR` (`/data`) — the same filesystem as the index.
+
+`/data` and `/tmp` are the only writable mount targets the fleet compose policy
+approves; the container rootfs is read-only and `/tmp` is a size-capped tmpfs.
 
 ## Ports
 
