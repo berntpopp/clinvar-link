@@ -20,6 +20,7 @@ from typer.testing import CliRunner
 
 from clinvar_link.config import Settings
 from clinvar_link.exceptions import DownloadError
+from clinvar_link.ingest import bundle
 from clinvar_link.ingest.builder import build_database
 from clinvar_link.ingest.bundle import (
     _decompress_bundle_bytes_for_test,
@@ -541,3 +542,28 @@ def test_cli_publish_no_build_missing_db_errors(
     result = runner.invoke(cli_mod.app, ["publish", "--no-build", "--no-upload"])
     assert result.exit_code == 1
     assert "no index at" in result.output
+
+
+def test_expanded_tree_sha256_streams_and_never_buffers_the_whole_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The expanded ClinVar index is multi-GB: hashing it must not read it into RAM.
+
+    Reading the whole file (``Path.read_bytes()``) made the data-init sidecar exceed
+    its container memory limit and get OOM-killed (exit 137) before it could install
+    the bundle.
+    """
+    payload = b"clinvar-bundle-bytes" * 4096
+    db = tmp_path / "clinvar.sqlite"
+    db.write_bytes(payload)
+
+    def _explode(self: Path, *args: object, **kwargs: object) -> bytes:
+        raise AssertionError("the expanded bundle must be hashed as a stream")
+
+    monkeypatch.setattr(Path, "read_bytes", _explode)
+
+    file_sha256 = hashlib.sha256(payload).hexdigest()
+    identity = f"clinvar.sqlite\0{0o444:04o}\0{len(payload)}\0{file_sha256}\n"
+    expected = hashlib.sha256(identity.encode()).hexdigest()
+
+    assert bundle._expanded_tree_sha256(db, "clinvar.sqlite") == expected

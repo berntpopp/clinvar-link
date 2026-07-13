@@ -59,8 +59,22 @@ _RELEASES_PER_PAGE = 5
 _MAX_RELEASE_PAGES = 20
 
 
+def _sha256_file(path: Path) -> str:
+    """Streaming sha256 of a file.
+
+    The expanded ClinVar index is several GB, so it is hashed in bounded chunks:
+    reading it whole made the data-init sidecar exceed its container memory limit
+    and get OOM-killed before it could install the bundle.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(_CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _expanded_tree_sha256(path: Path, filename: str) -> str:
-    file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    file_sha256 = _sha256_file(path)
     identity = f"{filename}\0{0o444:04o}\0{path.stat().st_size}\0{file_sha256}\n"
     return hashlib.sha256(identity.encode()).hexdigest()
 

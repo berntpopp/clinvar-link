@@ -15,6 +15,15 @@ All notable changes to clinvar-link are documented here.
   Releases), and its exact `writable_targets` (`/data`, `/tmp`), so the central
   fleet compose gate authorizes it **by role, never by name**.
 
+### Fixed
+
+- Hash the expanded bundle as a stream. `_expanded_tree_sha256` read the whole
+  installed index into memory (`Path.read_bytes()`), so verifying the ~4.8 GB
+  ClinVar SQLite made the data-init container exceed its memory limit and get
+  OOM-killed (exit 137) before it could install the bundle. It is now hashed in
+  bounded chunks, matching `mavedb-link`'s streaming implementation. The digest is
+  unchanged.
+
 ### Changed
 
 - Adopt the GeneFoundry container-release caller workflow and code-only
