@@ -75,7 +75,6 @@ services:
       - "127.0.0.1:${CLINVAR_LINK_HOST_PORT:-8000}:8000"
     environment:
       <<: *data-environment
-      GF_HEALTHCHECK_HOST: localhost
       CLINVAR_LINK_MCP_TRANSPORT: unified
       CLINVAR_LINK_MCP_HOST: 0.0.0.0
       CLINVAR_LINK_MCP_PORT: 8000
