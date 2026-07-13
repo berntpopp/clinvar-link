@@ -1,56 +1,54 @@
-# Production hardening overlay for clinvar-link (GeneFoundry Container &
-# Deployment Hardening Standard v1).
-#
-#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
-#
-# Layered on the base compose: drops the published host port (expose-only behind
-# the reverse proxy), makes the root filesystem read-only with explicit writable
-# mounts, drops all kernel capabilities, blocks privilege escalation, and bounds
-# memory/CPU/PIDs. The ClinVar SQLite index persists in the clinvar-data volume
-# (declared in the base file) — the only writable path besides the scratch tmpfs.
 services:
-  clinvar-link:
-    environment:
-      CLINVAR_LINK_LOG_LEVEL: INFO
-      CLINVAR_LINK_LOG_FORMAT: json
-      CLINVAR_LINK_MCP_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
-    # Expose-only behind the reverse proxy. !reset (not []) is required: Compose
-    # MERGES list fields across -f overlays, so a plain `ports: []` would NOT drop
-    # the base file's published "${CLINVAR_LINK_HOST_PORT:-8000}:8000" mapping — it
-    # would stay published on the public IP, exposing the endpoint directly.
-    ports: !reset []
-    expose:
-      - "8000"
+  clinvar-data-init:
+    build: !reset null
+    image: "${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}"
+    pull_policy: missing
+    environment: &production-data
+      CLINVAR_LINK_ENVIRONMENT: production
+      CLINVAR_LINK_DATA_DIR: /app/reference/current
+      CLINVAR_LINK_BUNDLE_REFERENCE_ROOT: /app/reference
+      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /app/reference
+      CLINVAR_LINK_BUNDLE_URL: ${CLINVAR_DATA_BUNDLE_URL:?set exact release asset URL}
+      CLINVAR_LINK_BUNDLE_RELEASE_TAG: ${CLINVAR_DATA_RELEASE_TAG:?set bundle-YYYY-MM-DD}
+      CLINVAR_LINK_BUNDLE_EXPECTED_SHA256: ${CLINVAR_DATA_SHA256:?set compressed SHA-256}
+      CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256: ${CLINVAR_DATA_EXPANDED_SHA256:?set expanded SHA-256}
+      CLINVAR_LINK_BUNDLE_EXPECTED_SCHEMA_VERSION: ${CLINVAR_DATA_SCHEMA_VERSION:-1.0.0}
+      CLINVAR_LINK_DEVELOPMENT_LATEST: "false"
+      CLINVAR_LINK_BUILD_LOCAL: "false"
     read_only: true
     tmpfs:
-      # TMPDIR=/tmp/clinvar-link (set in the image) — scratch space. The SQLite
-      # index lives on the writable clinvar-data volume declared in the base file;
-      # the bundle download/decompress also stages there (same fs = atomic swap).
       - /tmp/clinvar-link:rw,noexec,nosuid,size=256m,mode=1777
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+
+  clinvar-link:
+    build: !reset null
+    image: "${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}"
+    pull_policy: missing
+    environment:
+      <<: *production-data
+      CLINVAR_LINK_MCP_TRANSPORT: unified
+      CLINVAR_LINK_MCP_HOST: 0.0.0.0
+      CLINVAR_LINK_MCP_PORT: 8000
+      CLINVAR_LINK_MCP_PATH: /mcp
+      CLINVAR_LINK_MCP_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
+      CLINVAR_LINK_LOG_LEVEL: INFO
+      CLINVAR_LINK_LOG_FORMAT: json
+    ports: !reset []
+    expose: ["8000"]
+    read_only: true
+    tmpfs:
+      - /tmp/clinvar-link:rw,noexec,nosuid,size=256m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
     pids_limit: 256
     init: true
     restart: on-failure
     deploy:
       resources:
-        limits:
-          memory: 1G
-          cpus: "1.0"
-          pids: 256
-        reservations:
-          memory: 256M
-          cpus: "0.5"
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
+        limits: {memory: 1G, cpus: "1.0", pids: 256}
+        reservations: {memory: 256M, cpus: "0.5"}
     logging:
       driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "5"
-        labels: "service=clinvar-link,environment=production"
+      options: {max-size: "50m", max-file: "5"}

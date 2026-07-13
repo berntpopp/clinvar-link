@@ -41,6 +41,22 @@ RUN uv sync --frozen --no-dev --active --no-install-project
 
 FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS production
 
+ARG APP_VERSION=0.0.0
+ARG VCS_REF=0000000000000000000000000000000000000000
+ARG BUILD_DATE=1970-01-01T00:00:00Z
+LABEL org.opencontainers.image.title="ClinVar Link" \
+      org.opencontainers.image.description="ClinVar variant pathogenicity MCP server for research use" \
+      org.opencontainers.image.source="https://github.com/berntpopp/clinvar-link" \
+      org.opencontainers.image.url="https://github.com/berntpopp/clinvar-link" \
+      org.opencontainers.image.documentation="https://github.com/berntpopp/clinvar-link#docker" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="GeneFoundry" \
+      org.genefoundry.research-use-only="true" \
+      org.genefoundry.data-policy="code-only"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
@@ -49,7 +65,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_MCP_HOST=0.0.0.0 \
     CLINVAR_LINK_MCP_PORT=8000 \
     CLINVAR_LINK_MCP_PATH=/mcp \
-    CLINVAR_LINK_DATA_DIR=/app/data \
+    CLINVAR_LINK_DATA_DIR=/app/reference/current \
     CLINVAR_LINK_DB_FILENAME=clinvar.sqlite \
     # Bundle mode (the default): on first boot the entrypoint runs
     # `clinvar-link-data bootstrap`, which downloads the latest prebuilt SQLite
@@ -60,8 +76,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_BUNDLE_URL=latest \
     CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link \
     CLINVAR_LINK_BUILD_LOCAL=false \
-    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/data \
+    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/reference \
+    CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/app/reference \
     CLINVAR_LINK_LOG_FORMAT=json \
+    VCS_REF="${VCS_REF}" \
     TMPDIR=/tmp/clinvar-link
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -72,8 +90,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN groupadd --system app && \
     useradd --system --gid app --home /home/app --create-home app && \
-    mkdir -p /tmp/clinvar-link /app/data && \
-    chown -R app:app /tmp/clinvar-link /app/data /home/app
+    mkdir -p /tmp/clinvar-link /app/reference && \
+    chown -R app:app /tmp/clinvar-link /app/reference /home/app
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -83,7 +101,16 @@ COPY --chown=app:app ./clinvar_link ./clinvar_link
 COPY --chown=app:app ./mcp_server.py ./pyproject.toml ./README.md ./
 COPY --chown=app:app ./docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN /opt/venv/bin/pip install . --no-deps && chmod +x /usr/local/bin/entrypoint.sh
+RUN /opt/venv/bin/pip install . --no-deps && chmod +x /usr/local/bin/entrypoint.sh \
+    && rm -rf /usr/local/lib/python3.12/ensurepip \
+              /usr/local/lib/python3.12/site-packages/pip \
+              /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+              /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12 \
+              /opt/venv/lib/python3.12/site-packages/pip \
+              /opt/venv/lib/python3.12/site-packages/pip-*.dist-info \
+              /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.12 \
+              /root/.cache/pip /home/app/web/clinvar_link \
+    && find /usr/local/lib/python3.12 /opt/venv /home/app/web -type d -name __pycache__ -prune -exec rm -rf '{}' +
 
 USER app
 
@@ -92,7 +119,7 @@ EXPOSE 8000
 # The installed SQLite index lives under CLINVAR_LINK_DATA_DIR (/app/data).
 # Mount a volume there so the index persists across container restarts and the
 # first-boot bundle download happens only once.
-VOLUME ["/app/data"]
+VOLUME ["/app/reference"]
 
 # start-period covers the first-boot bundle download: pulling the prebuilt
 # clinvar.sqlite.zst (~hundreds of MB) and decompressing it is far faster than a

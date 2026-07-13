@@ -1,104 +1,121 @@
 name: Data bundle
 
-# Automate what was a manual operator step: build the ClinVar SQLite index from the
-# current NCBI variant_summary dump and publish it as a `bundle-<YYYY-MM-DD>` GitHub
-# Release, so the runtime bundle (BUNDLE_URL=latest) stays fresh on its own.
-#
-# `clinvar-link-data publish --build` owns the whole producer path — download +
-# build the index, pack the `.zst` + `.sha256`, and idempotently create/upload the
-# `bundle-<YYYY-MM-DD>` Release via `gh`. This workflow just schedules it and guards
-# against a wasted ~5 GB rebuild when the newest Release is already at/after the
-# upstream dump date.
-
 on:
   schedule:
-    # Fridays 05:37 UTC — after NCBI's Thursday weekly ClinVar refresh (offset from
-    # the other scheduled jobs in this repo).
     - cron: "37 5 * * 5"
   workflow_dispatch:
-    inputs:
-      force:
-        description: "Build and publish even if a Release is already current."
-        required: false
-        default: false
-        type: boolean
 
-concurrency:
-  group: data-bundle
-  cancel-in-progress: false
-
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  bundle:
-    name: Build and publish SQLite bundle
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
-      contents: write # create/upload GitHub Releases
-    env:
-      GH_TOKEN: ${{ github.token }}
-
+      contents: read
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Free disk space
-        # The build needs ~7 GB free (~950 MB download + ~4.8 GB SQLite + ~1 GB .zst);
-        # drop preinstalled toolchains the runner does not need for this job.
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
-          df -h /
-
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          enable-cache: true
           version: "0.8.7"
-
-      - name: Install project
-        run: uv sync --frozen
-
-      - name: Decide whether a rebuild is needed
-        id: decide
+          enable-cache: false
+      - run: uv sync --frozen
+      - name: Build and pack without credentials
+        env:
+          CLINVAR_LINK_DATA_DIR: data
         run: |
           set -euo pipefail
-          url="https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
-          lm="$(curl -sIL "$url" | tr -d '\r' | awk -F': ' 'tolower($1)=="last-modified"{v=$2} END{print v}')"
-          if [ -z "$lm" ]; then
-            echo "::warning::Could not read upstream Last-Modified; proceeding with a build."
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          upstream="$(date -u -d "$lm" +%Y-%m-%d)"
-          echo "Upstream variant_summary dated: $upstream"
-          latest="$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName \
-            --jq '[.[].tagName | select(startswith("bundle-")) | ltrimstr("bundle-")] | sort | last // ""')"
-          echo "Latest published bundle date: ${latest:-<none>}"
-          if [ "${{ inputs.force }}" = "true" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "force=true -> publishing regardless."
-            exit 0
-          fi
-          # Skip only when an equal-or-newer bundle already exists (lexical YYYY-MM-DD compare).
-          if [[ -n "$latest" && ! "$latest" < "$upstream" ]]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Latest bundle ($latest) is already >= upstream ($upstream) - nothing to do."
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "Upstream ($upstream) is newer than latest bundle (${latest:-none}) - rebuilding."
-          fi
+          uv run clinvar-link-data build
+          uv run clinvar-link-data pack --out-dir dist
+      - name: Create exact release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, sqlite3
+          from datetime import UTC, datetime
+          from pathlib import Path
+          db=Path("data/clinvar.sqlite"); asset=Path("dist/clinvar.sqlite.zst")
+          con=sqlite3.connect(db); con.row_factory=sqlite3.Row
+          meta=dict(con.execute("select * from meta where id=1").fetchone()); con.close()
+          release=str(meta["clinvar_release_date"])[:10]
+          tag=f"bundle-{release}"
+          file_hash=hashlib.sha256(db.read_bytes()).hexdigest()
+          tree=hashlib.sha256(f"clinvar.sqlite\0{0o444:04o}\0{db.stat().st_size}\0{file_hash}\n".encode()).hexdigest()
+          payload={"tag":tag,"asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(),
+                   "asset_size":asset.stat().st_size,"expanded_tree_sha256":tree,
+                   "expanded_size":db.stat().st_size,"schema_version":"1.0.0",
+                   "source_sha256":meta["source_sha256"],"source_url":meta["source_url"],
+                   "retrieved_at":datetime.now(UTC).isoformat().replace("+00:00","Z"),
+                   "variant_count":meta["variant_count"],"gene_count":meta["gene_count"]}
+          Path("dist/bundle-metadata.json").write_text(json.dumps(payload,sort_keys=True)+"\n")
+          with Path("dist/SHA256SUMS").open("w") as out:
+              for path in sorted(Path("dist").glob("*")):
+                  if path.name != "SHA256SUMS": out.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+          with Path("tag.txt").open("w") as out: out.write(tag)
+          PY
+          echo "tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        with:
+          name: clinvar-data-${{ steps.meta.outputs.tag }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Build and publish bundle
-        if: ${{ steps.decide.outputs.publish == 'true' }}
-        run: uv run clinvar-link-data publish --build --repo "${{ github.repository }}"
-
-      - name: Show latest releases
-        if: ${{ steps.decide.outputs.publish == 'true' }}
-        run: gh release list --repo "${{ github.repository }}" --limit 3
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: data-release
+    concurrency:
+      group: clinvar-data-${{ needs.build.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7
+        with:
+          name: clinvar-data-${{ needs.build.outputs.tag }}
+          path: dist
+      - name: Verify transferred bytes
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+      - name: Create an empty draft or prove an identical rerun
+        id: draft
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/tmp/release.json 2>/dev/null; then
+            test "$(jq -r .isDraft /tmp/release.json)" = true || { echo "published release collision: $TAG" >&2; exit 1; }
+            mkdir -p /tmp/existing
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/existing || true
+            if test -f /tmp/existing/SHA256SUMS && cmp -s dist/SHA256SUMS /tmp/existing/SHA256SUMS; then
+              echo "upload=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true --title "$TAG" --notes "Immutable ClinVar reference bundle; research use only."
+          echo "upload=true" >> "$GITHUB_OUTPUT"
+      - name: Upload without replacement
+        if: steps.draft.outputs.upload == 'true'
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
+      - name: Attest exact release assets
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: "dist/*"
+      - name: Publish once and verify immutable assets
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
+          while read -r _ asset; do gh release verify-asset "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY"; done < dist/SHA256SUMS

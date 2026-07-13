@@ -1,4 +1,4 @@
-.PHONY: help install lock upgrade sync format format-check lint lint-ci lint-fix typecheck typecheck-fast typecheck-stop typecheck-fresh test test-fast test-unit test-integration test-cov test-all check ci-local precommit clean dev run-dev run-prod docker-build docker-up docker-down docker-logs
+.PHONY: help install lock upgrade sync format format-check lint lint-ci lint-fix typecheck typecheck-fast typecheck-stop typecheck-fresh test test-fast test-unit test-integration test-cov test-all check ci-local vendor-check precommit clean dev run-dev run-prod docker-build docker-up docker-down docker-logs
 
 .DEFAULT_GOAL := help
 
@@ -89,6 +89,9 @@ ci-local: ## Run fast local CI-equivalent checks
 	uv run ruff format --check .
 	uv run mypy clinvar_link
 	uv run pytest --cov=clinvar_link --cov-report=term-missing
+
+vendor-check: ## Verify the vendored GeneFoundry data contract bytes
+	@test "$$(sha256sum vendor/genefoundry/data-release-manifest.schema.json | cut -d' ' -f1)" = "$$(cat vendor/genefoundry/CONTRACT_SHA256)"
 
 precommit: ci-local ## Run checks expected before commit
 

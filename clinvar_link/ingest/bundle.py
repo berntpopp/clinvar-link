@@ -42,6 +42,7 @@ from clinvar_link.ingest.download_security import (
     open_validated_stream,
     stream_atomic,
 )
+from clinvar_link.ingest.lock import build_lock
 
 if TYPE_CHECKING:
     from clinvar_link.config import Settings
@@ -56,6 +57,12 @@ _DATE_PREFIX_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 _BUNDLE_HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com"})
 _RELEASES_PER_PAGE = 5
 _MAX_RELEASE_PAGES = 20
+
+
+def _expanded_tree_sha256(path: Path, filename: str) -> str:
+    file_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    identity = f"{filename}\0{0o444:04o}\0{path.stat().st_size}\0{file_sha256}\n"
+    return hashlib.sha256(identity.encode()).hexdigest()
 
 
 def _read_limited_response(
@@ -307,7 +314,9 @@ def _decompress_bundle(
     db_path: Path,
     *,
     max_expanded_bytes: int,
-) -> int:
+    expected_expanded_sha256: str | None = None,
+    expected_schema_version: str | None = None,
+) -> tuple[int, str, str]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".sqlite.tmp")
     os.close(fd)
@@ -322,8 +331,32 @@ def _decompress_bundle(
                     max_bytes=max_expanded_bytes,
                     label="expanded bundle",
                 )
+        os.chmod(tmp_path, 0o444)
+        expanded_sha256 = _expanded_tree_sha256(tmp_path, db_path.name)
+        if (
+            expected_expanded_sha256 is not None
+            and expanded_sha256 != expected_expanded_sha256.lower()
+        ):
+            raise DownloadError(
+                "expanded bundle sha256 mismatch: "
+                f"expected {expected_expanded_sha256.lower()}, got {expanded_sha256}"
+            )
+        connection = sqlite3.connect(f"file:{tmp_path}?mode=ro", uri=True)
+        try:
+            row = connection.execute("SELECT schema_version FROM meta WHERE id = 1").fetchone()
+        except sqlite3.Error as exc:
+            raise DownloadError("expanded bundle has no readable schema identity") from exc
+        finally:
+            connection.close()
+        if row is None or not isinstance(row[0], int):
+            raise DownloadError("expanded bundle has no readable schema identity")
+        schema_version = f"{row[0]}.0.0"
+        if expected_schema_version is not None and schema_version != expected_schema_version:
+            raise DownloadError(
+                f"bundle schema mismatch: expected {expected_schema_version}, got {schema_version}"
+            )
         os.replace(tmp_path, db_path)
-        return bytes_db
+        return bytes_db, expanded_sha256, schema_version
     except (OSError, zstandard.ZstdError) as exc:
         raise DownloadError(f"failed to install bundle into {db_path}: {exc}") from exc
     finally:
@@ -346,7 +379,7 @@ def _decompress_bundle_bytes_for_test(
             zst_path,
             db_path,
             max_expanded_bytes=max_expanded_bytes,
-        )
+        )[0]
     finally:
         zst_path.unlink(missing_ok=True)
 
@@ -360,6 +393,8 @@ def download_verify_install(
     max_compressed_bytes: int = 2 << 30,
     max_expanded_bytes: int = 8 << 30,
     max_seconds: float | None = None,
+    expected_expanded_sha256: str | None = None,
+    expected_schema_version: str | None = None,
 ) -> dict[str, Any]:
     """Download, verify, decompress, and atomically install a bundle.
 
@@ -374,6 +409,11 @@ def download_verify_install(
     """
     if re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256) is None:
         raise DownloadError("invalid expected bundle SHA-256")
+    if (
+        expected_expanded_sha256 is not None
+        and re.fullmatch(r"[0-9a-fA-F]{64}", expected_expanded_sha256) is None
+    ):
+        raise DownloadError("invalid expected expanded bundle SHA-256")
     expected_sha256 = expected_sha256.lower()
     staging_dir.mkdir(parents=True, exist_ok=True)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,10 +461,12 @@ def download_verify_install(
         raise DownloadError(f"bundle sha256 mismatch: expected {expected_sha256}, got {actual}")
 
     try:
-        bytes_db = _decompress_bundle(
+        bytes_db, expanded_sha256, schema_version = _decompress_bundle(
             zst_path,
             db_path,
             max_expanded_bytes=max_expanded_bytes,
+            expected_expanded_sha256=expected_expanded_sha256,
+            expected_schema_version=expected_schema_version,
         )
     finally:
         zst_path.unlink(missing_ok=True)
@@ -433,7 +475,64 @@ def download_verify_install(
         "db_path": str(db_path),
         "bytes_compressed": bytes_compressed,
         "bytes_db": bytes_db,
+        "expanded_sha256": expanded_sha256,
+        "schema_version": schema_version,
     }
+
+
+def install_preseeded(
+    bundle_path: Path,
+    *,
+    db_path: Path,
+    expected_sha256: str,
+    expected_expanded_sha256: str,
+    expected_schema_version: str,
+    max_expanded_bytes: int,
+) -> dict[str, Any]:
+    """Verify and atomically install a reviewed local bundle without network access."""
+    if re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256) is None:
+        raise DownloadError("invalid expected bundle SHA-256")
+    digest = hashlib.sha256()
+    size = 0
+    with bundle_path.open("rb") as source:
+        for chunk in iter(lambda: source.read(_CHUNK_SIZE), b""):
+            size += len(chunk)
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != expected_sha256.lower():
+        raise DownloadError(
+            f"bundle sha256 mismatch: expected {expected_sha256.lower()}, got {actual}"
+        )
+    bytes_db, expanded_sha256, schema_version = _decompress_bundle(
+        bundle_path,
+        db_path,
+        max_expanded_bytes=max_expanded_bytes,
+        expected_expanded_sha256=expected_expanded_sha256,
+        expected_schema_version=expected_schema_version,
+    )
+    return {
+        "db_path": str(db_path),
+        "bytes_compressed": size,
+        "bytes_db": bytes_db,
+        "expanded_sha256": expanded_sha256,
+        "schema_version": schema_version,
+    }
+
+
+def _select_reference(root: Path, target: Path, identity: dict[str, Any]) -> None:
+    identity_path = target / "data-identity.json"
+    temporary_identity = target / ".data-identity.json.tmp"
+    temporary_identity.write_text(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary_identity, identity_path)
+    temporary_link = root / f".current-{os.getpid()}-{time.time_ns()}"
+    try:
+        temporary_link.symlink_to(target.name)
+        os.replace(temporary_link, root / "current")
+    finally:
+        temporary_link.unlink(missing_ok=True)
 
 
 def pull_latest(config: Settings) -> dict[str, Any]:
@@ -448,15 +547,18 @@ def pull_latest(config: Settings) -> dict[str, Any]:
     byte counts.
     """
     bundle_url = config.BUNDLE_URL.strip()
-    if not bundle_url:
+    if not bundle_url and config.BUNDLE_PATH is None:
         raise DownloadError(
             "bundle download is disabled (BUNDLE_URL is empty); "
             "set BUNDLE_URL to 'latest' or a .sqlite.zst URL, or build locally"
         )
 
-    if bundle_url.startswith("http"):
+    if config.BUNDLE_PATH is not None:
+        asset_url = str(config.BUNDLE_PATH)
+        release_tag = config.BUNDLE_RELEASE_TAG or "bundle-pinned"
+    elif bundle_url.startswith("http"):
         asset_url = bundle_url
-        release_tag = "bundle-pinned"
+        release_tag = config.BUNDLE_RELEASE_TAG or "bundle-pinned"
     elif bundle_url == "latest":
         asset_url, release_tag = resolve_latest_asset(
             config.GITHUB_REPO,
@@ -469,20 +571,59 @@ def pull_latest(config: Settings) -> dict[str, Any]:
             f"invalid BUNDLE_URL {bundle_url!r}: expected 'latest', '', or a full URL"
         )
 
-    expected_sha256 = config.BUNDLE_EXPECTED_SHA256 or fetch_sibling_sha256(
-        asset_url,
-        max_bytes=config.METADATA_MAX_BYTES,
-        max_seconds=config.MAX_DOWNLOAD_SECONDS,
+    expected_sha256 = config.BUNDLE_EXPECTED_SHA256
+    if expected_sha256 is None:
+        if config.BUNDLE_PATH is not None:
+            raise DownloadError("a pre-seeded bundle requires an exact SHA-256")
+        expected_sha256 = fetch_sibling_sha256(
+            asset_url,
+            max_bytes=config.METADATA_MAX_BYTES,
+            max_seconds=config.MAX_DOWNLOAD_SECONDS,
+        )
+
+    exact = (
+        config.BUNDLE_EXPECTED_EXPANDED_SHA256 is not None
+        and config.BUNDLE_EXPECTED_SCHEMA_VERSION is not None
     )
-    install = download_verify_install(
-        asset_url,
-        db_path=config.db_path,
-        staging_dir=config.BUNDLE_DOWNLOAD_DIR,
-        expected_sha256=expected_sha256,
-        max_compressed_bytes=config.BUNDLE_MAX_BYTES,
-        max_expanded_bytes=config.BUNDLE_MAX_EXPANDED_BYTES,
-        max_seconds=config.MAX_DOWNLOAD_SECONDS,
-    )
+    target_db = config.db_path
+    target: Path | None = None
+    if exact:
+        target = config.BUNDLE_REFERENCE_ROOT / expected_sha256.lower()
+        target_db = target / config.DB_FILENAME
+
+    lock_root = config.BUNDLE_REFERENCE_ROOT if exact else target_db.parent
+    with build_lock(lock_root):
+        if config.BUNDLE_PATH is not None:
+            assert config.BUNDLE_EXPECTED_EXPANDED_SHA256 is not None
+            assert config.BUNDLE_EXPECTED_SCHEMA_VERSION is not None
+            install = install_preseeded(
+                config.BUNDLE_PATH,
+                db_path=target_db,
+                expected_sha256=expected_sha256,
+                expected_expanded_sha256=config.BUNDLE_EXPECTED_EXPANDED_SHA256,
+                expected_schema_version=config.BUNDLE_EXPECTED_SCHEMA_VERSION,
+                max_expanded_bytes=config.BUNDLE_MAX_EXPANDED_BYTES,
+            )
+        else:
+            install = download_verify_install(
+                asset_url,
+                db_path=target_db,
+                staging_dir=config.BUNDLE_DOWNLOAD_DIR,
+                expected_sha256=expected_sha256,
+                max_compressed_bytes=config.BUNDLE_MAX_BYTES,
+                max_expanded_bytes=config.BUNDLE_MAX_EXPANDED_BYTES,
+                max_seconds=config.MAX_DOWNLOAD_SECONDS,
+                expected_expanded_sha256=config.BUNDLE_EXPECTED_EXPANDED_SHA256,
+                expected_schema_version=config.BUNDLE_EXPECTED_SCHEMA_VERSION,
+            )
+        if target is not None:
+            identity = {
+                "release_tag": release_tag,
+                "compressed_sha256": expected_sha256.lower(),
+                "expanded_sha256": install["expanded_sha256"],
+                "schema_version": install["schema_version"],
+            }
+            _select_reference(config.BUNDLE_REFERENCE_ROOT, target, identity)
 
     return {
         "release_tag": release_tag,
@@ -491,4 +632,6 @@ def pull_latest(config: Settings) -> dict[str, Any]:
         "db_path": install["db_path"],
         "bytes_compressed": install["bytes_compressed"],
         "bytes_db": install["bytes_db"],
+        "expanded_sha256": install["expanded_sha256"],
+        "schema_version": install["schema_version"],
     }
