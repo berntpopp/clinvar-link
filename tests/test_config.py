@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -81,10 +82,34 @@ def test_production_compose_splits_init_and_read_only_reference() -> None:
     base = (ROOT / "docker/docker-compose.yml").read_text()
     production = (ROOT / "docker/docker-compose.prod.yml").read_text()
     assert "clinvar-data-init:" in base
-    assert "clinvar-reference:/app/reference:ro" in base
+    # The init sidecar owns the writable reference volume; the server only reads it.
+    assert "clinvar-reference:/data\n" in base
+    assert "clinvar-reference:/data:ro" in base
+    assert "clinvar-reference:/data:ro" in production
     assert "CLINVAR_LINK_ENVIRONMENT: production" in production
     assert "CLINVAR_LINK_BUNDLE_RELEASE_TAG" in production
     assert "CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256" in production
+    # Production installs exactly the pinned release rather than reusing the volume.
+    assert '["clinvar-link-data", "pull"]' in production
+
+
+def test_release_config_declares_the_init_sidecar_role() -> None:
+    """The central compose gate authorizes the sidecar by role, never by name."""
+    config = json.loads((ROOT / "container-release.json").read_text())
+    (auxiliary,) = config["service"]["auxiliary"]
+    assert auxiliary["name"] == "clinvar-data-init"
+    assert auxiliary["role"] == "init"
+    # The bundle is fetched from GitHub Releases, so the sidecar needs egress.
+    assert auxiliary["egress"] == "approved-networks"
+    assert sorted(auxiliary["writable_targets"]) == ["/data", "/tmp"]  # noqa: S108
+    assert config["smoke"]["profile"] == "immutable-bundle"
+
+
+def test_compose_declares_no_top_level_extension_fields() -> None:
+    """`docker compose config` emits `x-*` verbatim and the central policy rejects it."""
+    for name in ("docker-compose.yml", "docker-compose.prod.yml"):
+        text = (ROOT / "docker" / name).read_text()
+        assert not any(line.startswith("x-") for line in text.splitlines())
 
 
 def test_settings_loads_with_defaults() -> None:

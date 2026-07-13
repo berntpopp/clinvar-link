@@ -10,7 +10,7 @@
 # (the container fails loudly instead of silently lazy-building on first use).
 set -euo pipefail
 
-DATA_DIR="${CLINVAR_LINK_DATA_DIR:-/app/data}"
+DATA_DIR="${CLINVAR_LINK_DATA_DIR:-/data/current}"
 DB_FILENAME="${CLINVAR_LINK_DB_FILENAME:-clinvar.sqlite}"
 DB_PATH="${DATA_DIR}/${DB_FILENAME}"
 

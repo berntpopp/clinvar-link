@@ -5,7 +5,7 @@
 # index built from the NCBI ClinVar weekly bulk download. The image ships no
 # data: on first boot the entrypoint runs `clinvar-link-data bootstrap`, which
 # downloads the latest prebuilt SQLite bundle from GitHub Releases, verifies it,
-# and atomically installs it into the /app/data volume (or, with BUILD_LOCAL,
+# and atomically installs it into the /data volume (or, with BUILD_LOCAL,
 # builds from source instead). It then serves the unified FastAPI host (/health)
 # + MCP streamable-HTTP app (/mcp) on one port.
 
@@ -77,7 +77,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_MCP_HOST=0.0.0.0 \
     CLINVAR_LINK_MCP_PORT=8000 \
     CLINVAR_LINK_MCP_PATH=/mcp \
-    CLINVAR_LINK_DATA_DIR=/app/reference/current \
+    CLINVAR_LINK_DATA_DIR=/data/current \
     CLINVAR_LINK_DB_FILENAME=clinvar.sqlite \
     # Bundle mode (the default): on first boot the entrypoint runs
     # `clinvar-link-data bootstrap`, which downloads the latest prebuilt SQLite
@@ -88,11 +88,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_BUNDLE_URL=latest \
     CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link \
     CLINVAR_LINK_BUILD_LOCAL=false \
-    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/reference \
-    CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/app/reference \
+    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/data \
+    CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/data \
     CLINVAR_LINK_LOG_FORMAT=json \
     VCS_REF="${VCS_REF}" \
-    TMPDIR=/tmp/clinvar-link
+    TMPDIR=/tmp
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -102,8 +102,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN groupadd --system app && \
     useradd --system --gid app --home /home/app --create-home app && \
-    mkdir -p /tmp/clinvar-link /app/reference && \
-    chown -R app:app /tmp/clinvar-link /app/reference /home/app
+    mkdir -p /data && \
+    chown -R app:app /data /home/app
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -161,26 +161,26 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLINVAR_LINK_MCP_HOST=0.0.0.0 \
     CLINVAR_LINK_MCP_PORT=8000 \
     CLINVAR_LINK_MCP_PATH=/mcp \
-    CLINVAR_LINK_DATA_DIR=/app/reference/current \
+    CLINVAR_LINK_DATA_DIR=/data/current \
     CLINVAR_LINK_DB_FILENAME=clinvar.sqlite \
     CLINVAR_LINK_BUNDLE_URL=latest \
     CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link \
     CLINVAR_LINK_BUILD_LOCAL=false \
-    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/app/reference \
-    CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/app/reference \
+    CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/data \
+    CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/data \
     CLINVAR_LINK_LOG_FORMAT=json \
     VCS_REF="${VCS_REF}" \
-    TMPDIR=/tmp/clinvar-link
+    TMPDIR=/tmp
 
 WORKDIR /home/app/web
 USER app
 
 EXPOSE 8000
 
-# The installed SQLite index lives under CLINVAR_LINK_DATA_DIR (/app/data).
+# The installed SQLite index lives under CLINVAR_LINK_DATA_DIR (/data/current).
 # Mount a volume there so the index persists across container restarts and the
 # first-boot bundle download happens only once.
-VOLUME ["/app/reference"]
+VOLUME ["/data"]
 
 # start-period covers the first-boot bundle download: pulling the prebuilt
 # clinvar.sqlite.zst (~hundreds of MB) and decompressing it is far faster than a

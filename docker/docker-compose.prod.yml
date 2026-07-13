@@ -1,13 +1,29 @@
+# Production overlay for clinvar-link (Container & Deployment Hardening Standard v1).
+#
+#   CLINVAR_LINK_IMAGE=ghcr.io/berntpopp/clinvar-link@sha256:<digest> \
+#   CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-YYYY-MM-DD/clinvar.sqlite.zst \
+#   CLINVAR_DATA_RELEASE_TAG=bundle-YYYY-MM-DD \
+#   CLINVAR_DATA_SHA256=<compressed sha256> \
+#   CLINVAR_DATA_EXPANDED_SHA256=<expanded sha256> \
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# clinvar-data-init materializes exactly the pinned, verified bundle into the
+# `clinvar-reference` volume and exits; clinvar-link then mounts it read-only.
+
 services:
   clinvar-data-init:
     build: !reset null
-    image: "${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}"
+    image: ${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
     pull_policy: missing
+    # `pull` installs exactly the pinned release. `bootstrap` (the dev default) would
+    # reuse whatever index is already on the volume and so keep serving a stale bundle
+    # after the pin is advanced.
+    entrypoint: !override ["clinvar-link-data", "pull"]
     environment: &production-data
       CLINVAR_LINK_ENVIRONMENT: production
-      CLINVAR_LINK_DATA_DIR: /app/reference/current
-      CLINVAR_LINK_BUNDLE_REFERENCE_ROOT: /app/reference
-      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /app/reference
+      CLINVAR_LINK_DATA_DIR: /data/current
+      CLINVAR_LINK_BUNDLE_REFERENCE_ROOT: /data
+      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /data
       CLINVAR_LINK_BUNDLE_URL: ${CLINVAR_DATA_BUNDLE_URL:?set exact release asset URL}
       CLINVAR_LINK_BUNDLE_RELEASE_TAG: ${CLINVAR_DATA_RELEASE_TAG:?set bundle-YYYY-MM-DD}
       CLINVAR_LINK_BUNDLE_EXPECTED_SHA256: ${CLINVAR_DATA_SHA256:?set compressed SHA-256}
@@ -15,19 +31,39 @@ services:
       CLINVAR_LINK_BUNDLE_EXPECTED_SCHEMA_VERSION: ${CLINVAR_DATA_SCHEMA_VERSION:-1.0.0}
       CLINVAR_LINK_DEVELOPMENT_LATEST: "false"
       CLINVAR_LINK_BUILD_LOCAL: "false"
+    volumes: !override
+      - clinvar-reference:/data
     read_only: true
-    tmpfs:
-      - /tmp/clinvar-link:rw,noexec,nosuid,size=256m,mode=1777
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    pids_limit: 128
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    security_opt: !override
+      - no-new-privileges:true
+    cap_drop: !override
+      - ALL
+    init: true
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+          pids: 128
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   clinvar-link:
     build: !reset null
-    image: "${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}"
+    image: ${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
     pull_policy: missing
+    ports: !reset []
+    expose:
+      - "8000"
     environment:
       <<: *production-data
+      GF_HEALTHCHECK_HOST: localhost
       CLINVAR_LINK_MCP_TRANSPORT: unified
       CLINVAR_LINK_MCP_HOST: 0.0.0.0
       CLINVAR_LINK_MCP_PORT: 8000
@@ -35,20 +71,30 @@ services:
       CLINVAR_LINK_MCP_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
       CLINVAR_LINK_LOG_LEVEL: INFO
       CLINVAR_LINK_LOG_FORMAT: json
-    ports: !reset []
-    expose: ["8000"]
+    volumes: !override
+      - clinvar-reference:/data:ro
     read_only: true
-    tmpfs:
-      - /tmp/clinvar-link:rw,noexec,nosuid,size=256m,mode=1777
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    pids_limit: 256
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    security_opt: !override
+      - no-new-privileges:true
+    cap_drop: !override
+      - ALL
     init: true
     restart: on-failure
     deploy:
       resources:
-        limits: {memory: 1G, cpus: "1.0", pids: 256}
-        reservations: {memory: 256M, cpus: "0.5"}
+        limits:
+          memory: 1g
+          cpus: "1.0"
+          pids: 256
+    healthcheck: !override
+      test: ["CMD", "sh", "-c", "curl -f -H \"Host: $${GF_HEALTHCHECK_HOST}\" http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
     logging:
-      driver: json-file
-      options: {max-size: "50m", max-file: "5"}
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
