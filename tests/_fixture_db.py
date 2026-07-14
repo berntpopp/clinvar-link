@@ -26,22 +26,21 @@ def build_service(tmp_path: Path) -> ClinVarService:
 
 
 async def call_tool(mcp: Any, name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """Call an MCP tool through the in-memory FastMCP client and return its dict.
+    """Call an MCP tool through the in-memory FastMCP client and return its envelope dict.
 
     FastMCP returns a CallToolResult with a raw ``.structured_content`` dict
     (always present, exactly as the server emitted it) and an ergonomic
-    ``.data`` attribute. For tools that declare an ``output_schema`` (v1.1
-    fenced tools: get_variant / get_variants / search_variants /
-    get_variants_by_gene / get_gene_clinvar_summary), FastMCP's client
-    reconstructs ``.data`` into a *generated pydantic model instance* from
-    that schema rather than a plain dict, so tests must prefer the guaranteed
-    -dict ``.structured_content`` and only fall back to ``.data`` when it is
-    itself already a dict (tools with no output_schema).
+    ``.data`` attribute.
+
+    ``raise_on_error=False`` is REQUIRED: an error envelope now carries protocol
+    ``isError: true`` (Response-Envelope Standard v1 — a client that branches on ``isError``
+    used to see every failure as a successful call), and the FastMCP client raises on that by
+    default. The tests assert on the envelope, so they must see it rather than an exception.
     """
     from fastmcp import Client
 
     async with Client(mcp) as client:
-        res = await client.call_tool(name, args)
+        res = await client.call_tool(name, args, raise_on_error=False)
     structured = getattr(res, "structured_content", None)
     if isinstance(structured, dict):
         return structured

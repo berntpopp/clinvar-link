@@ -40,8 +40,11 @@ def actionable_output_validation_error(
         f"This usually indicates a data/index drift; call {_FALLBACK_TOOL} for context."
     )
     payload: dict[str, Any] = {
+        # Response-Envelope Standard v1: `error_code` is a CLOSED enum. Schema drift is a
+        # server-side fault the caller cannot fix by reformulating, so it reports `internal`;
+        # the specific field still travels in `error_field` and the drift ring.
         "success": False,
-        "error_code": "output_validation_failed",
+        "error_code": "internal",
         "message": "The tool response did not match its declared MCP output schema.",
         "error_field": error_field,
         "suggested_action": suggested_action,
@@ -57,7 +60,7 @@ def actionable_output_validation_error(
     payload = sanitize_envelope(payload)
     record_mcp_error(
         tool_name=tool_name,
-        error_code="output_validation_failed",
+        error_code="internal",
         exc_type="OutputValidationError",
     )
     # Also surface the event on the dedicated schema-drift ring so an LLM

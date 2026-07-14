@@ -52,7 +52,7 @@ class _FakeRepo:
             # A single variant with > 128 traits: proves get_variant keeps the
             # DEFAULT 128-object ceiling (unlike the batch/list tools, which
             # override to 10000) and maps the resulting UntrustedTextLimitError
-            # to the explicit "response_too_large" code, not internal_error.
+            # to the canonical "invalid_input" code with a size-specific message.
             # Checked BEFORE the generic "VCV0009*" multi-trait branch below
             # since that prefix would otherwise shadow this specific id.
             return {
@@ -113,7 +113,9 @@ async def test_get_variant_traits_name_is_fenced_via_real_mcp_tool() -> None:
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
         res = await client.call_tool(
-            "get_variant", {"identifier": "VCV000900001", "response_mode": "standard"}
+            "get_variant",
+            {"identifier": "VCV000900001", "response_mode": "standard"},
+            raise_on_error=False,
         )
 
     mirror = json.loads(res.content[0].text)
@@ -147,7 +149,9 @@ async def test_get_variant_compact_default_traits_are_fenced_too() -> None:
     fenced identically to full/standard, not left as a bare string snippet."""
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool("get_variant", {"identifier": "VCV000900001"})
+        res = await client.call_tool(
+            "get_variant", {"identifier": "VCV000900001"}, raise_on_error=False
+        )
 
     mirror = json.loads(res.content[0].text)
     for payload in (res.structured_content, mirror):
@@ -161,7 +165,9 @@ async def test_get_variant_compact_default_traits_are_fenced_too() -> None:
 async def test_get_gene_clinvar_summary_top_traits_is_fenced_via_real_mcp_tool() -> None:
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool("get_gene_clinvar_summary", {"gene_symbol": "HOSTILEGENE"})
+        res = await client.call_tool(
+            "get_gene_clinvar_summary", {"gene_symbol": "HOSTILEGENE"}, raise_on_error=False
+        )
 
     mirror = json.loads(res.content[0].text)
     for payload in (res.structured_content, mirror):
@@ -196,6 +202,7 @@ async def test_get_variants_batch_aggregates_limits_over_whole_response() -> Non
         res = await client.call_tool(
             "get_variants",
             {"identifiers": identifiers, "response_mode": "standard"},
+            raise_on_error=False,
         )
     payload = res.structured_content
     assert payload["success"] is True
@@ -207,10 +214,11 @@ async def test_get_variants_batch_aggregates_limits_over_whole_response() -> Non
     assert sample["kind"] == "untrusted_text"
 
 
-async def test_get_variant_single_row_default_ceiling_maps_to_response_too_large() -> None:
+async def test_get_variant_single_row_default_ceiling_maps_to_invalid_input() -> None:
     """get_variant keeps the library default 128-object ceiling (a single
-    variant's traits are never meant to approach that); exceeding it must map
-    to the explicit "response_too_large" error code, not internal_error.
+    variant's traits are never meant to approach that); exceeding it must map to the CANONICAL
+    "invalid_input" code (the caller can fix it: lower limit / leaner response_mode) with its
+    own actionable message -- never an off-enum code, and never an unactionable internal.
 
     Uses response_mode="standard" (uncapped traits) — compact mode's 5-trait
     cap would never approach the ceiling, which is the correct behavior
@@ -219,11 +227,13 @@ async def test_get_variant_single_row_default_ceiling_maps_to_response_too_large
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
         res = await client.call_tool(
-            "get_variant", {"identifier": "VCV000900099", "response_mode": "standard"}
+            "get_variant",
+            {"identifier": "VCV000900099", "response_mode": "standard"},
+            raise_on_error=False,
         )
     payload = res.structured_content
     assert payload["success"] is False
-    assert payload["error_code"] == "response_too_large"
+    assert payload["error_code"] == "invalid_input"
 
 
 @pytest.mark.parametrize(
@@ -242,7 +252,7 @@ async def test_no_raw_prose_leaks_beside_the_fenced_object(
     fenced object's own "text" leaf — never in a second, bare-string field."""
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool(tool_name, args)
+        res = await client.call_tool(tool_name, args, raise_on_error=False)
     raw_text = res.content[0].text
     # The RAW hostile string (with its control chars intact) never appears
     # verbatim anywhere — fencing always normalizes before emission.

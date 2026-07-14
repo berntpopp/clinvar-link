@@ -410,6 +410,18 @@ class ClinVarRepository:
 
     # -- aggregates + provenance -----------------------------------------------
 
+    def gene_exists(self, gene_symbol: str) -> bool:
+        """True if the gene has any variant in the index (indexed lookup, no scan).
+
+        Used to (a) reject an unknown ``gene_symbol`` filter with not_found instead of an empty
+        success, and (b) decide whether a token in free-text search is really a gene symbol.
+        """
+        row = self._conn.execute(
+            "SELECT 1 FROM gene_summary WHERE gene_symbol_upper = ? LIMIT 1",
+            ((gene_symbol or "").upper(),),
+        ).fetchone()
+        return row is not None
+
     def gene_summary(self, gene_symbol: str) -> dict[str, Any] | None:
         """Return the precomputed per-gene summary dict, or ``None`` if absent."""
         row = self._conn.execute(

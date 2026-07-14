@@ -100,7 +100,11 @@ async def test_run_mcp_tool_not_found_envelope():
         raise DataNotFoundError("nope")
 
     out = await run_mcp_tool("t", boom, context=McpErrorContext(tool_name="t"))
-    assert out["success"] is False and out["error_code"] == "not_found"
+    # Response-Envelope v1: an error is a ToolResult carrying protocol isError:true AND the
+    # structured envelope (a plain dict return can only carry one of the two).
+    assert out.is_error is True
+    payload = out.structured_content
+    assert payload["success"] is False and payload["error_code"] == "not_found"
 
 
 def test_version_resource_shape():

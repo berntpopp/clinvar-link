@@ -36,11 +36,14 @@ async def test_error_envelope_is_flat_not_a_bare_exception() -> None:
     async def call() -> dict[str, object]:
         raise DataNotFoundError("not found")
 
-    result = await run_mcp_tool(
+    tool_result = await run_mcp_tool(
         "get_variant",
         call,
         context=McpErrorContext(tool_name="get_variant"),
     )
+    # v1 also requires protocol isError:true on a failure, which only a ToolResult can carry.
+    assert tool_result.is_error is True
+    result = tool_result.structured_content
     assert result["success"] is False
     assert isinstance(result["error_code"], str) and result["error_code"]
     assert isinstance(result["message"], str) and result["message"]

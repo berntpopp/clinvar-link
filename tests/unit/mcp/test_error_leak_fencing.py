@@ -107,7 +107,9 @@ async def test_classified_not_found_message_is_sanitized() -> None:
     with the code points stripped from ``message`` in both mirrors."""
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool("get_variant", {"identifier": "VCV000012345"})
+        res = await client.call_tool(
+            "get_variant", {"identifier": "VCV000012345"}, raise_on_error=False
+        )
     _assert_no_forbidden_codepoints(res)
     for payload in _both_mirrors(res):
         assert payload["success"] is False
@@ -125,7 +127,9 @@ async def test_classified_invalid_input_message_is_sanitized() -> None:
     with those code points stripped from the surfaced (verbatim) message."""
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool("get_gene_clinvar_summary", {"gene_symbol": "TP53"})
+        res = await client.call_tool(
+            "get_gene_clinvar_summary", {"gene_symbol": "TP53"}, raise_on_error=False
+        )
     _assert_no_forbidden_codepoints(res)
     for payload in _both_mirrors(res):
         assert payload["success"] is False
@@ -141,11 +145,13 @@ async def test_internal_error_is_masked_opaque() -> None:
     message (class name only, no code points, no injection prose)."""
     mcp = create_clinvar_mcp(service_factory=_internal_service)
     async with Client(mcp) as client:
-        res = await client.call_tool("get_variant", {"identifier": "VCV000012345"})
+        res = await client.call_tool(
+            "get_variant", {"identifier": "VCV000012345"}, raise_on_error=False
+        )
     _assert_no_forbidden_codepoints(res)
     for payload in _both_mirrors(res):
         assert payload["success"] is False
-        assert payload["error_code"] == "internal_error"
+        assert payload["error_code"] == "internal"
         assert "delete_everything" not in payload["message"]
         assert "boom" not in payload["message"]
 
@@ -158,8 +164,7 @@ async def test_arg_validation_hostile_value_is_fenced() -> None:
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
         res = await client.call_tool(
-            "search_variants",
-            {"query": "x", "min_stars": "not_an_int‮EVIL‍ "},
+            "search_variants", {"query": "x", "min_stars": "not_an_int‮EVIL‍ "}, raise_on_error=False
         )
     _assert_no_forbidden_codepoints(res)
     for payload in _both_mirrors(res):
@@ -177,8 +182,7 @@ async def test_arg_validation_hostile_unknown_argument_name_is_redacted() -> Non
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
         res = await client.call_tool(
-            "get_variant",
-            {"identifier": "VCV000012345", "bogus_arg‮X": "y"},
+            "get_variant", {"identifier": "VCV000012345", "bogus_arg‮X": "y"}, raise_on_error=False
         )
     _assert_no_forbidden_codepoints(res)
     for payload in _both_mirrors(res):
@@ -195,7 +199,9 @@ async def test_hostile_identifier_input_is_rejected_with_fixed_message() -> None
     message; the raw identifier is never echoed and no code points survive."""
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool("get_variant", {"identifier": "VCV000012345‮\x00‍"})
+        res = await client.call_tool(
+            "get_variant", {"identifier": "VCV000012345‮\x00‍"}, raise_on_error=False
+        )
     _assert_no_forbidden_codepoints(res)
     for payload in _both_mirrors(res):
         assert payload["success"] is False
@@ -215,7 +221,7 @@ async def test_hostile_prose_never_leaks_verbatim(tool_name: str, args: dict[str
     anywhere in the error response."""
     mcp = create_clinvar_mcp(service_factory=_service)
     async with Client(mcp) as client:
-        res = await client.call_tool(tool_name, args)
+        res = await client.call_tool(tool_name, args, raise_on_error=False)
     assert HOSTILE not in res.content[0].text
     assert HOSTILE not in json.dumps(res.structured_content or {})
 
@@ -296,7 +302,7 @@ async def test_capabilities_priming_never_logs_exception_detail() -> None:
     try:
         mcp = create_clinvar_mcp(service_factory=lambda: _RaisingMetaService(repo=_RaisingRepo()))  # type: ignore[arg-type]
         async with Client(mcp) as client:
-            await client.call_tool("get_server_capabilities", {})
+            await client.call_tool("get_server_capabilities", {}, raise_on_error=False)
     finally:
         meta_logger.removeHandler(handler)
         meta_logger.setLevel(prev_level)
@@ -355,7 +361,9 @@ async def test_arg_validation_does_not_log_caller_input() -> None:
         mcp = create_clinvar_mcp(service_factory=_service)
         async with Client(mcp) as client:
             await client.call_tool(
-                "search_variants", {"query": "x", "min_stars": "not_an_int‮EVIL‍ "}
+                "search_variants",
+                {"query": "x", "min_stars": "not_an_int‮EVIL‍ "},
+                raise_on_error=False,
             )
     finally:
         fastmcp_logger.removeHandler(handler)
