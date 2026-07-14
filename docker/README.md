@@ -60,9 +60,11 @@ healthcheck `start_period` accordingly.
 
 ## Refresh
 
-CI republishes the bundle every Monday, so production refresh is just a **pull**
-of the newest snapshot. The in-app scheduler is not used; refresh is owned by
-host cron / a sidecar.
+CI republishes the bundle on a weekly schedule
+([`data-bundle.yml`](../.github/workflows/data-bundle.yml)), so production
+refresh is just a **pull** of the newest snapshot. The in-app scheduler is not
+used; refresh is owned by host cron / a sidecar. See
+[`docs/deployment.md`](../docs/deployment.md#refresh-scheduling).
 
 Run the one-shot refresh runner (uncomment the `refresh` service in
 `docker-compose.yml` first) from host cron:
