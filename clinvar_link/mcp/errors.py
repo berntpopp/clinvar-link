@@ -36,6 +36,7 @@ from clinvar_link.mcp.untrusted_content import (
     UntrustedTextLimitError,
     sanitize_message,
 )
+from clinvar_link.models.enums import ERROR_CODES as _CANON_ERROR_CODES
 
 logger = logging.getLogger(__name__)
 
@@ -105,17 +106,10 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
 # Response-Envelope Standard v1: `error_code` is a CLOSED enum, harmonized across the fleet.
 # Anything outside this set — however sensible it reads — is a violation, and a client that
 # branches on the code cannot act on it. `internal_error` / `response_too_large` /
-# `output_validation_failed` (this server's former codes) are mapped onto the canon.
-ERROR_CODES: frozenset[str] = frozenset(
-    {
-        "invalid_input",
-        "not_found",
-        "ambiguous_query",
-        "upstream_unavailable",
-        "rate_limited",
-        "internal",
-    }
-)
+# `output_validation_failed` (this server's former codes) are mapped onto the canon. The
+# canonical tuple lives in models.enums (one source of truth, no circular import); re-exported
+# here as a frozenset for the membership checks and the contract test.
+ERROR_CODES: frozenset[str] = frozenset(_CANON_ERROR_CODES)
 
 # Fixed, error-code-specific PUBLIC messages. A classified exception's own
 # str() is built from caller input (identifiers, queries) or internal detail,

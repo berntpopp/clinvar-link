@@ -163,11 +163,24 @@ async def test_get_variant_recognized_but_absent_still_not_found(service):
         await service.get_variant("VCV999999999")
 
 
-async def test_get_variants_batch_tolerates_malformed_identifier(service):
-    out = await service.get_variants(["VCV000100001", "@@bad@@"])
+async def test_get_variants_batch_malformed_identifier_errors_naming_its_position(service):
+    """A MALFORMED element fails the batch with invalid_input naming its position.
+
+    It used to become a bare `found: false` — indistinguishable from a valid-but-absent record,
+    which is the silent-empty this PR exists to kill (Codex review of PR #27, finding 1). A
+    well-formed-but-ABSENT identifier is still a truthful miss (asserted below).
+    """
+    with pytest.raises(ToolInputError) as excinfo:
+        await service.get_variants(["VCV000100001", "@@bad@@"])
+    assert excinfo.value.field == "identifiers.1"
+    assert excinfo.value.public_reason
+
+
+async def test_get_variants_batch_absent_identifier_is_still_a_miss(service):
+    out = await service.get_variants(["VCV000100001", "VCV999999999"])
     assert out["found_count"] == 1
     miss = [r for r in out["results"] if not r.get("found")]
-    assert miss and miss[0]["identifier"] == "@@bad@@"
+    assert miss and miss[0]["identifier"] == "VCV999999999"
 
 
 async def test_get_variants_batch_unknown_id_type_is_invalid_input(service):

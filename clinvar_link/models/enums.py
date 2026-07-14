@@ -60,6 +60,18 @@ class IdType(str, Enum):
     ALLELE_ID = "allele_id"
 
 
+# Response-Envelope Standard v1: the closed, fleet-wide `error_code` enum. Defined here (not in
+# mcp/errors.py) so both the error builder and the capabilities resource can import it without a
+# circular import, and so there is ONE source of truth the exact-match contract test can pin.
+ERROR_CODES: tuple[str, ...] = (
+    "invalid_input",
+    "not_found",
+    "ambiguous_query",
+    "upstream_unavailable",
+    "rate_limited",
+    "internal",
+)
+
 CLASSIFICATION_VALUES: tuple[str, ...] = tuple(item.value for item in Classification)
 ASSEMBLY_VALUES: tuple[str, ...] = tuple(item.value for item in Assembly)
 RESPONSE_MODES: tuple[str, ...] = tuple(item.value for item in ResponseMode)

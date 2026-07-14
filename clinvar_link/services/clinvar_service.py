@@ -66,8 +66,46 @@ _HGVS_HINTS = ("c.", "p.", "g.", "n.")
 # tokens the index will match.
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 # A gene symbol as a human writes one: BRCA1, TP53, COL4A5. Used to promote a symbol written in
-# free-text search into the gene filter (never a bare number, never a lowercase English word).
+# free-text search into the gene filter (never a bare number).
 _GENE_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,14}$")
+# Common English words that are ALSO HGNC gene symbols. A bare LOWERCASE occurrence of one of
+# these in prose ("the rest of the exon", "set of variants") is far more likely the English word
+# than the gene, so it is not promoted unless written as an explicit uppercase symbol. This buys
+# lowercase-symbol coverage (egfr, kras, ttn) without letting a stopword hijack a query; it is a
+# heuristic, deliberately conservative, and never the ONLY thing between the caller and a wrong
+# answer (an inferred gene is always declared in _meta.search, and an explicit gene_symbol wins).
+_GENE_WORD_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "set",
+        "rest",
+        "cat",
+        "met",
+        "camp",
+        "ache",
+        "max",
+        "fat",
+        "gap",
+        "arc",
+        "cap",
+        "mice",
+        "clock",
+        "star",
+        "impact",
+        "damage",
+        "was",
+        "not",
+        "the",
+        "and",
+        "for",
+        "with",
+        "his",
+        "type",
+        "spam",
+        "sos",
+        "mars",
+        "wars",
+    }
+)
 
 # Accepted ``id_type`` values; anything else is a structural input error.
 _ID_TYPES = frozenset(ID_TYPES)
@@ -166,7 +204,11 @@ def _reject_forbidden_codepoints(value: str, *, field: str) -> None:
     server-authored parameter name (never caller data).
     """
     if any(ord(char) in FORBIDDEN_CODEPOINTS for char in value):
-        raise ToolInputError(f"{field} contains forbidden control or bidirectional characters")
+        raise ToolInputError(
+            f"{field} contains forbidden control or bidirectional characters",
+            field=field,
+            public_reason=("must not contain control, zero-width or bidirectional characters"),
+        )
 
 
 # Fields kept in the ``minimal`` variant projection.
@@ -250,7 +292,11 @@ class ClinVarService:
         """Resolve a single variant by identifier and return a projected dict."""
         text = (identifier or "").strip()
         if not text:
-            raise ToolInputError("identifier is required")
+            raise ToolInputError(
+                "identifier is required",
+                field="identifier",
+                public_reason="is required (a VCV accession, rsID, HGVS, AlleleID or VariationID)",
+            )
         _reject_forbidden_codepoints(text, field="identifier")
 
         repo_dict = await self._resolve(text, id_type)
@@ -270,15 +316,41 @@ class ClinVarService:
 
     @staticmethod
     def _validate_shape(text: str, id_type: str) -> None:
-        """Reject a value whose shape cannot match an explicitly forced id_type."""
+        """Reject a value whose shape cannot match an explicitly forced id_type.
+
+        Every raise here names the parameter and states the shape it wants: an error the model
+        cannot act on is a defect, and "The request was rejected as invalid." names nothing. The
+        reasons are server-authored constants — the rejected VALUE is never interpolated into
+        them (it stays in the message, which is server-side only).
+        """
         if id_type == "vcv" and not _VCV_RE.match(text):
-            raise ToolInputError(f"id_type='vcv' requires a VCV accession (got {text!r})")
+            raise ToolInputError(
+                f"id_type='vcv' requires a VCV accession (got {text!r})",
+                field="identifier",
+                public_reason="must be a VCV accession (e.g. VCV000007105) when id_type='vcv'",
+            )
         if id_type == "rsid" and not (_RSID_RE.match(text) or _DIGITS_RE.match(text)):
-            raise ToolInputError(f"id_type='rsid' requires an rsID (got {text!r})")
+            raise ToolInputError(
+                f"id_type='rsid' requires an rsID (got {text!r})",
+                field="identifier",
+                public_reason="must be a dbSNP rsID (e.g. rs334) when id_type='rsid'",
+            )
         if id_type in {"variation_id", "allele_id"} and not _DIGITS_RE.match(text):
-            raise ToolInputError(f"id_type={id_type!r} requires a numeric id (got {text!r})")
+            raise ToolInputError(
+                f"id_type={id_type!r} requires a numeric id (got {text!r})",
+                field="identifier",
+                public_reason=(
+                    "must be a plain integer id when id_type='variation_id' or 'allele_id'"
+                ),
+            )
         if id_type == "hgvs" and ":" not in text and not any(h in text for h in _HGVS_HINTS):
-            raise ToolInputError(f"id_type='hgvs' requires an HGVS expression (got {text!r})")
+            raise ToolInputError(
+                f"id_type='hgvs' requires an HGVS expression (got {text!r})",
+                field="identifier",
+                public_reason=(
+                    "must be an HGVS expression (e.g. NM_007294.4:c.5266dupC) when id_type='hgvs'"
+                ),
+            )
 
     async def _resolve(self, text: str, id_type: str) -> dict[str, Any] | None:
         """Dispatch identifier resolution by explicit or auto-detected type."""
@@ -313,7 +385,12 @@ class ClinVarService:
         raise ToolInputError(
             "unrecognized identifier shape; expected a VCV accession, dbSNP rsID, "
             "HGVS expression, ClinVar AlleleID, or VariationID — or call "
-            "search_variants to locate the record"
+            "search_variants to locate the record",
+            field="identifier",
+            public_reason=(
+                "does not look like any accepted shape (VCV accession, rsID, HGVS, AlleleID or "
+                "VariationID); use search_variants to locate the record from loose text"
+            ),
         )
 
     async def _maybe_variation_id(self, text: str) -> dict[str, Any] | None:
@@ -354,7 +431,11 @@ class ClinVarService:
         ``MAX_PAGE_SIZE`` and sets ``truncated`` when the input exceeded it.
         """
         if not identifiers:
-            raise ToolInputError("identifiers is required (a non-empty list)")
+            raise ToolInputError(
+                "identifiers is required (a non-empty list)",
+                field="identifiers",
+                public_reason="is required (a non-empty list of variant identifiers)",
+            )
         # Reject the batch if any identifier carries forbidden code points, so a
         # hostile value cannot ride into a per-item (otherwise-successful) miss row.
         for ident in identifiers:
@@ -368,12 +449,30 @@ class ClinVarService:
         results: list[dict[str, Any]] = []
         all_fenced: list[UntrustedText] = []
         found_count = 0
-        for ident in capped:
+        for index, ident in enumerate(capped):
             text = ident.strip() if isinstance(ident, str) else ""
+            # A MALFORMED element fails the batch with invalid_input naming its position — it must
+            # NOT become `found: false`. `found: false` means "well-formed but absent from the
+            # index", and a caller reading it concludes ClinVar has no such record; a blank or
+            # unparseable identifier (e.g. a 20-digit rsID that overflows int64) is a structural
+            # caller mistake, exactly as it is for the single-variant get_variant. The old code
+            # swallowed every ToolInputError here, reintroducing the silent-empty this PR exists
+            # to kill — one tool over. A well-formed-but-ABSENT id still resolves to None (the repo
+            # returns None, no exception) and stays a truthful miss.
+            if not text:
+                raise ToolInputError(
+                    f"identifiers[{index}] is blank",
+                    field=f"identifiers.{index}",
+                    public_reason="is blank; every identifier in the list must be non-empty",
+                )
             try:
-                repo_dict = await self._resolve(text, id_type) if text else None
-            except ToolInputError:
-                repo_dict = None  # a malformed id in a batch is a miss, not a fatal error
+                repo_dict = await self._resolve(text, id_type)
+            except ToolInputError as exc:
+                raise ToolInputError(
+                    f"identifiers[{index}] is malformed",
+                    field=f"identifiers.{index}",
+                    public_reason=exc.public_reason or "is not a well-formed ClinVar identifier",
+                ) from exc
             if repo_dict is None:
                 results.append({"identifier": ident, "found": False})
                 continue
@@ -509,22 +608,36 @@ class ClinVarService:
     async def _infer_gene(self, query: str) -> str | None:
         """Promote a gene symbol written in the free text to the gene filter.
 
-        Only a token a human would write AS a symbol is considered — ALL-CAPS (BRCA1, TTN) or
-        carrying a digit (brca1) — so an English word that happens to be a gene symbol ("rest",
-        "cat", "set") never hijacks a query. Ambiguity (two different symbols) infers nothing;
-        the caller's own ``gene_symbol`` always wins. The result is always reported back in
+        Scans the WHOLE query (a gene at the end of a sentence must promote just as one at the
+        start does — the old 8-token window silently missed it) and considers both cases:
+
+        * a STRONG signal — written ALL-CAPS (BRCA1, TTN) or carrying a digit (brca1, MLH1) — is
+          almost never accidental, so any real gene of that shape is a candidate;
+        * a WEAK signal — a lowercase, letter-only token (ttn, egfr, kras) — is a candidate too
+          (the old code ignored these entirely), EXCEPT for the handful of common English words
+          that are also HGNC symbols (``set``, ``rest``, ``cat`` …): in lowercase prose those are
+          almost always the word, and promoting one would filter the query down to a gene the
+          caller never named — the same class of wrong answer, from the other side.
+
+        Every candidate is confirmed against the index (``gene_exists``), so only a REAL gene is
+        ever promoted; ambiguity (two distinct real symbols) infers nothing; and the caller's own
+        ``gene_symbol`` always wins upstream of this. The result is always reported in
         ``_meta.search.gene_symbol_inferred`` — inference is never silent.
         """
-        candidates: list[str] = []
-        for token in _TOKEN_RE.findall(query or "")[:8]:
+        shaped: list[str] = []
+        for token in _TOKEN_RE.findall(query or ""):
             if not _GENE_TOKEN_RE.match(token):
                 continue
-            if not (token.isupper() or any(char.isdigit() for char in token)):
+            strong = token.isupper() or any(char.isdigit() for char in token)
+            if not strong and token.casefold() in _GENE_WORD_STOPWORDS:
                 continue
-            if await asyncio.to_thread(self.repo.gene_exists, token):
-                candidates.append(token.upper())
-        unique = list(dict.fromkeys(candidates))
-        return unique[0] if len(unique) == 1 else None
+            upper = token.upper()
+            if upper not in shaped:
+                shaped.append(upper)
+        confirmed: list[str] = [
+            symbol for symbol in shaped if await asyncio.to_thread(self.repo.gene_exists, symbol)
+        ]
+        return confirmed[0] if len(confirmed) == 1 else None
 
     @staticmethod
     def _residual_text(query: str, inferred: str | None) -> str:

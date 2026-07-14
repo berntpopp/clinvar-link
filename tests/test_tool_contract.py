@@ -21,28 +21,13 @@ import pytest
 from fastmcp import Client
 
 from clinvar_link.mcp.facade import create_clinvar_mcp
+
+# Response-Envelope Standard v1: the closed enum, imported from the ONE source of truth so this
+# test pins it exactly rather than carrying a second copy that could drift.
+from clinvar_link.models.enums import ERROR_CODES as _ERROR_CODES_TUPLE
 from tests._fixture_db import build_service
 
-# Response-Envelope Standard v1: the closed enum. Anything else is a violation.
-ERROR_CODES = {
-    "invalid_input",
-    "not_found",
-    "ambiguous_query",
-    "upstream_unavailable",
-    "rate_limited",
-    "internal",
-}
-
-# Parameters whose runtime honours a fixed vocabulary; each MUST advertise it as an enum.
-CLOSED_VOCABULARIES = {
-    "classification",
-    "assembly",
-    "sort",
-    "id_type",
-    "match_mode",
-    "count_mode",
-    "response_mode",
-}
+ERROR_CODES = set(_ERROR_CODES_TUPLE)
 
 BOGUS_ARG = "__gf_conformance_no_such_arg__"
 
@@ -128,16 +113,25 @@ async def test_s3_every_array_property_has_examples_showing_the_array_form(mcp):
     assert not bad, f"array properties without a list-shaped example: {bad}"
 
 
-async def test_s4_every_closed_vocabulary_declares_an_enum(mcp):
+async def test_s4_a_vocabulary_declared_closed_on_one_tool_is_closed_on_every_tool(mcp):
+    """A parameter that declares an `enum` on ANY tool MUST declare it on EVERY tool it appears on.
+
+    Derived from the registry, not a hardcoded list (a hand-kept list is the same bug one level
+    up: case N+1 is gated only if someone remembers to add it). If `classification` is a closed
+    enum on get_variants_by_gene, then `classification` on search_variants is the same closed
+    vocabulary, and an undeclared one there is the silent-empty filter waiting to happen. This
+    catches that inconsistency the moment a new tool reuses a known vocabulary — no list to edit.
+    """
+    tools = await _tools(mcp)
+    closed_names = {name for tool in tools for name, prop in _props(tool).items() if _enum_of(prop)}
+    assert closed_names, "no enum-bearing parameter found at all — S4 has nothing to verify"
     undeclared = [
         f"{tool.name}.{name}"
-        for tool in await _tools(mcp)
+        for tool in tools
         for name, prop in _props(tool).items()
-        if name in CLOSED_VOCABULARIES and not _enum_of(prop)
+        if name in closed_names and not _enum_of(prop)
     ]
-    assert not undeclared, (
-        f"closed vocabularies with no enum (the silent-empty filter): {undeclared}"
-    )
+    assert not undeclared, f"closed vocabularies with no enum on some tool: {undeclared}"
 
 
 async def test_bounded_numerics_declare_their_bounds(mcp):
@@ -194,12 +188,19 @@ async def test_a_not_found_envelope_also_carries_is_error(mcp):
     assert (res.structured_content or {})["error_code"] == "not_found"
 
 
-async def test_advertised_error_codes_are_the_closed_enum(mcp):
-    """get_server_capabilities advertised `internal_error` / `response_too_large` — not canon."""
+async def test_advertised_error_codes_are_exactly_the_closed_enum(mcp):
+    """Capabilities must advertise the WHOLE closed enum, not a subset (a subset test let it drift).
+
+    EXACT equality, not subset: it advertised only {not_found, invalid_input, internal} while a
+    `<= ERROR_CODES` assertion passed anyway, so a client never learned the full taxonomy it must
+    branch on. The full enum is now advertised and pinned here to the ONE source of truth.
+    """
     from clinvar_link.mcp.resources import get_capabilities_resource
 
     advertised = set(get_capabilities_resource()["error_codes"])
-    assert advertised <= ERROR_CODES, f"non-canon codes advertised: {advertised - ERROR_CODES}"
+    assert advertised == ERROR_CODES, (
+        f"advertised {sorted(advertised)} != closed enum {sorted(ERROR_CODES)}"
+    )
 
 
 async def test_the_unknown_argument_error_names_the_parameters(mcp):

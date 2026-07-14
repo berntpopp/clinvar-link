@@ -6,8 +6,40 @@ All notable changes to clinvar-link are documented here.
 
 Contract hardening (issue #26). **Breaking**: two wire fields change (`error_code` values, and
 the gene summary's `total_count` → `variant_count`), and an unrecognized filter value now
-ERRORS instead of returning an empty success. Behaviour Conformance v1: **CONFORMANT**
-(90 pass, 0 fail, 0 UNGATED).
+ERRORS instead of returning an empty success. Behaviour Conformance v1 (hardened gate): **CONFORMANT**
+(82 pass, 0 fail, 0 UNGATED).
+
+### Fixed (code review of PR #27, Codex gpt-5.6-sol)
+
+- **The batch tool `get_variants` had reintroduced the silent-empty, one tool over.** It caught
+  every `ToolInputError` in the resolve loop and turned it into `found: false`, so a MALFORMED
+  identifier (e.g. a 20-digit rsID that overflows int64) came back as `success: true,
+  found_count: 0` — indistinguishable from a valid-but-absent record. A malformed element now
+  fails the batch with `invalid_input` naming its position (`field: "identifiers.1"`); a
+  well-formed-but-ABSENT identifier is still a truthful miss.
+- **Actionable validation only fired at some call sites.** Every `raise ToolInputError(...)` in
+  the package now supplies `field` + `public_reason`, so a real call
+  (`get_variant(identifier="rs334", id_type="vcv")`, a blank identifier, an auto-detect failure,
+  a forbidden-codepoint input) names the parameter instead of the bare "The request was rejected
+  as invalid." A source-level partition test walks the AST of every module and fails if any raise
+  site omits them — a hand-kept list of examples would be the same bug one level up.
+- **Two error sites discarded `structuredContent`.** The output-validation wrapper and the
+  unknown-tool backstop built a `CallToolResult` with `isError: true` but no `structuredContent`,
+  losing the machine-readable envelope exactly where the contract requires it. Both now populate
+  it (shared `_error_result`); the test that had ratified the null was corrected.
+- **Gene inference now scans the whole query and handles lowercase symbols.** It stopped at the
+  first 8 tokens (a gene at the end of a sentence was missed) and ignored lowercase letter-only
+  symbols (`egfr`, `ttn`). Both are promoted now, with a conservative stopword guard so a common
+  English word that is also a gene symbol (`set`, `rest`) does not hijack lowercase prose.
+
+### Changed (same review)
+
+- `get_server_capabilities` advertises the FULL six-value closed `error_code` enum, not the
+  subset this server emits today, so a client learns the whole taxonomy; the contract test now
+  asserts EXACT equality (a subset assertion had let it drift).
+- The S4 contract test derives closed vocabularies from the registry (any param that declares an
+  `enum` on one tool must declare it on every tool it appears on) instead of a hardcoded list.
+- `search_variants` trimmed to 1,148 tokens (was 1,192) for real headroom under the 1,200 B1 cap.
 
 ### Fixed
 

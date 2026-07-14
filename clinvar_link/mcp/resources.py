@@ -15,6 +15,7 @@ from clinvar_link.models.enums import (
     ASSEMBLY_VALUES,
     CLASSIFICATION_VALUES,
     COUNT_MODES,
+    ERROR_CODES,
     ID_TYPES,
     MATCH_MODES,
     RESPONSE_MODES,
@@ -97,13 +98,11 @@ def get_capabilities_resource() -> dict[str, Any]:
             "gene symbol -> get_gene_clinvar_summary (classification landscape)",
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
         ],
-        # Response-Envelope Standard v1: the closed, fleet-wide enum. Every error envelope also
-        # carries protocol isError:true, so a client can branch on either.
-        "error_codes": [
-            "not_found",
-            "invalid_input",
-            "internal",
-        ],
+        # Response-Envelope Standard v1: the FULL closed, fleet-wide enum — the complete taxonomy
+        # a client must be prepared to branch on, not the subset this server happens to emit
+        # today (advertising a subset let capabilities drift from the contract undetected). Every
+        # error envelope also carries protocol isError:true, so a client can branch on either.
+        "error_codes": list(ERROR_CODES),
         "output_cheatsheet": {
             "classification_field": "classification",
             "raw_clinical_significance_field": "clinical_significance",

@@ -33,11 +33,10 @@ from clinvar_link.models.enums import (
 # (TOOL-SURFACE-BUDGET-STANDARD B1). What the enum CANNOT say is said here: the upstream's own
 # wording is accepted, and anything else is an error rather than an empty result.
 _CLASSIFICATION_DESC = (
-    "Filter by normalized ClinVar clinical classification (the accepted tokens are the enum). "
-    "ClinVar's own published wording is also accepted and normalized ('Likely pathogenic' -> "
-    "likely_pathogenic, 'Uncertain significance' -> vus, 'Pathogenic/Likely pathogenic' -> "
-    "likely_pathogenic). Any other value is REJECTED with invalid_input — an unrecognized "
-    "classification never silently returns zero rows. Omit to include every classification."
+    "Filter by normalized ClinVar classification (accepted tokens are the enum). ClinVar's own "
+    "wording is accepted and normalized ('Likely pathogenic' -> likely_pathogenic). Any other "
+    "value is REJECTED with invalid_input — an unrecognized classification never silently "
+    "returns zero rows. Omit for all."
 )
 
 _ASSEMBLY_DESC = (
@@ -90,9 +89,9 @@ ResponseModeParam = Annotated[
     Literal["minimal", "compact", "standard", "full"],
     Field(
         description=(
-            "Payload verbosity, cheapest first. minimal = ids + classification + stars; compact "
-            "(default) adds name, review status and traits; standard adds coordinates, RCVs and "
-            "consequence; full adds every stored field. Start compact and widen if needed."
+            "Payload verbosity, cheapest first: minimal = ids + classification + stars; compact "
+            "(default) adds name, review status, traits; standard adds coordinates, RCVs, "
+            "consequence; full adds all fields. Start compact, widen if needed."
         ),
         examples=["compact"],
     ),
@@ -116,9 +115,9 @@ GeneSymbolFilter = Annotated[
     Field(
         description=(
             "Restrict the search to this HGNC gene symbol. An explicit value always wins; when "
-            "omitted, a symbol written in the query text is applied automatically and reported "
-            "as _meta.search.gene_symbol_inferred, so loose text narrows WITHIN the gene instead "
-            "of returning unrelated genes. An unknown symbol is not_found, never an empty page."
+            "omitted, a symbol in the query text is applied automatically (reported as "
+            "_meta.search.gene_symbol_inferred) so loose text narrows within the gene, not into "
+            "unrelated ones. An unknown symbol is not_found, never an empty page."
         ),
         examples=["BRCA1"],
         max_length=64,
