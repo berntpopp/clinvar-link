@@ -2,6 +2,93 @@
 
 All notable changes to clinvar-link are documented here.
 
+## [0.5.0] - 2026-07-14
+
+Contract hardening (issue #26). **Breaking**: two wire fields change (`error_code` values, and
+the gene summary's `total_count` → `variant_count`), and an unrecognized filter value now
+ERRORS instead of returning an empty success. Behaviour Conformance v1: **CONFORMANT**
+(90 pass, 0 fail, 0 UNGATED).
+
+### Fixed
+
+- **The silently-empty filter — 559 pathogenic BRCA1 variants hidden behind a capitalization
+  difference.** `get_variants_by_gene(gene_symbol="BRCA1", classification="likely_pathogenic")`
+  returns 559 variants; ClinVar's OWN published wording, `"Likely pathogenic"`, returned
+  `total_count: 0, success: true` and no error — as did `"BANANA"`. The vocabulary was
+  undeclared, case-sensitive and underscore-joined, and the schema typed it as a bare string, so
+  a model asking for pathogenic BRCA1 variants in ClinVar's canonical spelling was told,
+  confidently, that there are none. Now: the vocabulary is DECLARED as an `enum`, ClinVar's own
+  wording is accepted and normalized (`Likely pathogenic` / `Uncertain significance` /
+  `Pathogenic/Likely pathogenic`, case-insensitively), and anything else is rejected with
+  `invalid_input` naming the parameter and listing the accepted values. Same treatment for
+  `assembly` (`hg19`/`hg38` normalize; unknown values error) and for every other closed
+  vocabulary. Response-Envelope v1.1: *"silent omission is not compliant."*
+- **`search_variants` answered a BRCA1 question with OCRL variants.** Its own documented usage —
+  `query="BRCA1 pathogenic frameshift exon 11"` — matched nothing under AND, silently fell back
+  to OR, and returned confidently-ranked variants of four unrelated genes (OCRL, CANT1, F8,
+  BRCA2) with zero BRCA1 hits. A gene symbol written in the query is now promoted to the gene
+  filter, so loose text can only narrow WITHIN the gene; and every degradation (OR fallback, or
+  the text being dropped entirely) is declared in `_meta.search`
+  (`gene_symbol_inferred` / `gene_symbol_applied` / `fallback` / `notice`) instead of being
+  passed off as a ranked answer. An unknown `gene_symbol` filter is `not_found`, not an empty page.
+- **Error envelopes carried protocol `isError: false`**, so a client branching on `isError` saw
+  every failure — `not_found`, `invalid_input`, `internal` — as a SUCCESSFUL call and could hand
+  the error envelope to the model as data. Every error now returns
+  `ToolResult(structured_content=envelope, is_error=True)`: the flat envelope is unchanged and
+  `structuredContent` is preserved (raising would have discarded it).
+- **Validation errors misdirected the caller.** `limit=-5` answered *"The request was rejected as
+  invalid"* plus recovery prose pointing at `gene_symbol` — the one argument that was already
+  correct. Messages are now built from the tool's OWN advertised schema and name the offending
+  parameter and its accepted values (`limit must be between 1 and 100`, `sort must be one of:
+  …`), with a matching `field_errors` entry. The caller's rejected VALUE is still never echoed.
+- **`response_mode="verbose"` was silently accepted** and served as if valid; `min_stars=5` (stars
+  are 0-4) and `limit=100000` were silently clamped to bounds the schema never declared. All are
+  now declared and enforced.
+- A numeric identifier beyond int64 (`rs99999999999999999999`) overflowed SQLite and escaped as
+  `internal_error`; it is now `invalid_input` naming `identifier`.
+- The `response_mode` ladder was **non-monotonic**: `standard` returned a LARGER payload than
+  `full` (444kB vs 405kB for the same rows) because only `full` dropped always-null trait ids and
+  literal `"na"` alleles. `standard` now drops them too.
+
+### Changed
+
+- **BREAKING — `error_code` is the fleet's closed enum** (`invalid_input`, `not_found`,
+  `ambiguous_query`, `upstream_unavailable`, `rate_limited`, `internal`). `internal_error` →
+  `internal`; `response_too_large` and `output_validation_failed` are mapped onto the canon
+  (`invalid_input` — the caller can lower `limit` / use a leaner `response_mode` — and `internal`
+  respectively), each keeping its specific, actionable message. `error_codes` in
+  `get_server_capabilities` and `clinvar://capabilities` is updated to match.
+- **BREAKING — `get_gene_clinvar_summary` reports `variant_count`, not `total_count`.** Every
+  list tool in the fleet uses `total_count` for the size of a PAGINATED result set, and this
+  payload also carries a truncated `top_traits` list — one key meaning two things is how a client
+  concludes it is reading page 1 of 15,947. The stored index still writes the old key and is read
+  through an alias, so no data rebuild is needed.
+- **BREAKING — an unrecognized filter value is now an error.** Callers that relied on
+  `classification="Likely pathogenic"` returning an empty success will now receive
+  `invalid_input`... which is the point: it returned the wrong answer before.
+- Tool schemas are fully documented (TOOL-SCHEMA-DOCUMENTATION-STANDARD v1): 31/31 input
+  properties carry a `description`, every required and array property carries `examples`, every
+  closed vocabulary declares an `enum` (13 across the surface), and every bounded numeric declares
+  `minimum`/`maximum`. Survey: **doc% 0 → 100, enums 0 → 13, examples 0 → 31**.
+- No tool publishes an `outputSchema` (`output_schema=None`) and the server is constructed with
+  `dereference_schemas=False` (TOOL-SURFACE-BUDGET-STANDARD v1). `structuredContent` is
+  unaffected. Surface: **3,228t (46% outputSchema) → 3,863t (0% outputSchema)** — the growth is
+  entirely parameter documentation, which is what the model actually reads.
+- `get_variant` / `get_gene_clinvar_summary` keep their (capped) trait list in
+  `response_mode="minimal"`: for a single-record tool the traits ARE the payload, and a mode that
+  returns an identifier and nothing else is a silent-empty by another name. The list tools' rows
+  stay lean.
+
+### Added
+
+- Behaviour Conformance v1 vendored into `tests/conformance/` (`behaviour.py`,
+  `test_behaviour_v1.py`, byte-identical to the router's) and run against the container in the
+  `mcp-conformance` workflow. It derives every probe from this server's own advertised schema, so
+  a tool is gated the day it ships — and a tool it cannot probe is reported UNGATED, which fails.
+- `_meta.search` on `search_variants`: what the search inferred and how it degraded.
+- `filter_vocabularies` in `get_server_capabilities`: the exact accepted values for
+  `classification`, `assembly` and `id_type`.
+
 ## [0.4.5] - 2026-07-14
 
 ### Changed

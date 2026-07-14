@@ -33,8 +33,14 @@ Every tool is annotated **`READ_ONLY_OPEN_WORLD`**.
 `classification` is normalized to one of `pathogenic`, `likely_pathogenic`,
 `vus`, `likely_benign`, `benign`, `conflicting`, `not_provided`, `other`.
 `min_stars` filters on the official ClinVar review-status → **0–4 star rating**.
-`assembly` selects `GRCh38` (the canonical row) or `GRCh37`; both assemblies'
-coordinates are retained where present.
+`assembly` selects `GRCh38` (the canonical row) or `GRCh37` (`hg38`/`hg19` are accepted and
+normalized); both assemblies' coordinates are retained where present.
+
+Every filter with a closed vocabulary declares it as an **`enum` in the input schema**
+(`classification`, `assembly`, `sort`, `id_type`, `match_mode`, `count_mode`, `response_mode`),
+and `classification` additionally accepts ClinVar's own published wording
+("Likely pathogenic" → `likely_pathogenic`). No tool publishes an `outputSchema`
+(Tool-Surface-Budget Standard v1) — `structuredContent` is unaffected.
 
 ## Response contract
 
@@ -42,10 +48,17 @@ coordinates are retained where present.
 controls payload size; `full` returns the unprojected payload. Start `compact`
 and widen only when you need more detail.
 
-Errors are returned as a **typed envelope, never raised**. The taxonomy is
-`not_found`, `invalid_input`, `internal_error` (advertised under `error_codes` in
-capabilities). Malformed input is `invalid_input`, not a false `not_found`; an
-over-restrictive filter returns an **empty success**, not `not_found`.
+Errors are returned as a **typed envelope** carrying protocol **`isError: true`** — the flat
+`{success:false, error_code, message, retryable, recovery_action, …}` body travels in
+`structuredContent`, so a client can branch on either. The taxonomy is the fleet's closed enum:
+`not_found`, `invalid_input`, `internal` (advertised under `error_codes` in capabilities).
+Malformed input is `invalid_input`, never a false `not_found`, and the `message` names the
+offending parameter and its accepted values.
+
+A filter value the server does not understand is **rejected** (`invalid_input`), never answered
+with an empty success — that is the silent-empty filter, and it is what made 559 pathogenic BRCA1
+variants invisible to `classification="Likely pathogenic"`. A **recognized** filter that
+legitimately matches nothing still returns an empty success.
 
 Every response — success **and** error — carries `_meta`:
 
@@ -64,8 +77,11 @@ instead (see [data → licence & citation](data.md#licence--citation)).
 
 ## Search and pagination
 
-- `search_variants` defaults to **AND-mode** (`match_mode=auto` = AND with an
-  automatic OR fallback when AND returns nothing).
+- `search_variants` defaults to **AND-mode** (`match_mode=auto` = AND, then OR, then gene-only
+  when neither matches). A gene symbol written in the query is applied as a **filter**, so loose
+  text narrows *within* the gene instead of returning unrelated genes. Whatever was inferred, and
+  any degradation, is declared in `_meta.search`
+  (`gene_symbol_inferred` / `fallback` / `notice`) — never passed off as a confident ranking.
 - `count_mode` ∈ `{exact, none}` controls whether `total_count` /
   `total_count_capped` is computed (bounded by an internal cap) or skipped for
   lowest latency.
@@ -73,9 +89,10 @@ instead (see [data → licence & citation](data.md#licence--citation)).
   `limit` is clamped to `[1, MAX_PAGE_SIZE]` (default cap 100); `offset >= 0`.
 - `get_variants` (batch) echoes each row's `identifier` + `found` flag, plus
   `requested` / `found_count` / `truncated`.
-- `get_gene_clinvar_summary` reports counts by classification (including an
-  `other_count` bucket for classifications outside the named ones), the star
-  distribution, consequence categories, top traits, and `has_pathogenic`.
+- `get_gene_clinvar_summary` reports `variant_count` (the gene's total — **not** `total_count`,
+  which is reserved for a paginated result set) and counts by classification (including an
+  `other_count` bucket), the star distribution, consequence categories, top traits, and
+  `has_pathogenic`.
 - `get_variants_by_gene` sorts by `stars_desc` by default; `sort` is allow-listed
   and advertised as `sort_options` in capabilities.
 
