@@ -1,0 +1,34 @@
+# CITATION.cff — GENERATED. Do not edit.
+# Source: genefoundry-router/fleet-metadata.yaml + this repo's pyproject.toml.
+# Regenerate: `make citation-write` in genefoundry-router.
+# See genefoundry-router/docs/REPO-METADATA-STANDARD-v1.md.
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: clinvar-link
+abstract: 'MCP server for NCBI ClinVar: variant clinical significance and gene-level classifications,
+  served from a local SQLite index built from the ClinVar weekly bulk release — not the eUtils API.'
+type: software
+authors:
+- family-names: Popp
+  given-names: Bernt
+  email: bernt.popp@charite.de
+  affiliation: Charité – Universitätsmedizin Berlin
+version: 0.4.5
+license: MIT
+repository-code: https://github.com/berntpopp/clinvar-link
+url: https://genefoundry.org
+keywords:
+- bioinformatics
+- claude
+- clinical-genetics
+- clinvar
+- fastmcp
+- genefoundry
+- genomics
+- llm-tools
+- mcp
+- mcp-server
+- model-context-protocol
+- pathogenicity
+- variant-interpretation
+date-released: '2026-07-14'
