@@ -119,6 +119,9 @@ line-ending = "lf"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*" = ["S101", "T20"]
+# check_readme.py is vendored verbatim from genefoundry-router and must stay
+# byte-identical in every fleet repo, so it is not ours to re-lint.
+"scripts/check_readme.py" = ["B905"]
 
 [tool.mypy]
 python_version = "3.12"

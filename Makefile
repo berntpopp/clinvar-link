@@ -1,4 +1,4 @@
-.PHONY: help install lock upgrade sync format format-check lint lint-ci lint-fix typecheck typecheck-fast typecheck-stop typecheck-fresh test test-fast test-unit test-integration test-cov test-all check ci-local vendor-check precommit clean dev run-dev run-prod docker-build docker-up docker-down docker-logs
+.PHONY: help install lock upgrade sync format format-check lint lint-ci lint-fix lint-readme typecheck typecheck-fast typecheck-stop typecheck-fresh test test-fast test-unit test-integration test-cov test-all check ci-local vendor-check precommit clean dev run-dev run-prod docker-build docker-up docker-down docker-logs
 
 .DEFAULT_GOAL := help
 
@@ -32,6 +32,9 @@ lint-ci: ## Lint Python code without modifying files
 
 lint-fix: ## Lint and apply safe fixes
 	uv run ruff check clinvar_link tests --fix
+
+lint-readme: ## Enforce the GeneFoundry README Standard v1
+	uv run python scripts/check_readme.py
 
 typecheck: ## Type check package
 	uv run mypy clinvar_link
@@ -84,7 +87,7 @@ test-all: test-cov ## Alias for full test run with coverage
 
 check: format lint ## Format and lint
 
-ci-local: ## Run fast local CI-equivalent checks
+ci-local: lint-readme ## Run fast local CI-equivalent checks
 	uv run ruff check .
 	uv run ruff format --check .
 	uv run mypy clinvar_link
