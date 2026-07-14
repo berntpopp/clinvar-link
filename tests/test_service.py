@@ -82,7 +82,7 @@ async def test_search_and_gene(service):
     assert "{variation_id}" in s["_meta"]["citation_template"]
     assert all("variation_id" in r and "vcv_accession" in r for r in s["results"])
     gs = await service.get_gene_clinvar_summary("BRCA1")
-    assert gs["total_count"] >= 1
+    assert gs["variant_count"] >= 1
     bygene = await service.get_variants_by_gene("BRCA1", min_stars=0)
     assert bygene["total_count"] >= 1 and bygene["gene_symbol"].upper() == "BRCA1"
 
@@ -192,11 +192,27 @@ async def test_search_blank_query_with_filter_is_allowed(service):
     assert out["count"] >= 1
 
 
-async def test_search_auto_falls_back_to_or(service):
-    # "BRCA1" AND "Lynch" co-occur in NO variant; OR finds both gene sets.
+async def test_search_auto_falls_back_within_the_gene_it_was_asked_about(service):
+    """ "BRCA1 Lynch" once fell back to OR and returned MLH1 (Lynch) rows for a BRCA1 question.
+
+    The gene symbol in the query is now the filter, so the fallback can only degrade WITHIN
+    BRCA1 — and it says so (issue #26, D2).
+    """
     out = await service.search_variants("BRCA1 Lynch")
+    assert out["match_mode"] in {"or_fallback", "gene_fallback"}
+    assert out["count"] > 0
+    assert {row["gene_symbol"] for row in out["results"]} == {"BRCA1"}
+    assert out["_meta"]["search"]["fallback"] == out["match_mode"]
+    assert out["_meta"]["search"]["notice"]
+
+
+async def test_search_or_fallback_without_a_gene_token_is_declared(service):
+    """With no gene symbol to anchor on, the OR fallback still happens — and is declared."""
+    out = await service.search_variants("Lynch Cys61Gly")
     assert out["match_mode"] == "or_fallback"
     assert out["count"] > 0
+    assert out["_meta"]["search"]["gene_symbol_inferred"] is None
+    assert "DEGRADED" in out["_meta"]["search"]["notice"]
 
 
 async def test_search_auto_uses_and_when_it_matches(service):
@@ -230,7 +246,7 @@ async def test_gene_summary_buckets_reconcile_to_total(service):
         + out["not_provided_count"]
         + out["other_count"]
     )
-    assert buckets == out["total_count"]
+    assert buckets == out["variant_count"]
     assert out["other_count"] >= 0
 
 

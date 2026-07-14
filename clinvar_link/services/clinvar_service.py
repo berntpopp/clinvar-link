@@ -28,6 +28,15 @@ from clinvar_link.mcp.untrusted_content import (
     fence_untrusted_text,
 )
 from clinvar_link.models import ClinVarVariant, GeneClinVarSummary
+from clinvar_link.models.enums import (
+    ASSEMBLY_VALUES,
+    CLASSIFICATION_VALUES,
+    COUNT_MODES,
+    ID_TYPES,
+    MATCH_MODES,
+    normalize_assembly,
+    normalize_classification,
+)
 from clinvar_link.services.citation import (
     citation_template,
     gene_citation,
@@ -53,20 +62,97 @@ _RSID_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
 _VCV_RE = re.compile(r"^VCV\d+$", re.IGNORECASE)
 _DIGITS_RE = re.compile(r"^\d+$")
 _HGVS_HINTS = ("c.", "p.", "g.", "n.")
+# Mirrors the repository's FTS tokenizer, so the tokens this layer reasons about are exactly the
+# tokens the index will match.
+_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+# A gene symbol as a human writes one: BRCA1, TP53, COL4A5. Used to promote a symbol written in
+# free-text search into the gene filter (never a bare number, never a lowercase English word).
+_GENE_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,14}$")
 
 # Accepted ``id_type`` values; anything else is a structural input error.
-_ID_TYPES = frozenset({"auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id"})
+_ID_TYPES = frozenset(ID_TYPES)
 
-_MATCH_MODES = frozenset({"auto", "and", "or"})
-_COUNT_MODES = frozenset({"exact", "none"})
+_MATCH_MODES = frozenset(MATCH_MODES)
+_COUNT_MODES = frozenset(COUNT_MODES)
+# SQLite binds integers as int64; a larger value raises OverflowError deep in the driver and
+# used to escape as an unactionable internal error.
+_INT64_MAX = 2**63 - 1
 # Cap the search count scan; beyond this we report total_count_capped=True.
 _SEARCH_COUNT_EXACT_MAX = 1000
+
+_IDENTIFIER_REASON = (
+    "must be a VCV accession (VCV000007105), a dbSNP rsID (rs334), an HGVS expression, a "
+    "ClinVar AlleleID or a VariationID; a numeric id must fit in 64 bits"
+)
 
 
 def _ensure_id_type(id_type: str) -> None:
     """Raise :class:`ToolInputError` for an ``id_type`` outside the allowlist."""
     if id_type not in _ID_TYPES:
-        raise ToolInputError(f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})")
+        raise ToolInputError(
+            f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})",
+            field="id_type",
+            public_reason=f"must be one of: {', '.join(sorted(_ID_TYPES))}",
+        )
+
+
+def _ensure_classification(value: str | None) -> str | None:
+    """Normalize a classification filter, or REJECT it — never silently match nothing.
+
+    THE defect this server shipped: ``classification='Likely pathogenic'`` — ClinVar's own
+    published wording — returned ``total_count: 0, success: true`` while 559 BRCA1 variants sat
+    behind ``likely_pathogenic``. An unrecognised value is now an ``invalid_input`` error naming
+    the parameter and listing the vocabulary (Response-Envelope v1.1: "silent omission is not
+    compliant"), and ClinVar's own wording is normalized onto the canonical token.
+    """
+    if value is None:
+        return None
+    canonical = normalize_classification(value)
+    if canonical is None:
+        raise ToolInputError(
+            f"classification must be one of {list(CLASSIFICATION_VALUES)} (got {value!r})",
+            field="classification",
+            public_reason=(
+                "must be one of: "
+                + ", ".join(CLASSIFICATION_VALUES)
+                + " (ClinVar's own wording, e.g. 'Likely pathogenic' or "
+                "'Uncertain significance', is accepted and normalized)"
+            ),
+        )
+    return canonical
+
+
+def _ensure_assembly(value: str | None) -> str | None:
+    """Normalize an assembly filter ('hg19' -> 'GRCh37'), or reject it."""
+    if value is None:
+        return None
+    canonical = normalize_assembly(value)
+    if canonical is None:
+        raise ToolInputError(
+            f"assembly must be one of {list(ASSEMBLY_VALUES)} (got {value!r})",
+            field="assembly",
+            public_reason=(
+                "must be one of: "
+                + ", ".join(ASSEMBLY_VALUES)
+                + " ('hg38' / 'hg19' are accepted and normalized)"
+            ),
+        )
+    return canonical
+
+
+def _as_sqlite_int(text: str, *, field: str) -> int | None:
+    """Parse a numeric identifier, rejecting one SQLite could never store (int64 overflow)."""
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return None
+    if abs(value) > _INT64_MAX:
+        raise ToolInputError(
+            f"{field} numeric id exceeds the 64-bit range",
+            field=field,
+            public_reason=_IDENTIFIER_REASON,
+        )
+    return value
 
 
 def _reject_forbidden_codepoints(value: str, *, field: str) -> None:
@@ -176,7 +262,9 @@ class ClinVarService:
         variant.recommended_citation = recommended_citation(
             variant.variation_id, variant.vcv_accession, release
         )
-        projected, fenced = self._project(variant.model_dump(), response_mode)
+        projected, fenced = self._project(
+            variant.model_dump(), response_mode, keep_traits_in_minimal=True
+        )
         enforce_untrusted_text_limits(fenced)
         return projected
 
@@ -230,9 +318,8 @@ class ClinVarService:
 
     async def _maybe_variation_id(self, text: str) -> dict[str, Any] | None:
         """Resolve as a VariationID; non-integer input resolves to ``None``."""
-        try:
-            vid = int(text)
-        except (TypeError, ValueError):
+        vid = _as_sqlite_int(text, field="identifier")
+        if vid is None:
             return None
         return await asyncio.to_thread(self.repo.get_by_variation_id, vid)
 
@@ -240,17 +327,15 @@ class ClinVarService:
         """Resolve as a dbSNP rsid (``rs123`` or bare digits)."""
         match = _RSID_RE.match(text)
         raw = match.group(1) if match else text
-        try:
-            rsid = int(raw)
-        except (TypeError, ValueError):
+        rsid = _as_sqlite_int(raw, field="identifier")
+        if rsid is None:
             return None
         return await asyncio.to_thread(self.repo.get_by_rsid, rsid)
 
     async def _maybe_allele_id(self, text: str) -> dict[str, Any] | None:
         """Resolve as a ClinVar AlleleID; non-integer input resolves to ``None``."""
-        try:
-            aid = int(text)
-        except (TypeError, ValueError):
+        aid = _as_sqlite_int(text, field="identifier")
+        if aid is None:
             return None
         return await asyncio.to_thread(self.repo.get_by_allele_id, aid)
 
@@ -332,58 +417,72 @@ class ClinVarService:
         offset: int = 0,
         response_mode: str = "compact",
     ) -> dict[str, Any]:
-        """Free-text search with AND default, OR fallback, and tiered count."""
+        """Free-text search, scoped to the gene the query names, with an HONEST fallback.
+
+        The tool's own documented usage — "a gene symbol plus a change or other loose text" —
+        used to return variants of four unrelated genes: the AND pass matched nothing (clinical
+        words like "pathogenic" are not in the indexed variant name), so it fell back to OR,
+        which matched noise tokens with no preference for the gene symbol, and presented the
+        result as a confident ranking.
+
+        Two fixes, in order:
+          1. a gene symbol written in the query is PROMOTED to the gene filter (reported back as
+             ``_meta.search.gene_symbol_inferred``), so loose text can only narrow WITHIN the
+             gene — never wander into another one;
+          2. any degradation (OR fallback, or dropping the text entirely) is DECLARED in
+             ``match_mode`` and ``_meta.search`` instead of being passed off as a ranked answer.
+        """
         _reject_forbidden_codepoints(query or "", field="query")
         if gene_symbol:
             _reject_forbidden_codepoints(gene_symbol, field="gene_symbol")
+        classification = _ensure_classification(classification)
+        assembly = _ensure_assembly(assembly)
         has_filter = bool(gene_symbol or classification or min_stars is not None)
         if not (query or "").strip() and not has_filter:
             raise ToolInputError(
-                "query is required; to list a gene's variants use get_variants_by_gene"
+                "query is required; to list a gene's variants use get_variants_by_gene",
+                field="query",
+                public_reason=(
+                    "is required (free text, e.g. 'BRCA1 c.5266dup'); to list a gene's variants "
+                    "use get_variants_by_gene"
+                ),
             )
         if match_mode not in _MATCH_MODES:
             raise ToolInputError(
-                f"match_mode must be one of {sorted(_MATCH_MODES)} (got {match_mode!r})"
+                f"match_mode must be one of {sorted(_MATCH_MODES)} (got {match_mode!r})",
+                field="match_mode",
+                public_reason=f"must be one of: {', '.join(sorted(_MATCH_MODES))}",
             )
         if count_mode not in _COUNT_MODES:
             raise ToolInputError(
-                f"count_mode must be one of {sorted(_COUNT_MODES)} (got {count_mode!r})"
+                f"count_mode must be one of {sorted(_COUNT_MODES)} (got {count_mode!r})",
+                field="count_mode",
+                public_reason=f"must be one of: {', '.join(sorted(_COUNT_MODES))}",
             )
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
-        fetch = limit + 1  # over-fetch by one to compute has_more without a count
 
-        async def _do(mode: str) -> list[dict[str, Any]]:
-            return await asyncio.to_thread(
-                self.repo.search,
-                query,
-                gene_symbol=gene_symbol,
-                classification=classification,
-                min_stars=min_stars,
-                assembly=assembly,
-                match_mode=mode,
-                limit=fetch,
-                offset=offset,
-            )
+        # An explicit gene filter that matches no gene is a not_found, never an empty success.
+        if gene_symbol and not await asyncio.to_thread(self.repo.gene_exists, gene_symbol):
+            raise DataNotFoundError(f"No ClinVar variants for gene {gene_symbol!r}")
+        inferred = None if gene_symbol else await self._infer_gene(query)
+        effective_gene = gene_symbol or inferred
+        text = self._residual_text(query, inferred)
 
-        multi_token = len((query or "").split()) >= 2
-        if match_mode == "auto":
-            rows = await _do("and")
-            used = "and"
-            if not rows and multi_token:
-                or_rows = await _do("or")
-                if or_rows:
-                    rows, used = or_rows, "or_fallback"
-        else:
-            rows = await _do(match_mode)
-            used = match_mode
-
-        has_more = len(rows) > limit
-        rows = rows[:limit]
+        rows, used, count_text, has_more = await self._search_rows(
+            text,
+            gene_symbol=effective_gene,
+            classification=classification,
+            min_stars=min_stars,
+            assembly=assembly,
+            match_mode=match_mode,
+            limit=limit,
+            offset=offset,
+        )
         count_match_mode = "or" if used in ("or", "or_fallback") else "and"
         total, capped = await self._count_for_search(
-            query,
-            gene_symbol=gene_symbol,
+            count_text,
+            gene_symbol=effective_gene,
             classification=classification,
             min_stars=min_stars,
             assembly=assembly,
@@ -404,7 +503,106 @@ class ClinVarService:
             **self._pagination(total, has_more, limit, offset, capped=capped),
         }
         self._lean_list(out, results, release, response_mode)
+        out.setdefault("_meta", {})["search"] = self._search_meta(used, inferred, effective_gene)
         return out
+
+    async def _infer_gene(self, query: str) -> str | None:
+        """Promote a gene symbol written in the free text to the gene filter.
+
+        Only a token a human would write AS a symbol is considered — ALL-CAPS (BRCA1, TTN) or
+        carrying a digit (brca1) — so an English word that happens to be a gene symbol ("rest",
+        "cat", "set") never hijacks a query. Ambiguity (two different symbols) infers nothing;
+        the caller's own ``gene_symbol`` always wins. The result is always reported back in
+        ``_meta.search.gene_symbol_inferred`` — inference is never silent.
+        """
+        candidates: list[str] = []
+        for token in _TOKEN_RE.findall(query or "")[:8]:
+            if not _GENE_TOKEN_RE.match(token):
+                continue
+            if not (token.isupper() or any(char.isdigit() for char in token)):
+                continue
+            if await asyncio.to_thread(self.repo.gene_exists, token):
+                candidates.append(token.upper())
+        unique = list(dict.fromkeys(candidates))
+        return unique[0] if len(unique) == 1 else None
+
+    @staticmethod
+    def _residual_text(query: str, inferred: str | None) -> str:
+        """The query text minus the symbol that became the gene filter."""
+        if not inferred:
+            return query or ""
+        tokens = _TOKEN_RE.findall(query or "")
+        return " ".join(token for token in tokens if token.upper() != inferred)
+
+    async def _search_rows(
+        self,
+        text: str,
+        *,
+        gene_symbol: str | None,
+        classification: str | None,
+        min_stars: int | None,
+        assembly: str | None,
+        match_mode: str,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict[str, Any]], str, str, bool]:
+        """Run the match ladder. Returns (rows, mode_used, text_the_count_must_use, has_more)."""
+        fetch = limit + 1  # over-fetch by one to compute has_more without a count
+
+        async def _do(mode: str, query_text: str) -> list[dict[str, Any]]:
+            return await asyncio.to_thread(
+                self.repo.search,
+                query_text,
+                gene_symbol=gene_symbol,
+                classification=classification,
+                min_stars=min_stars,
+                assembly=assembly,
+                match_mode=mode,
+                limit=fetch,
+                offset=offset,
+            )
+
+        if match_mode != "auto":
+            rows = await _do(match_mode, text)
+            return rows[:limit], match_mode, text, len(rows) > limit
+
+        rows = await _do("and", text)
+        used, count_text = "and", text
+        if not rows and len(text.split()) >= 2:
+            or_rows = await _do("or", text)
+            if or_rows:
+                rows, used = or_rows, "or_fallback"
+        if not rows and gene_symbol and text.strip():
+            # Nothing in the gene matches the free text at all. Returning zero rows here would
+            # be a silent dead end; returning OTHER genes' variants is what produced the OCRL
+            # answer to a BRCA1 question. Drop the text, keep the gene, and SAY SO.
+            gene_rows = await _do("and", "")
+            if gene_rows:
+                rows, used, count_text = gene_rows, "gene_fallback", ""
+        return rows[:limit], used, count_text, len(rows) > limit
+
+    @staticmethod
+    def _search_meta(used: str, inferred: str | None, applied: str | None) -> dict[str, Any]:
+        """Declare what the search actually did: what it inferred, and how it degraded."""
+        notices = {
+            "or_fallback": (
+                "DEGRADED: no record matched ALL query terms, so these rows match ANY term. "
+                "They are a broad, low-confidence match — re-query with fewer terms, or "
+                "match_mode='and', before treating them as answers."
+            ),
+            "gene_fallback": (
+                "DEGRADED: no variant matched the query text, so the free text was DROPPED and "
+                "these are the gene's variants by review confidence. The text did NOT filter "
+                "them — narrow with classification / min_stars instead."
+            ),
+        }
+        fallback = used if used in notices else None
+        return {
+            "gene_symbol_inferred": inferred,
+            "gene_symbol_applied": applied,
+            "fallback": fallback,
+            "notice": notices.get(used),
+        }
 
     async def _count_for_search(
         self,
@@ -457,11 +655,14 @@ class ClinVarService:
             + payload["conflicting_count"]
             + payload["not_provided_count"]
         )
-        payload["other_count"] = max(0, payload["total_count"] - known)
+        payload["other_count"] = max(0, payload["variant_count"] - known)
         fenced = self._fence_top_traits(payload, gene_symbol)
         enforce_untrusted_text_limits(fenced)
         if response_mode == "minimal":
-            for key in ("consequence_categories", "top_traits", "star_distribution"):
+            # `top_traits` (capped at 5 by ingest) is the record's payload, not optional detail:
+            # a mode that returns the counts but throws away WHAT the gene is associated with is
+            # the response-mode form of a silent empty. Only the wide breakdowns are dropped.
+            for key in ("consequence_categories", "star_distribution"):
                 payload.pop(key, None)
         return payload
 
@@ -476,13 +677,22 @@ class ClinVarService:
         offset: int = 0,
         response_mode: str = "compact",
     ) -> dict[str, Any]:
-        """List a gene's variants (projected) with a total for pagination."""
+        """List a gene's variants (projected) with a total for pagination.
+
+        ``classification`` is normalized-or-rejected BEFORE it reaches SQL (see
+        :func:`_ensure_classification`). It used to be interpolated raw into
+        ``WHERE v.classification = ?``, so any value the vocabulary did not contain — including
+        ClinVar's own "Likely pathogenic" — matched no row and returned an empty SUCCESS.
+        """
         _reject_forbidden_codepoints(gene_symbol or "", field="gene_symbol")
+        classification = _ensure_classification(classification)
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
         if sort not in ClinVarRepository.SORT_ORDERS:
             raise ToolInputError(
-                f"sort must be one of {sorted(ClinVarRepository.SORT_ORDERS)} (got {sort!r})"
+                f"sort must be one of {sorted(ClinVarRepository.SORT_ORDERS)} (got {sort!r})",
+                field="sort",
+                public_reason=f"must be one of: {', '.join(sorted(ClinVarRepository.SORT_ORDERS))}",
             )
         total = await asyncio.to_thread(
             self.repo.count_variants_by_gene,
@@ -494,8 +704,9 @@ class ClinVarService:
             gene_total = await asyncio.to_thread(self.repo.count_variants_by_gene, gene_symbol)
             if gene_total == 0:
                 raise DataNotFoundError(f"No ClinVar variants for gene {gene_symbol!r}")
-            # Gene exists; the filter simply excluded everything -> empty success
-            # (consistent with search_variants and out-of-range offset).
+            # The gene exists and the filters are all valid (an unrecognised value would have
+            # been rejected above) — so an empty page here is a TRUE zero: this gene really has
+            # no variant with that classification / star floor. It is safe to report as success.
             return {
                 "gene_symbol": gene_symbol,
                 "results": [],
@@ -636,8 +847,14 @@ class ClinVarService:
         return fenced
 
     @staticmethod
-    def _trim_full(payload: dict[str, Any]) -> dict[str, Any]:
-        """Drop information-free keys (null trait ids, 'na' alleles) from full payloads."""
+    def _trim_null_keys(payload: dict[str, Any]) -> dict[str, Any]:
+        """Drop information-free keys (null trait ids, 'na' alleles) from a payload.
+
+        Applied to ``standard`` as well as ``full``. It was full-only, which made the response
+        -mode ladder NON-MONOTONIC: standard (444kB) came back LARGER than full (405kB) for the
+        same rows, so an agent economising by stepping down from full to standard got a bigger
+        payload — 38kB of always-null trait ids and literal 'na' alleles.
+        """
         for trait in payload.get("traits", []) or []:
             if isinstance(trait, dict):
                 for key in ("omim_id", "medgen_id", "mondo_id"):
@@ -651,28 +868,40 @@ class ClinVarService:
         return payload
 
     @staticmethod
-    def _project(payload: dict[str, Any], mode: str) -> tuple[dict[str, Any], list[UntrustedText]]:
+    def _project(
+        payload: dict[str, Any],
+        mode: str,
+        *,
+        keep_traits_in_minimal: bool = False,
+    ) -> tuple[dict[str, Any], list[UntrustedText]]:
         """Project a full variant payload down to the requested verbosity.
 
-        Pure dict transform; tolerant of missing keys. ``full`` returns the
-        payload with null trait ids and 'na' alleles stripped. Every mode that
-        can emit ``traits`` (all but ``minimal``) fences each trait name as
-        v1.1 ``untrusted_text``, since compact mode's "trait names only"
-        projection is still the same upstream free text and must be fenced
-        too, not just the full/standard object form. Only traits that survive
-        into the actual response are fenced — fencing (and thus limit
-        -checking) a trait compact mode discards would inflate the
-        response-wide object count against text that never leaves the server.
+        Pure dict transform; tolerant of missing keys. ``full`` and ``standard`` return the
+        payload with null trait ids and 'na' alleles stripped (a strictly monotonic ladder).
+        Every mode that emits ``traits`` fences each trait name as v1.1 ``untrusted_text``, since
+        compact mode's "trait names only" projection is still the same upstream free text and
+        must be fenced too, not just the full/standard object form. Only traits that survive into
+        the actual response are fenced — fencing (and thus limit-checking) a trait compact mode
+        discards would inflate the response-wide object count against text that never leaves the
+        server.
+
+        ``keep_traits_in_minimal`` is set by the SINGLE-record tool (get_variant), where the
+        trait list IS the record's payload: a minimal projection that returned an identifier and
+        nothing else would be a response mode that destroys what it was asked for. The batch/list
+        tools leave it off — there the rows themselves are the payload, and per-row traits are
+        exactly the optional detail ``minimal`` exists to drop.
         """
+        record_id_base = payload.get("vcv_accession") or str(payload.get("variation_id") or "")
+
         if mode == "minimal":
             out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
-            return out, []
-
-        record_id_base = payload.get("vcv_accession") or str(payload.get("variation_id") or "")
+            if not keep_traits_in_minimal:
+                return out, []
+            return ClinVarService._with_capped_traits(out, payload, record_id_base)
 
         if mode == "full":
             fenced = ClinVarService._fence_traits(payload, record_id_base)
-            return ClinVarService._trim_full(payload), fenced
+            return ClinVarService._trim_null_keys(payload), fenced
 
         out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
         for key in _COMPACT_EXTRA_FIELDS:
@@ -681,14 +910,22 @@ class ClinVarService:
 
         if mode == "standard":
             fenced = ClinVarService._fence_traits(payload, record_id_base)
-            out["traits"] = payload.get("traits", [])
+            trimmed = ClinVarService._trim_null_keys(payload)
+            out["traits"] = trimmed.get("traits", [])
             for key in _STANDARD_EXTRA_FIELDS:
-                if key in payload:
-                    out[key] = payload[key]
+                if key in trimmed:
+                    out[key] = trimmed[key]
             return out, fenced
 
         # compact (default): fence only the first 5 traits — the truncation
         # this projection actually emits.
+        return ClinVarService._with_capped_traits(out, payload, record_id_base)
+
+    @staticmethod
+    def _with_capped_traits(
+        out: dict[str, Any], payload: dict[str, Any], record_id_base: str
+    ) -> tuple[dict[str, Any], list[UntrustedText]]:
+        """Attach the first 5 fenced trait names to a lean projection."""
         capped_traits = (payload.get("traits") or [])[:5]
         fenced = ClinVarService._fence_traits({"traits": capped_traits}, record_id_base)
         out["traits"] = [t.get("name") for t in capped_traits if isinstance(t, dict)]
