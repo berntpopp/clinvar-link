@@ -64,9 +64,10 @@ Identifiers = Annotated[
     Field(
         description=(
             "A LIST of ClinVar variant identifiers resolved in one call (the batch form of "
-            "get_variant). Shapes may be mixed (VCV / rsID / HGVS / AlleleID / VariationID). "
-            "Every input yields one result row echoing its identifier and a `found` flag, so a "
-            "miss is explicit and never silently dropped. Capped at 100 per call."
+            "get_variant). Shapes may be mixed (VCV / rsID / HGVS / AlleleID / VariationID). Each "
+            "WELL-FORMED input yields one result row echoing its identifier and a `found` flag, "
+            "so an absent record is an explicit miss, never silently dropped; a MALFORMED element "
+            "fails the whole call with invalid_input naming its position. Capped at 100 per call."
         ),
         examples=[["VCV000007105", "rs334"]],
         min_length=1,
