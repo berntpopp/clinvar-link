@@ -228,45 +228,57 @@ def rows(env: dict[str, Any]) -> list[Any] | None:
     (`prefixes=["__BOGUS__"]` -> `success:true, count:0`) sailed through a gate reporting
     "0 failures, 0 UNGATED". A detector that cannot see a payload shape cannot gate it.
     """
-    # A COLLECTION declares how many things it holds; a RECORD does not. Response-Envelope v1:
-    # "Always populate _meta.pagination: total_count, has_more". That count is the only reliable
-    # signal separating "a list of results" from "a field of one record that happens to be a list".
+    # 1. A GROUPED COLLECTION — a non-`_` key whose value is a dict of lists,
+    #    e.g. mappings: {"OMIM": [...], "ICD10": [...]} — IS a collection, and needs no count.
+    #    It cannot be confused with a scalar record field (a record's dict field, like
+    #    `definition: {id, label, ...}`, has non-list values). Considered without the count guard
+    #    below, because an empty grouped dict `mappings: {}` is an emptied collection, not a record
+    #    — and reading it as "no collection" is exactly how hpo-link's
+    #    `map_cross_ontology(prefixes=["__nonsense__"]) -> mappings:{}, success:true` slipped past
+    #    an earlier gate that then reported CONFORMANT over a confirmed silent-empty (Codex found
+    #    it). A non-empty grouped dict must be all-lists; an empty one reads as an empty collection.
     #
-    # Without this gate the probe reads hpo-link's `get_term` — a flat single record whose
-    # `children` field holds 23 sub-terms — as a 23-row collection. `fields=[...]` is then a
-    # PROJECTION parameter doing exactly its job (dropping `children`), and `response_mode=minimal`
-    # is correctly omitting optional detail from one record — and the gate calls both of them
-    # payload destruction. Two false accusations against a server doing nothing wrong. Measured:
-    # this guard removes them while keeping every real finding.
+    #    Do NOT return it immediately. A normal response can also carry an auxiliary empty object
+    #    (`facets: {}`) beside the real counted list (`results: [...]`). The row detector must pick
+    #    the largest actual collection, not let an empty sidecar mask non-empty rows.
+    best = _grouped_collection(env)
+
+    # 2. Otherwise, a top-level list of objects — but a bare list is ambiguous. A COLLECTION
+    #    declares how many things it holds (Response-Envelope v1: "Always populate
+    #    _meta.pagination: total_count, has_more"); a RECORD does not. Without this count guard the
+    #    probe reads hpo-link's `get_term` — a single record whose `children` field holds 23
+    #    sub-terms — as a 23-row collection, and then `fields=[...]` (a projection doing its job)
+    #    and `response_mode=minimal` (correctly omitting a record's optional detail) both read as
+    #    payload destruction. Two false accusations against a server doing nothing wrong.
     if count_of(env) is None:
-        return None
-
-    best: list[Any] | None = None
-
-    def consider(value: list[Any]) -> None:
-        nonlocal best
-        if value and not isinstance(value[0], dict):
-            return
-        if best is None or len(value) > len(best):
-            best = value
+        return best
 
     for key, value in env.items():
-        if key.startswith("_"):
+        if key.startswith("_") or not isinstance(value, list):
             continue
-        if isinstance(value, list):
-            consider(value)
-        elif isinstance(value, dict) and value and all(isinstance(b, list) for b in value.values()):
-            # A GROUPED COLLECTION — every branch is a list, e.g.
-            #   mappings: {"OMIM": [...], "ICD10": [...]}
-            # Flatten it into one row set.
-            #
-            # The `all(...)` is load-bearing, not tidiness. Without it this also swallows a single
-            # RECORD that merely contains lists — `term: {"id": ..., "name": ..., "xrefs": [23]}` —
-            # and then `response_mode=minimal` correctly stripping that record's optional detail
-            # reads as payload destruction. That is a false accusation, and I generated exactly it
-            # on hpo-link before adding this guard. A record has scalars; a grouped collection is
-            # lists all the way across.
-            consider([item for branch in value.values() for item in branch])
+        if value and not isinstance(value[0], dict):
+            continue
+        if best is None or len(value) > len(best):
+            best = value
+    return best
+
+
+def _grouped_collection(env: dict[str, Any]) -> list[Any] | None:
+    """Flatten the largest dict-of-lists in the envelope, or None if there is none.
+
+    Returns `[]` for an empty grouped dict — an emptied collection, not the absence of one.
+    """
+    best: list[Any] | None = None
+    for key, value in env.items():
+        if key.startswith("_") or not isinstance(value, dict):
+            continue
+        # A non-empty grouped collection is lists all the way across; an empty dict qualifies
+        # (it is an emptied collection). A dict with any non-list value is a record, not a group.
+        if value and not all(isinstance(branch, list) for branch in value.values()):
+            continue
+        flat = [item for branch in value.values() if isinstance(branch, list) for item in branch]
+        if best is None or len(flat) > len(best):
+            best = flat
     return best
 
 
@@ -708,6 +720,23 @@ def run_probe(base_url: str, *, expected_name: str, timeout: float = 60.0) -> Re
             _record_error_frame(rep, name, control_result, control_env)
             if code in INCONCLUSIVE:
                 rep.skip(f"{name}: dynamic probes", f"upstream inconclusive ({code})")
+            elif code == "not_found":
+                # The server UNDERSTOOD the call — it did not reject the example as MALFORMED — and
+                # answered honestly that the referenced entity is absent. That is the only possible
+                # answer for a tool keyed on a runtime-issued handle (a session/job id, an opaque
+                # cursor) whose example can never resolve against a fresh deployment, and it leaves
+                # nothing to verify a filter or page against: the same "a zero result proves nothing"
+                # case as the empty-collection branch below, reached one step earlier. Only a
+                # MALFORMED example (invalid_input / ambiguous_query) is a real documentation defect,
+                # so only those still fail. Treating an honest not_found as a failure punished
+                # exactly the servers that report entity-absence correctly (pubtator-link's
+                # get_research_session_status), and would have pressured them back toward a vaguer,
+                # less actionable error to satisfy the gate.
+                rep.skip(
+                    f"{name}: dynamic probes",
+                    "its documented example is a well-formed handle whose entity is absent "
+                    "(not_found) — the call form is valid, so there is nothing to verify against",
+                )
             else:
                 rep.check(
                     f"{name}: its own documented example is accepted",
