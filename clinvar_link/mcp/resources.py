@@ -11,6 +11,15 @@ from clinvar_link.config import settings
 from clinvar_link.data.repository import ClinVarRepository
 from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
 from clinvar_link.mcp.freshness import clinvar_freshness
+from clinvar_link.models.enums import (
+    ASSEMBLY_VALUES,
+    CLASSIFICATION_VALUES,
+    COUNT_MODES,
+    ERROR_CODES,
+    ID_TYPES,
+    MATCH_MODES,
+    RESPONSE_MODES,
+)
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
 
@@ -55,13 +64,32 @@ def get_capabilities_resource() -> dict[str, Any]:
         "research_use_only": True,
         "data_source": _DATA_SOURCE_NOTE,
         "tools": list(_TOOLS),
-        "response_modes": ["minimal", "compact", "standard", "full"],
+        "response_modes": list(RESPONSE_MODES),
         "sort_options": sorted(ClinVarRepository.SORT_ORDERS),
+        # The exact vocabularies the filters accept. They are declared as `enum` in each tool's
+        # input schema too; advertising them here as well means a caller that orients through
+        # capabilities can never guess a value the server will reject.
+        "filter_vocabularies": {
+            "classification": list(CLASSIFICATION_VALUES),
+            "assembly": list(ASSEMBLY_VALUES),
+            "id_type": list(ID_TYPES),
+            "note": (
+                "classification and assembly also accept ClinVar's own published wording "
+                "case-insensitively ('Likely pathogenic' -> likely_pathogenic, 'hg19' -> "
+                "GRCh37). Any other value is REJECTED with invalid_input naming the parameter "
+                "— an unrecognized filter value never returns an empty success."
+            ),
+        },
         "search_controls": {
-            "match_mode": ["auto", "and", "or"],
-            "count_mode": ["exact", "none"],
+            "match_mode": list(MATCH_MODES),
+            "count_mode": list(COUNT_MODES),
             "default_match_mode": "auto",
-            "note": "auto = AND with automatic OR fallback when AND returns nothing.",
+            "note": (
+                "auto = AND, falling back to OR and then to gene-only when the text matches "
+                "nothing. A gene symbol in the query is applied as a filter automatically. Any "
+                "inference or degradation is reported in _meta.search (gene_symbol_inferred, "
+                "fallback, notice) — never presented as a confident ranking."
+            ),
         },
         "recommended_workflows": [
             "VCV / rsID / HGVS / AlleleID -> get_variant",
@@ -70,12 +98,11 @@ def get_capabilities_resource() -> dict[str, Any]:
             "gene symbol -> get_gene_clinvar_summary (classification landscape)",
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
         ],
-        "error_codes": [
-            "not_found",
-            "invalid_input",
-            "internal_error",
-            "response_too_large",
-        ],
+        # Response-Envelope Standard v1: the FULL closed, fleet-wide enum — the complete taxonomy
+        # a client must be prepared to branch on, not the subset this server happens to emit
+        # today (advertising a subset let capabilities drift from the contract undetected). Every
+        # error envelope also carries protocol isError:true, so a client can branch on either.
+        "error_codes": list(ERROR_CODES),
         "output_cheatsheet": {
             "classification_field": "classification",
             "raw_clinical_significance_field": "clinical_significance",

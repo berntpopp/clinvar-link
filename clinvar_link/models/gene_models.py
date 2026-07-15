@@ -1,13 +1,22 @@
 """Pydantic models for gene-level ClinVar summaries."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class GeneClinVarSummary(BaseModel):
     """Aggregated ClinVar statistics for a single gene."""
 
     gene_symbol: str = Field(..., description="HGNC gene symbol.")
-    total_count: int = Field(..., description="Total number of ClinVar variants for the gene.")
+    # NOT `total_count`. Every LIST tool in the fleet uses `total_count` for the size of a
+    # PAGINATED result set, and this payload also carries a truncated `top_traits` list — so the
+    # same key meant two different things, and a client (or a model) reading `total_count: 15947`
+    # beside 5 traits concludes it is looking at page 1 of 15,947. The stored summary_json still
+    # writes the old key, so it is accepted as an input alias; the wire name is now unambiguous.
+    variant_count: int = Field(
+        ...,
+        description="Total number of ClinVar variants for the gene (not a page size).",
+        validation_alias=AliasChoices("variant_count", "total_count"),
+    )
     pathogenic_count: int = Field(..., description="Count of pathogenic variants.")
     likely_pathogenic_count: int = Field(..., description="Count of likely pathogenic variants.")
     vus_count: int = Field(..., description="Count of variants of uncertain significance.")
@@ -40,10 +49,11 @@ class GeneClinVarSummary(BaseModel):
 
     model_config = ConfigDict(
         extra="ignore",
+        populate_by_name=True,
         json_schema_extra={
             "example": {
                 "gene_symbol": "BRCA1",
-                "total_count": 8421,
+                "variant_count": 8421,
                 "pathogenic_count": 1923,
                 "likely_pathogenic_count": 412,
                 "vus_count": 5210,

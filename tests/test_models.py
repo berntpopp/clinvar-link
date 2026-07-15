@@ -66,7 +66,7 @@ def test_clinvar_variant_from_dict_ignores_extra_and_round_trips():
 def test_gene_clinvar_summary():
     summary = GeneClinVarSummary(
         gene_symbol="BRCA1",
-        total_count=8421,
+        variant_count=8421,
         pathogenic_count=1923,
         likely_pathogenic_count=412,
         vus_count=5210,
@@ -78,7 +78,7 @@ def test_gene_clinvar_summary():
     )
 
     assert summary.has_pathogenic is True
-    assert summary.total_count == 8421
+    assert summary.variant_count == 8421
     assert summary.star_distribution == {}
     assert summary.top_traits == []
 

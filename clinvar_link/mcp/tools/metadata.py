@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.tools.tool import ToolResult
 from mcp.types import Annotations
 
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
@@ -15,6 +16,7 @@ from clinvar_link.mcp.clinvar_date_cache import (
     set_cached_clinvar_release_date,
 )
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
+from clinvar_link.mcp.params import RequestId
 from clinvar_link.mcp.resources import (
     RESEARCH_USE_NOTICE,
     get_capabilities_resource,
@@ -37,9 +39,12 @@ def register_metadata_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinV
         title="Get ClinVar Link Capabilities",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"metadata"},
+        output_schema=None,
     )
-    async def get_server_capabilities(request_id: str | None = None) -> dict[str, Any]:
-        """Use this for orientation in a new session: the supported tool surface, response modes, recommended workflows, the live ClinVar release date, error codes, and current limitations. Returns ~3kB. Pass request_id to correlate the response with server logs."""
+    async def get_server_capabilities(
+        request_id: RequestId = None,
+    ) -> dict[str, Any] | ToolResult:
+        """Use this for orientation in a new session: the supported tool surface, response modes, filter vocabularies (the exact accepted values for classification / assembly / sort), recommended workflows, the live ClinVar release date, error codes, and current limitations. Returns ~3kB."""
 
         return await run_mcp_tool(
             "get_server_capabilities",

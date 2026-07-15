@@ -18,6 +18,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
+from fastmcp.tools.tool import ToolResult
 from pydantic import ValidationError as PydanticValidationError
 
 from clinvar_link.config import settings
@@ -35,6 +36,7 @@ from clinvar_link.mcp.untrusted_content import (
     UntrustedTextLimitError,
     sanitize_message,
 )
+from clinvar_link.models.enums import ERROR_CODES as _CANON_ERROR_CODES
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,14 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
     return meta
 
 
+# Response-Envelope Standard v1: `error_code` is a CLOSED enum, harmonized across the fleet.
+# Anything outside this set — however sensible it reads — is a violation, and a client that
+# branches on the code cannot act on it. `internal_error` / `response_too_large` /
+# `output_validation_failed` (this server's former codes) are mapped onto the canon. The
+# canonical tuple lives in models.enums (one source of truth, no circular import); re-exported
+# here as a frozenset for the membership checks and the contract test.
+ERROR_CODES: frozenset[str] = frozenset(_CANON_ERROR_CODES)
+
 # Fixed, error-code-specific PUBLIC messages. A classified exception's own
 # str() is built from caller input (identifiers, queries) or internal detail,
 # which can carry injection prose that survives code-point stripping — so the
@@ -110,12 +120,15 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
 _PUBLIC_MESSAGES: dict[str, str] = {
     "not_found": "No matching ClinVar record was found for the request.",
     "invalid_input": "The request was rejected as invalid.",
-    "internal_error": "An internal error occurred while handling the request.",
-    "response_too_large": (
-        "The response exceeded the allowed size limit; narrow the request "
-        "(lower limit or a leaner response_mode)."
-    ),
+    "internal": "An internal error occurred while handling the request.",
 }
+
+# The response-shaping ceiling keeps its own actionable public message while reporting the
+# canonical `invalid_input` code: the caller CAN fix it (lower `limit`, leaner `response_mode`).
+_RESPONSE_TOO_LARGE_MESSAGE = (
+    "The response exceeded the allowed size limit; narrow the request "
+    "(lower the limit parameter or use a leaner response_mode)."
+)
 
 
 def _strip_forbidden(text: str) -> str:
@@ -220,19 +233,18 @@ def _classify(
     if isinstance(exc, PydanticValidationError):
         return "invalid_input", False, _FALLBACK_TOOL, {}
     if isinstance(exc, UntrustedTextLimitError):
-        # A v1.1 fenced-text ceiling (object count / per-object / total bytes)
-        # was exceeded. This is a server-side response-shaping limit, not a
-        # caller mistake, so it gets its own explicit code rather than folding
-        # into the generic ValueError -> invalid_input branch below or (worse)
-        # falling through to internal_error.
-        return "response_too_large", False, _FALLBACK_TOOL, {}
+        # A v1.1 fenced-text ceiling (object count / per-object / total bytes) was exceeded.
+        # The caller CAN fix it (lower `limit`, leaner `response_mode`), so it reports the
+        # canonical `invalid_input` code with its own actionable message rather than an
+        # off-enum code or an unactionable `internal`.
+        return "invalid_input", False, _FALLBACK_TOOL, {}
     if isinstance(exc, ValueError):
         return "invalid_input", False, _FALLBACK_TOOL, {}
     if isinstance(exc, ClinVarDataError):
-        return "internal_error", False, _FALLBACK_TOOL, {}
+        return "internal", False, _FALLBACK_TOOL, {}
     if isinstance(exc, ClinVarServerError):
-        return "internal_error", False, _FALLBACK_TOOL, {}
-    return "internal_error", False, _FALLBACK_TOOL, {}
+        return "internal", False, _FALLBACK_TOOL, {}
+    return "internal", False, _FALLBACK_TOOL, {}
 
 
 def _recovery_action(error_code: str, retryable: bool) -> str:
@@ -243,13 +255,49 @@ def _recovery_action(error_code: str, retryable: bool) -> str:
     """
     if retryable:
         return "retry_backoff"
-    if error_code in {"invalid_input", "validation_failed"}:
+    if error_code == "invalid_input":
         return "reformulate_input"
     return "switch_tool"
 
 
-def _recovery_text(error_code: str, fallback_tool: str | None, tool_name: str | None = None) -> str:
+def _public_detail(exc: BaseException) -> str | None:
+    """A FIXED, server-authored public message for exceptions that carry one.
+
+    A rejected argument is only actionable if the message names the PARAMETER and its accepted
+    values ("The request was rejected as invalid." names nothing, and the old gene-tool recovery
+    text pointed at `gene_symbol` — the one argument that was already correct). Both halves here
+    are server-authored constants: the parameter name is a declared identifier and the reason is
+    built from this server's own vocabulary. The caller's rejected VALUE is never echoed.
+    """
+    if isinstance(exc, UntrustedTextLimitError):
+        return _RESPONSE_TOO_LARGE_MESSAGE
+    if isinstance(exc, ToolInputError) and exc.field and exc.public_reason:
+        field = _safe_field_name((exc.field,))
+        return f"Invalid value for parameter '{field}': {exc.public_reason}"
+    return None
+
+
+def _field_errors_for(exc: BaseException) -> list[dict[str, str]] | None:
+    """The structured {field, reason} form of a self-describing input error."""
+    if isinstance(exc, ToolInputError) and exc.field and exc.public_reason:
+        return [{"field": _safe_field_name((exc.field,)), "reason": exc.public_reason}]
+    return None
+
+
+def _recovery_text(
+    error_code: str,
+    fallback_tool: str | None,
+    tool_name: str | None = None,
+    exc: BaseException | None = None,
+) -> str:
     is_gene = tool_name in _GENE_TOOLS
+    if error_code == "invalid_input" and isinstance(exc, ToolInputError) and exc.field:
+        field = _safe_field_name((exc.field,))
+        return (
+            f"Fix the '{field}' argument and call the same tool again; every other argument was "
+            "accepted. Do not retry unchanged. field_errors names the parameter and its accepted "
+            "values."
+        )
     if error_code == "not_found":
         if is_gene:
             return (
@@ -264,6 +312,11 @@ def _recovery_text(error_code: str, fallback_tool: str | None, tool_name: str | 
             f"{resolver} to locate the matching record, then retry."
         )
     if error_code == "invalid_input":
+        if isinstance(exc, UntrustedTextLimitError):
+            return (
+                "The response this call would produce is too large. Re-issue it with a lower "
+                "limit (e.g. 10) or response_mode='minimal'; do not retry unchanged."
+            )
         if is_gene:
             return (
                 "The request was rejected as malformed. Pass a single HGNC gene symbol "
@@ -283,16 +336,20 @@ def _recovery_text(error_code: str, fallback_tool: str | None, tool_name: str | 
     )
 
 
-def _envelope_message(error_code: str) -> str:
-    """Return a FIXED, error-code-specific public message.
+def _envelope_message(error_code: str, exc: BaseException | None = None) -> str:
+    """Return a FIXED public message: the exception's server-authored detail, else the code's.
 
     NEVER interpolates caller input or exception text: a classified exception's
     own str() is built from the caller's identifier/query (or internal detail)
     and can carry injection prose that code-point stripping does not remove, so
-    the surfaced message is a fixed server-authored string keyed only by the
-    classified error code. Actionable guidance travels in the fixed `recovery`
-    field and `next_commands`.
+    the surfaced message is either a fixed server-authored string keyed by the
+    classified error code, or the exception's own ``public_reason`` — which is a
+    server-authored constant naming the parameter and its accepted values (see
+    :func:`_public_detail`), never the rejected value.
     """
+    detail = _public_detail(exc) if exc is not None else None
+    if detail:
+        return detail
     return _PUBLIC_MESSAGES.get(error_code, "The request could not be completed.")
 
 
@@ -355,25 +412,76 @@ def _extract_field_errors(errors: list[Any]) -> list[dict[str, str]]:
     return result
 
 
-def _validation_error_payload(field_errors: list[dict[str, str]]) -> dict[str, Any]:
+def _constraint_of(prop: dict[str, Any]) -> str | None:
+    """Describe a DECLARED constraint (enum / numeric bound) from the tool's own schema.
+
+    Everything here is server-authored — the property names, the enum members and the bounds all
+    come from the schema this server advertises — so it is safe to surface verbatim. This is what
+    lets the message be actionable ("sort must be one of: stars_desc, …") without ever echoing
+    the caller's rejected value, and it cannot drift: it IS the advertised schema.
+    """
+    branches = [prop, *(b for b in prop.get("anyOf") or [] if isinstance(b, dict))]
+    for branch in branches:
+        values = branch.get("enum")
+        if isinstance(values, list) and values:
+            allowed = ", ".join(str(v) for v in values if v is not None)
+            return f"must be one of: {allowed}"
+    for branch in branches:
+        low, high = branch.get("minimum"), branch.get("maximum")
+        if low is not None and high is not None:
+            return f"must be between {low} and {high}"
+        if low is not None:
+            return f"must be at least {low}"
+        if high is not None:
+            return f"must be at most {high}"
+    return None
+
+
+def _validation_message(field_errors: list[dict[str, str]], schema: dict[str, Any] | None) -> str:
+    """A message the model can act on: it names the parameters and their accepted values.
+
+    The old message — "The request was rejected as invalid." — named nothing, so a model had
+    nothing to self-correct from (MCP: "Tool Execution Errors contain actionable feedback that
+    language models can use to self-correct").
+    """
+    properties: dict[str, Any] = (schema or {}).get("properties") or {}
+    parts: list[str] = []
+    for err in field_errors:
+        name, reason = err["field"], err["reason"]
+        if name == "unknown":
+            parts.append("The request included an argument this tool does not accept.")
+            continue
+        constraint = _constraint_of(properties.get(name) or {})
+        parts.append(f"{name} {constraint}." if constraint else f"{name}: {reason}.")
+    if properties:
+        parts.append("Accepted parameters: " + ", ".join(properties) + ".")
+    return " ".join(parts) if parts else _PUBLIC_MESSAGES["invalid_input"]
+
+
+def _validation_error_payload(
+    field_errors: list[dict[str, str]],
+    schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build the fixed arg-validation envelope (recursively code-point-stripped).
 
-    The public ``message`` is fixed and the ``field_errors`` are already
-    fixed/redacted (see :func:`_extract_field_errors`); the final
-    :func:`sanitize_envelope` pass is a defensive backstop over every leaf.
+    The public ``message`` is built ONLY from the tool's own advertised schema plus the
+    fixed/redacted ``field_errors`` (see :func:`_extract_field_errors`); the final
+    :func:`sanitize_envelope` pass is a defensive backstop over every leaf. The caller's
+    rejected value is never part of it.
     """
     payload: dict[str, Any] = {
         "success": False,
         "error_code": "invalid_input",
-        "message": _PUBLIC_MESSAGES["invalid_input"],
+        "message": _validation_message(field_errors, schema),
         "retryable": False,
         "recovery_action": "reformulate_input",
         "fallback_tool": _FALLBACK_TOOL,
         "fallback_args": {},
         "field_errors": field_errors,
         "recovery": (
-            "Inputs failed validation. Check field_errors for the field + reason and call "
-            f"{_FALLBACK_TOOL} for the accepted tool surface and identifier shapes."
+            "Inputs failed validation. Check field_errors for the field + reason, fix those "
+            f"arguments and call the same tool again; call {_FALLBACK_TOOL} for the accepted "
+            "tool surface and identifier shapes."
         ),
         "_meta": {
             "next_commands": [{"tool": _FALLBACK_TOOL, "arguments": {}}],
@@ -387,9 +495,12 @@ def mcp_validation_tool_error(
     *,
     tool_name: str,
     exc: PydanticValidationError,
+    schema: dict[str, Any] | None = None,
 ) -> McpToolError:
     """Build a sanitized validation failure raised before tool execution starts."""
-    return McpToolError(_validation_error_payload(_extract_field_errors(list(exc.errors()))))
+    return McpToolError(
+        _validation_error_payload(_extract_field_errors(list(exc.errors())), schema)
+    )
 
 
 class _ValidationLogFilter(logging.Filter):
@@ -470,16 +581,20 @@ def install_validation_error_handler(mcp_server: Any) -> None:
             except (PydanticValidationError, FastMCPValidationError) as exc:
                 pyd = exc if isinstance(exc, PydanticValidationError) else _pydantic_cause(exc)
                 field_errors = _extract_field_errors(list(pyd.errors())) if pyd is not None else []
-                envelope = _validation_error_payload(field_errors)
+                schema = getattr(_tool, "parameters", None)
+                envelope = _validation_error_payload(
+                    field_errors, schema if isinstance(schema, dict) else None
+                )
                 record_mcp_error(
                     tool_name=str(getattr(_tool, "name", "unknown")),
                     error_code="invalid_input",
                     exc_type=exc.__class__.__name__,
                 )
-                convert_result = getattr(_tool, "convert_result", None)
-                if callable(convert_result):
-                    return convert_result(envelope)
-                return envelope
+                # Response-Envelope v1: "isError: true is REQUIRED so clients surface the error
+                # to the model for self-correction." A returned dict never sets it, and raising
+                # would throw the structured envelope away (_make_error_result emits
+                # structuredContent=null) — ToolResult is the only shape that carries both.
+                return error_tool_result(envelope)
 
         object.__setattr__(tool, "run", wrapped_run)
         object.__setattr__(tool, "_clinvar_validation_wrapped", True)
@@ -495,21 +610,24 @@ def mcp_tool_error(exc: BaseException, context: McpErrorContext) -> McpToolError
     if fallback_tool and fallback_tool != _FALLBACK_TOOL:
         next_commands.append({"tool": fallback_tool, "arguments": fallback_args or {}})
     next_commands.append({"tool": _FALLBACK_TOOL, "arguments": {}})
-    payload = {
+    payload: dict[str, Any] = {
         "success": False,
         "error_code": error_code,
-        "message": _envelope_message(error_code),
+        "message": _envelope_message(error_code, exc),
         "retryable": retryable,
         "recovery_action": _recovery_action(error_code, retryable),
         "fallback_tool": fallback_tool,
         "fallback_args": fallback_args,
-        "recovery": _recovery_text(error_code, fallback_tool, context.tool_name),
+        "recovery": _recovery_text(error_code, fallback_tool, context.tool_name, exc),
         "_meta": {
             "tool": context.tool_name,
             "next_commands": next_commands,
             **_provenance_meta(context),
         },
     }
+    field_errors = _field_errors_for(exc)
+    if field_errors is not None:
+        payload["field_errors"] = field_errors
     return McpToolError(payload)
 
 
@@ -582,19 +700,35 @@ def _augment_meta_observability(
     meta["latency_ms"] = latency_ms
 
 
+def error_tool_result(envelope: dict[str, Any]) -> ToolResult:
+    """Wrap an error envelope so it carries BOTH the MCP ``isError`` flag and the structure.
+
+    Response-Envelope Standard v1: "``isError: true`` is REQUIRED so clients surface the error to
+    the model for self-correction." A tool that returns a plain dict never sets it, so a client
+    branching on ``isError`` saw every failure — not_found, invalid_input, internal — as a
+    SUCCESSFUL call and handed the error envelope to the model as if it were data.
+
+    Raising is not the alternative: FastMCP's raise path sets ``isError`` but emits
+    ``structuredContent: null``, throwing the machine-readable envelope away. ``ToolResult`` is
+    the only shape that carries both, and the envelope contents are unchanged.
+    """
+    return ToolResult(structured_content=envelope, is_error=True)
+
+
 async def run_mcp_tool(
     tool_name: str,
     call: Callable[[], Awaitable[dict[str, Any]]],
     *,
     context: McpErrorContext | None = None,
-) -> dict[str, Any]:
-    """Execute an MCP tool body, converting any exception to an envelope dict.
+) -> dict[str, Any] | ToolResult:
+    """Execute an MCP tool body, converting any exception to an error envelope.
 
-    Returning the envelope (rather than raising) means the LLM sees a structured
-    failure instead of an `isError: true` MCP response with an opaque message.
-    Every response — success or error — carries an observability ``_meta`` block
-    (``request_id``, ``latency_ms``) and a structured server-side log line keyed
-    by ``tool`` + ``request_id``.
+    A SUCCESS returns the plain dict (FastMCP serializes it to ``structuredContent``). A FAILURE
+    returns a :class:`ToolResult` carrying the same flat envelope plus protocol ``isError: true``
+    — the LLM still sees a structured, actionable failure, and a client branching on ``isError``
+    now sees a failure too. Every response — success or error — carries an observability ``_meta``
+    block (``request_id``, ``latency_ms``) and a structured server-side log line keyed by ``tool``
+    + ``request_id``.
     """
     ctx = context or McpErrorContext(tool_name=tool_name)
     if ctx.request_id is None:
@@ -629,11 +763,11 @@ async def run_mcp_tool(
         _augment_meta_observability(exc.payload, ctx, latency_ms)
         record_mcp_error(
             tool_name=tool_name,
-            error_code=exc.payload.get("error_code", "internal_error"),
+            error_code=exc.payload.get("error_code", "internal"),
             exc_type=exc.__class__.__name__,
         )
         # Final recursive backstop: no forbidden code point survives on any leaf.
-        return cast(dict[str, Any], sanitize_envelope(exc.payload))
+        return error_tool_result(cast(dict[str, Any], sanitize_envelope(exc.payload)))
     except Exception as exc:  # broad catch is the error-boundary contract
         latency_ms = round((time.perf_counter() - start) * 1000, 2)
         wrapped = mcp_tool_error(exc, ctx)
@@ -652,4 +786,4 @@ async def run_mcp_tool(
             exc_type=exc.__class__.__name__,
         )
         # Final recursive backstop: no forbidden code point survives on any leaf.
-        return cast(dict[str, Any], sanitize_envelope(wrapped.payload))
+        return error_tool_result(cast(dict[str, Any], sanitize_envelope(wrapped.payload)))

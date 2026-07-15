@@ -228,13 +228,14 @@ async def test_unknown_tool_name_not_reflected_via_client() -> None:
     finally:
         detach()
 
-    # The Layer-3 backstop returns a fixed CallToolResult with a TextContent mirror
-    # (and no structuredContent); assert the mirror, plus structured_content if present.
+    # The Layer-3 backstop returns a fixed CallToolResult carrying the envelope in BOTH mirrors:
+    # the TextContent JSON AND structuredContent. An isError result with structuredContent=null
+    # throws the machine-readable envelope away — a client branching on structuredContent would
+    # see nothing — so the backstop MUST populate it (the earlier version of this test ratified
+    # the null and had to be corrected).
+    assert result.structured_content is not None, "the backstop discarded structuredContent"
     mirror = json.loads(result.content[0].text)
-    payloads = [mirror]
-    if result.structured_content is not None:
-        payloads.append(result.structured_content)
-    for payload in payloads:
+    for payload in (mirror, result.structured_content):
         assert payload["success"] is False
         assert payload["error_code"] in ("not_found", "invalid_input")
         # The requested name is deliberately NOT echoed in _meta.

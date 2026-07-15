@@ -62,6 +62,10 @@ def create_clinvar_mcp(
         version=__version__,
         instructions=_INSTRUCTIONS,
         mask_error_details=True,
+        # TOOL-SURFACE-BUDGET-STANDARD v1, Rule 4: the constructor defaults this to True and
+        # appends DereferenceRefsMiddleware, which inlines every $defs/$ref at every use site.
+        # Free to turn off and safe (no INPUT schema here contains a $ref).
+        dereference_schemas=False,
     )
     register_clinvar_tools(mcp, service_factory=service_factory)
     register_workflow_prompts(mcp)

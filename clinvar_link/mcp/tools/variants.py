@@ -1,4 +1,12 @@
-"""Variant tools: get_variant, search_variants."""
+"""Variant tools: get_variant, get_variants, search_variants.
+
+Every parameter is documented, exemplified and enum- or bound-constrained in
+:mod:`clinvar_link.mcp.params` (TOOL-SCHEMA-DOCUMENTATION-STANDARD v1). ``output_schema=None``
+suppresses the outputSchema — 46% of this server's advertised surface, on every request, for a
+field the model never reads — WITHOUT losing ``structuredContent``: FastMCP still emits it for a
+dict return, and every tool here returns the flat envelope dict (TOOL-SURFACE-BUDGET-STANDARD v1,
+Rule 3).
+"""
 
 from __future__ import annotations
 
@@ -6,31 +14,50 @@ from collections.abc import Callable
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.tools.tool import ToolResult
 
-from clinvar_link.exceptions import ToolInputError
 from clinvar_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from clinvar_link.mcp.errors import McpErrorContext, run_mcp_tool
-from clinvar_link.mcp.output_schemas import VARIANT_LIST_OUTPUT_SCHEMA, VARIANT_OUTPUT_SCHEMA
+from clinvar_link.mcp.params import (
+    AssemblyFilter,
+    ClassificationFilter,
+    CountModeParam,
+    GeneSymbolFilter,
+    Identifier,
+    Identifiers,
+    IdTypeParam,
+    Limit,
+    MatchModeParam,
+    MinStars,
+    Offset,
+    Query,
+    RequestId,
+    ResponseModeParam,
+)
 from clinvar_link.services import ClinVarService
+
+# A SUCCESS returns the envelope dict; a FAILURE returns a ToolResult carrying the same
+# envelope plus protocol isError:true (Response-Envelope Standard v1).
+type ToolReturn = dict[str, Any] | ToolResult
 
 
 def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarService]) -> None:
-    """Register the single-variant resolution and free-text search tools."""
+    """Register the single-variant resolution, batch, and free-text search tools."""
 
     @mcp.tool(
         name="get_variant",
         title="Get ClinVar Variant",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"variant"},
-        output_schema=VARIANT_OUTPUT_SCHEMA,
+        output_schema=None,
     )
     async def get_variant(
-        identifier: str,
-        id_type: str = "auto",
-        response_mode: str = "compact",
-        request_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Resolve a single ClinVar variant by VCV accession, dbSNP rsID, HGVS expression, ClinVar AlleleID, or VariationID. A clean transcript-qualified HGVS resolves even without the (GENE) qualifier (e.g. NM_033380.3:c.1871G>A). Returns the normalized classification, review status, and 0-4 star rating plus a recommended_citation. Use this when you already have a variant identifier; if it fails to resolve, fall back to search_variants. id_type='auto' (default) detects the shape; response_mode trims payload size (minimal | compact | standard | full). Pass request_id to correlate the response with server logs."""
+        identifier: Identifier,
+        id_type: IdTypeParam = "auto",
+        response_mode: ResponseModeParam = "compact",
+        request_id: RequestId = None,
+    ) -> ToolReturn:
+        """Resolve a single ClinVar variant by VCV accession, dbSNP rsID, HGVS expression, ClinVar AlleleID, or VariationID. A clean transcript-qualified HGVS resolves even without the (GENE) qualifier (e.g. NM_033380.3:c.1871G>A). Returns the normalized classification, review status, and 0-4 star rating plus a recommended_citation. Use this when you already have a variant identifier; if it fails to resolve, fall back to search_variants."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().get_variant(
@@ -68,14 +95,14 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         title="Get ClinVar Variants (batch)",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"variant"},
-        output_schema=VARIANT_LIST_OUTPUT_SCHEMA,
+        output_schema=None,
     )
     async def get_variants(
-        identifiers: list[str],
-        id_type: str = "auto",
-        response_mode: str = "compact",
-        request_id: str | None = None,
-    ) -> dict[str, Any]:
+        identifiers: Identifiers,
+        id_type: IdTypeParam = "auto",
+        response_mode: ResponseModeParam = "compact",
+        request_id: RequestId = None,
+    ) -> ToolReturn:
         """Resolve MANY ClinVar variants in ONE call — the batch form of get_variant. Pass a list of identifiers (VCV / rsID / HGVS / AlleleID / VariationID, mixable); prefer this over looping get_variant when you have several. Each result row echoes its identifier and a found flag (misses are explicit, never dropped); requested / found_count / truncated summarize the batch. response_mode trims payload size and, in minimal/compact, hoists the citation to _meta.citation_template."""
 
         async def _call() -> dict[str, Any]:
@@ -107,28 +134,24 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         title="Search ClinVar Variants",
         annotations=READ_ONLY_OPEN_WORLD,
         tags={"variant"},
-        output_schema=VARIANT_LIST_OUTPUT_SCHEMA,
+        output_schema=None,
     )
     async def search_variants(
-        query: str,
-        gene_symbol: str | None = None,
-        classification: str | None = None,
-        min_stars: int | None = None,
-        assembly: str | None = None,
-        match_mode: str = "auto",
-        count_mode: str = "exact",
-        limit: int = 20,
-        offset: int = 0,
-        response_mode: str = "compact",
-        request_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Free-text search across ClinVar variant names, genes, and identifiers. Use this to locate a record when you only have a gene symbol plus a change or other loose text, then re-call get_variant with the returned vcv_accession. Optional filters: gene_symbol, classification, min_stars, assembly. match_mode controls token matching: auto (default) tries AND first then falls back to OR; and/or force explicit mode. count_mode=none skips the total count query for faster responses. Returns a paginated results list with total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row) instead of repeated per hit."""
+        query: Query,
+        gene_symbol: GeneSymbolFilter = None,
+        classification: ClassificationFilter = None,
+        min_stars: MinStars = None,
+        assembly: AssemblyFilter = None,
+        match_mode: MatchModeParam = "auto",
+        count_mode: CountModeParam = "exact",
+        limit: Limit = 20,
+        offset: Offset = 0,
+        response_mode: ResponseModeParam = "compact",
+        request_id: RequestId = None,
+    ) -> ToolReturn:
+        """Free-text search across ClinVar variant names, genes, and traits. Use this to locate a record when you only have a gene symbol plus a change or other loose text, then re-call get_variant with the returned vcv_accession. A gene symbol written in the query is applied as a filter automatically, so results never wander into an unrelated gene, and _meta.search declares what was inferred and whether the match degraded. Returns a paginated results list with total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row)."""
 
         async def _call() -> dict[str, Any]:
-            if limit < 1:
-                raise ToolInputError("limit must be at least 1")
-            if offset < 0:
-                raise ToolInputError("offset must be at least 0")
             result = await service_factory().search_variants(
                 query,
                 gene_symbol=gene_symbol,
