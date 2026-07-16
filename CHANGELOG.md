@@ -4,18 +4,18 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
-### Changed
-
-- Re-vendored the behaviour conformance gate from genefoundry-router `56db958`
-  (`docs/conformance/behaviour.py` blob `c69801687`) and live-validated this
-  backend against the current behaviour gate.
-
 ## [0.5.0] - 2026-07-14
 
 Contract hardening (issue #26). **Breaking**: two wire fields change (`error_code` values, and
 the gene summary's `total_count` → `variant_count`), and an unrecognized filter value now
 ERRORS instead of returning an empty success. Behaviour Conformance v1 (hardened gate): **CONFORMANT**
 (82 pass, 0 fail, 0 UNGATED).
+
+### Changed
+
+- Re-vendored the behaviour conformance gate from genefoundry-router `56db958`
+  (`docs/conformance/behaviour.py` blob `c69801687`) and live-validated this
+  backend against the current behaviour gate.
 
 ### Fixed (code review of PR #27, Codex gpt-5.6-sol)
 
