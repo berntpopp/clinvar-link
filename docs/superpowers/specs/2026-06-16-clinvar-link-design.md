@@ -2,6 +2,8 @@
 
 **Date:** 2026-06-16
 **Status:** Approved (via `/goal` directive; design refined from the goal brief)
+> Historical record — This design records implementation history; the live MCP registry is authoritative.
+
 **Author:** Bernt Popp / fleet MCP engineering
 
 ## 1. Purpose

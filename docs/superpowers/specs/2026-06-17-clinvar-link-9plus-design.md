@@ -1,8 +1,9 @@
 # clinvar-link: Harden Beyond 9/10 — Design Spec
 
 **Date:** 2026-06-17
-**Status:** Approved (design); implementation plan at
-`docs/superpowers/plans/2026-06-17-clinvar-link-9plus.md`
+**Status:** Approved (design); implementation plan at `docs/superpowers/plans/2026-06-17-clinvar-link-9plus.md`
+> Historical record — This design records implementation history; the live MCP registry is authoritative.
+
 **Branch:** `improve/clinvar-link-9plus`
 **Author:** Bernt Popp (with Claude Code, expert-MCP-tester pass)
 

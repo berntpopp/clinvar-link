@@ -1,5 +1,7 @@
 # clinvar-link 9-plus v2 — Track B (ingest / index) Implementation Plan
 
+> Historical record — This plan records completed implementation work; the live MCP registry is authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Two ingest-layer fixes that need the next index rebuild to take full effect: index the gene-stripped canonical HGVS key (so gene-less HGVS resolves by equality, not a LIKE scan), and emit a source `other_count` so gene-summary buckets reconcile at the source.

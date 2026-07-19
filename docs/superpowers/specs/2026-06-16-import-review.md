@@ -1,6 +1,8 @@
 # clinvar-link — Import / Storage / Distribution Review
 
 **Date:** 2026-06-16
+> Historical record — This review records implementation history; the live MCP registry is authoritative.
+
 **Question asked:** optimize + parallelize + stream the ClinVar import; SQLite vs PostgreSQL;
 compare siblings; must not break a 64 GB workstation; ideally **prebuild the DB and publish
 to GitHub** like `genereviews-link`.

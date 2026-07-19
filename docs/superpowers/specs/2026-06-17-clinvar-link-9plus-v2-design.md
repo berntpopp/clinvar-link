@@ -2,6 +2,8 @@
 
 - **Date:** 2026-06-17
 - **Status:** Drafted for review → planning
+> Historical record — This design records implementation history; the live MCP registry is authoritative.
+
 - **Project phase:** alpha — **breaking changes permitted**
 - **Predecessor:** `improve/clinvar-link-9plus` (PR #1, merged) — this is the v2 pass
 

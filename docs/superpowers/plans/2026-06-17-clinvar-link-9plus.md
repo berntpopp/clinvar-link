@@ -1,5 +1,7 @@
 # clinvar-link Harden-Beyond-9/10 Implementation Plan
 
+> Historical record — This plan records completed implementation work; the live MCP registry is authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the six confirmed-open correctness/robustness defects and add a data-freshness signal + a drift-guard test, taking the source past 9/10 for an LLM consumer.
