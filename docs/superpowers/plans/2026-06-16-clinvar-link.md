@@ -1,5 +1,7 @@
 # clinvar-link Implementation Plan
 
+> Historical record — This plan records completed implementation work; the live MCP registry is authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. TDD throughout; commit per task.
 
 **Goal:** Ship a production MCP server that grounds variant-pathogenicity / gene questions in NCBI ClinVar, served from a local SQLite index built from the ClinVar weekly bulk release.

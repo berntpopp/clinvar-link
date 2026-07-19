@@ -1,5 +1,7 @@
 # clinvar-link 9-plus v2 — Track A (MCP / read-time) Implementation Plan
 
+> Historical record — This plan records completed implementation work; the live MCP registry is authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Push the ClinVar-Link MCP past 9/10 with MCP/read-time fixes that ship without rebuilding the index: drift-proof + version-stamped surface, precise AND search with OR-fallback and tiered count, per-tool error UX, and gene-bucket reconciliation + envelope/token cleanup.
