@@ -4,6 +4,27 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-30
+
+Follow-up to 0.5.2. That release moved the container to Python 3.14; this one
+makes CI actually test it. No runtime behaviour change.
+
+### Changed
+
+- **The CI `quality` job now runs as a matrix over Python `3.12` and `3.14`.**
+  0.5.2 moved `docker/Dockerfile` to `python:3.14-slim`, but the unit and
+  integration suites still only ever ran on 3.12 — the image was exercised on
+  3.14 by `container-ci`/`conformance` while the test suite was not, so a
+  3.14-only stdlib or typing regression could have reached the published image
+  uncaught. Both ends of the matrix earn their place: `3.12` is the declared
+  `requires-python` floor and stays tested so the floor is not a false claim,
+  and `3.14` is what ships. The coverage gate still runs once, on the 3.14 leg,
+  so the matrix does not double CI time.
+
+- `requires-python`, ruff `target-version` and mypy `python_version` are
+  unchanged at `3.12`. Only the *tested* range widened; the supported floor did
+  not move.
+
 ## [0.5.2] - 2026-07-30
 
 Interpreter migration. 0.5.1 deliberately held the container on the Python 3.12 line and
