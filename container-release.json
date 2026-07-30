@@ -37,6 +37,7 @@
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/schema.sql"
     ]
   },
+  "data_identity_contract": "unadopted",
   "definitions": {
     "contract": "data-bound"
   },
