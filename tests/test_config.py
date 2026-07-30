@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,11 @@ def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
     workflow = (ROOT / ".github/workflows/data-bundle.yml").read_text()
     assert "build:" in workflow and "publish:" in workflow
     assert "draft=true" in workflow
-    assert "actions/attest-build-provenance@43d14" in workflow
+    # The invariant is "release assets carry a build-provenance attestation, and the
+    # action supplying it is pinned by commit SHA" — not "pinned to one specific SHA".
+    # Hard-coding the SHA made every legitimate version bump of this action a CI
+    # failure, which is a maintenance trap rather than a supply-chain guarantee.
+    assert re.search(r"actions/attest-build-provenance@[0-9a-f]{40} # v\d", workflow)
     assert "gh release verify-asset" in workflow
     assert "--clobber" not in workflow
 

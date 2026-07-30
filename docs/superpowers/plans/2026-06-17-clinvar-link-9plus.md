@@ -103,15 +103,15 @@ from pydantic import Field
 Change the `search_variants` signature `limit`/`offset` params to:
 
 ```python
-        limit: Annotated[int, Field(ge=1)] = 20,
-        offset: Annotated[int, Field(ge=0)] = 0,
+limit: Annotated[int, Field(ge=1)] = (20,)
+offset: Annotated[int, Field(ge=0)] = (0,)
 ```
 
 In `clinvar_link/mcp/tools/genes.py`, add the same two imports and change `get_variants_by_gene`:
 
 ```python
-        limit: Annotated[int, Field(ge=1)] = 50,
-        offset: Annotated[int, Field(ge=0)] = 0,
+limit: Annotated[int, Field(ge=1)] = (50,)
+offset: Annotated[int, Field(ge=0)] = (0,)
 ```
 
 - [ ] **Step 8: Run the tool test + full suite**
@@ -173,20 +173,18 @@ In `clinvar_link/services/clinvar_service.py`, in `get_variants_by_gene`, replac
 with:
 
 ```python
-        if total == 0:
-            gene_total = await asyncio.to_thread(
-                self.repo.count_variants_by_gene, gene_symbol
-            )
-            if gene_total == 0:
-                raise DataNotFoundError(f"No ClinVar variants for gene {gene_symbol!r}")
-            # Gene exists; the filter simply excluded everything -> empty success
-            # (consistent with search_variants and out-of-range offset).
-            return {
-                "gene_symbol": gene_symbol,
-                "results": [],
-                "count": 0,
-                **self._pagination(0, 0, limit, offset),
-            }
+if total == 0:
+    gene_total = await asyncio.to_thread(self.repo.count_variants_by_gene, gene_symbol)
+    if gene_total == 0:
+        raise DataNotFoundError(f"No ClinVar variants for gene {gene_symbol!r}")
+    # Gene exists; the filter simply excluded everything -> empty success
+    # (consistent with search_variants and out-of-range offset).
+    return {
+        "gene_symbol": gene_symbol,
+        "results": [],
+        "count": 0,
+        **self._pagination(0, 0, limit, offset),
+    }
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -272,10 +270,8 @@ _ID_TYPES = frozenset({"auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id
 At the top of `_resolve` (before the `if id_type == "vcv"` line), insert:
 
 ```python
-        if id_type not in _ID_TYPES:
-            raise ToolInputError(
-                f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})"
-            )
+if id_type not in _ID_TYPES:
+    raise ToolInputError(f"id_type must be one of {sorted(_ID_TYPES)} (got {id_type!r})")
 ```
 
 - [ ] **Step 4: Make `_resolve_auto` reject shapeless input**
@@ -489,11 +485,9 @@ Expected: `..._without_filter...` FAILS (returns a match-all success today); `..
 In `clinvar_link/services/clinvar_service.py`, as the first statements of `search_variants` (before the bounds clamp):
 
 ```python
-        has_filter = bool(gene_symbol or classification or min_stars is not None)
-        if not (query or "").strip() and not has_filter:
-            raise ToolInputError(
-                "query is required; to list a gene's variants use get_variants_by_gene"
-            )
+has_filter = bool(gene_symbol or classification or min_stars is not None)
+if not (query or "").strip() and not has_filter:
+    raise ToolInputError("query is required; to list a gene's variants use get_variants_by_gene")
 ```
 
 - [ ] **Step 4: Run the service tests to verify they pass**
@@ -711,7 +705,9 @@ def test_output_cheatsheet_fields_exist_on_model():
     for key, field_name in cheats.items():
         if field_name.startswith("_meta"):
             continue  # next_commands_field is an envelope path, not a model field
-        assert field_name in model_fields, f"cheatsheet {key}={field_name!r} is not a ClinVarVariant field"
+        assert field_name in model_fields, (
+            f"cheatsheet {key}={field_name!r} is not a ClinVarVariant field"
+        )
 ```
 
 - [ ] **Step 2: Run it to verify it passes today (guards future drift)**
