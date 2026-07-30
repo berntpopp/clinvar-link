@@ -4,6 +4,53 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-30
+
+Maintenance release. **This repo had no `.github/dependabot.yml` and never had one**, so its
+"0 open Dependabot PRs" reflected the absence of a watcher rather than healthy dependencies.
+This release establishes the watcher and sweeps the drift that hid behind it.
+
+### Added
+
+- **Dependabot coverage, for the first time.** Fleet-standard four-ecosystem config (`uv` at
+  `/`, `github-actions` at `/`, `docker` and `docker-compose` at `/docker`), weekly on Mondays
+  in Europe/Berlin, staggered 04:00/04:15/04:30/04:45 so the fleet does not open every PR in
+  the same minute.
+
+### Changed
+
+- **Swept the accumulated dependency drift** (first `uv lock --upgrade` this repo has had):
+  ruff 0.15.17 → 0.16.0, FastAPI 0.137.1 → 0.141.1, uvicorn 0.49.0 → 0.52.0, mypy 2.1.0 →
+  2.3.0, mcp 1.28.1 → 1.29.0, fastmcp 3.4.4 → 3.4.5, typer 0.26.7 → 0.27.0, prometheus-client
+  0.25.0 → 0.26.0, certifi 2026.5.20 → 2026.7.22, plus 27 more. pyproject floors are unchanged:
+  this repo's convention is minimum-supported floor with a major-boundary cap, and every
+  upgrade stays inside its existing cap.
+- **Pinned the ruff rule set with `select` instead of `extend-select`.** ruff 0.16 grows the
+  implicit default from 59 to 413 rules; `extend-select` would have silently inherited ~350
+  rules this repo never opted into. The rule list is unchanged and already a superset of the
+  pre-0.16 default, so lint policy is identical.
+- **Refreshed the `python:3.12-slim` base digest** to `sha256:57cd7c3a…`. It had never been
+  bumped, so every rebuild shipped a frozen Debian layer. Deliberately stays on the 3.12 line —
+  `requires-python`, the CI matrix, ruff/mypy targets and five hard-coded
+  `python3.12/site-packages` paths in `container-release.json` all pin 3.12, so a move to 3.14
+  is a migration and not a bump.
+- **Bumped pinned Actions**: checkout v7.0.0/v6.0.3 → v7.0.1, setup-python v6.3.0 → v7.0.0,
+  setup-uv v8.2.0 → v9.0.0, attest-build-provenance v3 → v4.1.1.
+
+### Fixed
+
+- **Three SHA pins whose version comment lied.** `actions/upload-artifact@043fb46d` was
+  labelled `v6` but is v7.0.1; `actions/download-artifact@3e5f45b2` was labelled `v7` but is
+  v8.0.1. Worse, `github/codeql-action` was pinned to `ed410739`, which is not a commit at all
+  but the *tag object* for the moving `v4` tag — Dependabot cannot track a tag object, so
+  CodeQL would have stayed frozen even after this sweep. Repinned to the commit
+  `f205ea1c…` (v4.37.4).
+- **A guard test that hard-coded an action SHA prefix** (`attest-build-provenance@43d14`). The
+  invariant it defends is "release assets carry a provenance attestation from a SHA-pinned
+  action", but it was written as "pinned to exactly this SHA", which would have turned the very
+  first Dependabot PR for that action red. Now asserts a 40-hex SHA plus a version comment,
+  verified by breaking it three ways.
+
 ## [0.5.0] - 2026-07-14
 
 Contract hardening (issue #26). **Breaking**: two wire fields change (`error_code` values, and
