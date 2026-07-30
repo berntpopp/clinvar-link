@@ -347,98 +347,118 @@ Replace `_pagination` with a `has_more`-driven version:
 
 Rewrite `search_variants` (count wiring lands fully in Task 6; here add the mode/fallback + limit+1):
 ```python
-    async def search_variants(
-        self,
-        query: str,
-        *,
-        gene_symbol: str | None = None,
-        classification: str | None = None,
-        min_stars: int | None = None,
-        assembly: str | None = None,
-        match_mode: str = "auto",
-        count_mode: str = "exact",
-        limit: int = 20,
-        offset: int = 0,
-        response_mode: str = "compact",
-    ) -> dict[str, Any]:
-        """Free-text search with AND default, OR fallback, and tiered count."""
-        has_filter = bool(gene_symbol or classification or min_stars is not None)
-        if not (query or "").strip() and not has_filter:
-            raise ToolInputError(
-                "query is required; to list a gene's variants use get_variants_by_gene"
-            )
-        if match_mode not in _MATCH_MODES:
-            raise ToolInputError(f"match_mode must be one of {sorted(_MATCH_MODES)} (got {match_mode!r})")
-        if count_mode not in _COUNT_MODES:
-            raise ToolInputError(f"count_mode must be one of {sorted(_COUNT_MODES)} (got {count_mode!r})")
-        limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
-        offset = max(0, offset)
-        fetch = limit + 1  # over-fetch by one to compute has_more without a count
+async def search_variants(
+    self,
+    query: str,
+    *,
+    gene_symbol: str | None = None,
+    classification: str | None = None,
+    min_stars: int | None = None,
+    assembly: str | None = None,
+    match_mode: str = "auto",
+    count_mode: str = "exact",
+    limit: int = 20,
+    offset: int = 0,
+    response_mode: str = "compact",
+) -> dict[str, Any]:
+    """Free-text search with AND default, OR fallback, and tiered count."""
+    has_filter = bool(gene_symbol or classification or min_stars is not None)
+    if not (query or "").strip() and not has_filter:
+        raise ToolInputError(
+            "query is required; to list a gene's variants use get_variants_by_gene"
+        )
+    if match_mode not in _MATCH_MODES:
+        raise ToolInputError(
+            f"match_mode must be one of {sorted(_MATCH_MODES)} (got {match_mode!r})"
+        )
+    if count_mode not in _COUNT_MODES:
+        raise ToolInputError(
+            f"count_mode must be one of {sorted(_COUNT_MODES)} (got {count_mode!r})"
+        )
+    limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
+    offset = max(0, offset)
+    fetch = limit + 1  # over-fetch by one to compute has_more without a count
 
-        async def _do(mode: str) -> list[dict[str, Any]]:
-            return await asyncio.to_thread(
-                self.repo.search,
-                query,
-                gene_symbol=gene_symbol,
-                classification=classification,
-                min_stars=min_stars,
-                assembly=assembly,
-                match_mode=mode,
-                limit=fetch,
-                offset=offset,
-            )
-
-        multi_token = len((query or "").split()) >= 2
-        if match_mode == "auto":
-            rows = await _do("and")
-            used = "and"
-            if not rows and multi_token:
-                or_rows = await _do("or")
-                if or_rows:
-                    rows, used = or_rows, "or_fallback"
-        else:
-            rows = await _do(match_mode)
-            used = match_mode
-
-        has_more = len(rows) > limit
-        rows = rows[:limit]
-        count_match_mode = "or" if used in ("or", "or_fallback") else "and"
-        total, capped = await self._count_for_search(
+    async def _do(mode: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self.repo.search,
             query,
             gene_symbol=gene_symbol,
             classification=classification,
             min_stars=min_stars,
             assembly=assembly,
-            match_mode=count_match_mode,
-            count_mode=count_mode,
-            has_more=has_more,
-            returned=len(rows),
+            match_mode=mode,
+            limit=fetch,
             offset=offset,
         )
-        release = await self._release_date()
-        results = [self._to_projected(row, release, response_mode) for row in rows]
-        out: dict[str, Any] = {
-            "results": results,
-            "count": len(results),
-            "query": query,
-            "match_mode": used,
-            **self._pagination(total, has_more, limit, offset, capped=capped),
-        }
-        self._lean_list(out, results, release, response_mode)
-        return out
+
+    multi_token = len((query or "").split()) >= 2
+    if match_mode == "auto":
+        rows = await _do("and")
+        used = "and"
+        if not rows and multi_token:
+            or_rows = await _do("or")
+            if or_rows:
+                rows, used = or_rows, "or_fallback"
+    else:
+        rows = await _do(match_mode)
+        used = match_mode
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    count_match_mode = "or" if used in ("or", "or_fallback") else "and"
+    total, capped = await self._count_for_search(
+        query,
+        gene_symbol=gene_symbol,
+        classification=classification,
+        min_stars=min_stars,
+        assembly=assembly,
+        match_mode=count_match_mode,
+        count_mode=count_mode,
+        has_more=has_more,
+        returned=len(rows),
+        offset=offset,
+    )
+    release = await self._release_date()
+    results = [self._to_projected(row, release, response_mode) for row in rows]
+    out: dict[str, Any] = {
+        "results": results,
+        "count": len(results),
+        "query": query,
+        "match_mode": used,
+        **self._pagination(total, has_more, limit, offset, capped=capped),
+    }
+    self._lean_list(out, results, release, response_mode)
+    return out
 ```
 
 Add a placeholder `_count_for_search` (Task 6 fills the body); for now return exact via repo:
 ```python
-    async def _count_for_search(self, query, *, gene_symbol, classification, min_stars,
-                                assembly, match_mode, count_mode, has_more, returned, offset):
-        if count_mode == "none":
-            return None, False
-        total = await asyncio.to_thread(
-            self.repo.count_search, query, gene_symbol=gene_symbol,
-            classification=classification, min_stars=min_stars, assembly=assembly,
-        )
-        return total, False
+async def _count_for_search(
+    self,
+    query,
+    *,
+    gene_symbol,
+    classification,
+    min_stars,
+    assembly,
+    match_mode,
+    count_mode,
+    has_more,
+    returned,
+    offset,
+):
+    if count_mode == "none":
+        return None, False
+    total = await asyncio.to_thread(
+        self.repo.count_search,
+        query,
+        gene_symbol=gene_symbol,
+        classification=classification,
+        min_stars=min_stars,
+        assembly=assembly,
+    )
+    return total, False
 ```
 
 Update `get_variants_by_gene`'s two `_pagination(...)` calls to the new signature:
@@ -447,8 +467,8 @@ Update `get_variants_by_gene`'s two `_pagination(...)` calls to the new signatur
 
 Wire the tool param in `variants.py` `search_variants` — add to the signature and the service call:
 ```python
-        match_mode: str = "auto",
-        count_mode: str = "exact",
+match_mode: str = ("auto",)
+count_mode: str = ("exact",)
 ```
 and pass `match_mode=match_mode, count_mode=count_mode,` into `service_factory().search_variants(...)`.
 
@@ -502,74 +522,96 @@ Expected: FAIL (`count_search() got an unexpected keyword 'count_exact_max'` / t
 - [ ] **Step 3: Implement** — replace `count_search` with a capped, tuple-returning version:
 
 ```python
-    def count_search(
-        self,
-        query: str,
-        *,
-        gene_symbol: str | None = None,
-        classification: str | None = None,
-        min_stars: int | None = None,
-        assembly: str | None = None,
-        match_mode: str = "and",
-        count_exact_max: int | None = None,
-    ) -> tuple[int, bool]:
-        """Return (match_count, capped). When ``count_exact_max`` is set, the scan
-        stops after that many rows and ``capped`` is True if more exist."""
-        filter_sql, filter_params = self._search_filters(
-            gene_symbol=gene_symbol, classification=classification,
-            min_stars=min_stars, assembly=assembly,
-        )
+def count_search(
+    self,
+    query: str,
+    *,
+    gene_symbol: str | None = None,
+    classification: str | None = None,
+    min_stars: int | None = None,
+    assembly: str | None = None,
+    match_mode: str = "and",
+    count_exact_max: int | None = None,
+) -> tuple[int, bool]:
+    """Return (match_count, capped). When ``count_exact_max`` is set, the scan
+    stops after that many rows and ``capped`` is True if more exist."""
+    filter_sql, filter_params = self._search_filters(
+        gene_symbol=gene_symbol,
+        classification=classification,
+        min_stars=min_stars,
+        assembly=assembly,
+    )
 
-        def _capped(n: int) -> tuple[int, bool]:
-            if count_exact_max is not None and n > count_exact_max:
-                return count_exact_max, True
-            return n, False
+    def _capped(n: int) -> tuple[int, bool]:
+        if count_exact_max is not None and n > count_exact_max:
+            return count_exact_max, True
+        return n, False
 
-        tokens = _FTS_TOKEN_RE.findall(query or "")
-        if tokens:
-            match = self._fts_query(query, operator="OR" if match_mode == "or" else "AND")
-            base = (
-                "SELECT 1 FROM variant_fts f "  # noqa: S608
-                "JOIN variant v ON v.variation_id = f.rowid "
-                "WHERE variant_fts MATCH ?" f"{filter_sql}"
-            )
-            params: list[Any] = [match, *filter_params]
-            sql, params = self._wrap_count(base, params, count_exact_max)
-            try:
-                row = self._conn.execute(sql, tuple(params)).fetchone()
-                return _capped(int(row["n"]) if row is not None else 0)
-            except sqlite3.Error:
-                pass
-        cleaned = (query or "").replace("%", "").replace("_", "").strip().upper()
-        pattern = f"%{cleaned}%"
+    tokens = _FTS_TOKEN_RE.findall(query or "")
+    if tokens:
+        match = self._fts_query(query, operator="OR" if match_mode == "or" else "AND")
         base = (
-            "SELECT 1 FROM variant v "  # noqa: S608
-            "WHERE (UPPER(v.name) LIKE ? OR UPPER(v.gene_symbol) LIKE ?)" f"{filter_sql}"
+            "SELECT 1 FROM variant_fts f "  # noqa: S608
+            "JOIN variant v ON v.variation_id = f.rowid "
+            "WHERE variant_fts MATCH ?"
+            f"{filter_sql}"
         )
-        params = [pattern, pattern, *filter_params]
+        params: list[Any] = [match, *filter_params]
         sql, params = self._wrap_count(base, params, count_exact_max)
-        row = self._conn.execute(sql, tuple(params)).fetchone()
-        return _capped(int(row["n"]) if row is not None else 0)
+        try:
+            row = self._conn.execute(sql, tuple(params)).fetchone()
+            return _capped(int(row["n"]) if row is not None else 0)
+        except sqlite3.Error:
+            pass
+    cleaned = (query or "").replace("%", "").replace("_", "").strip().upper()
+    pattern = f"%{cleaned}%"
+    base = (
+        "SELECT 1 FROM variant v "  # noqa: S608
+        "WHERE (UPPER(v.name) LIKE ? OR UPPER(v.gene_symbol) LIKE ?)"
+        f"{filter_sql}"
+    )
+    params = [pattern, pattern, *filter_params]
+    sql, params = self._wrap_count(base, params, count_exact_max)
+    row = self._conn.execute(sql, tuple(params)).fetchone()
+    return _capped(int(row["n"]) if row is not None else 0)
 
-    @staticmethod
-    def _wrap_count(base: str, params: list[Any], count_exact_max: int | None) -> tuple[str, list[Any]]:
-        """Wrap a row-yielding query in COUNT(*), bounding the scan when capping."""
-        if count_exact_max is not None:
-            return f"SELECT COUNT(*) AS n FROM ({base} LIMIT ?)", [*params, count_exact_max + 1]  # noqa: S608
-        return f"SELECT COUNT(*) AS n FROM ({base})", params  # noqa: S608
+
+@staticmethod
+def _wrap_count(base: str, params: list[Any], count_exact_max: int | None) -> tuple[str, list[Any]]:
+    """Wrap a row-yielding query in COUNT(*), bounding the scan when capping."""
+    if count_exact_max is not None:
+        return f"SELECT COUNT(*) AS n FROM ({base} LIMIT ?)", [*params, count_exact_max + 1]  # noqa: S608
+    return f"SELECT COUNT(*) AS n FROM ({base})", params  # noqa: S608
 ```
 
 Fill `_count_for_search` in the service:
 ```python
-    async def _count_for_search(self, query, *, gene_symbol, classification, min_stars,
-                                assembly, match_mode, count_mode, has_more, returned, offset):
-        if count_mode == "none":
-            return None, False
-        return await asyncio.to_thread(
-            self.repo.count_search, query, gene_symbol=gene_symbol,
-            classification=classification, min_stars=min_stars, assembly=assembly,
-            match_mode=match_mode, count_exact_max=_SEARCH_COUNT_EXACT_MAX,
-        )
+async def _count_for_search(
+    self,
+    query,
+    *,
+    gene_symbol,
+    classification,
+    min_stars,
+    assembly,
+    match_mode,
+    count_mode,
+    has_more,
+    returned,
+    offset,
+):
+    if count_mode == "none":
+        return None, False
+    return await asyncio.to_thread(
+        self.repo.count_search,
+        query,
+        gene_symbol=gene_symbol,
+        classification=classification,
+        min_stars=min_stars,
+        assembly=assembly,
+        match_mode=match_mode,
+        count_exact_max=_SEARCH_COUNT_EXACT_MAX,
+    )
 ```
 
 - [ ] **Step 4: Run tests, expect PASS**
@@ -709,6 +751,7 @@ git commit -m "fix(errors): tool-family recovery prose + no blank-input echo"
 import pytest
 from clinvar_link.exceptions import ToolInputError
 
+
 async def test_forced_id_type_mismatch_is_invalid_input(service):
     with pytest.raises(ToolInputError):
         await service.get_variant("VCV000100001", id_type="variation_id")
@@ -772,9 +815,14 @@ git commit -m "fix(service): forced id_type shape mismatch -> invalid_input"
 async def test_gene_summary_buckets_reconcile_to_total(service):
     out = await service.get_gene_clinvar_summary("BRCA1")
     buckets = (
-        out["pathogenic_count"] + out["likely_pathogenic_count"] + out["vus_count"]
-        + out["likely_benign_count"] + out["benign_count"] + out["conflicting_count"]
-        + out["not_provided_count"] + out["other_count"]
+        out["pathogenic_count"]
+        + out["likely_pathogenic_count"]
+        + out["vus_count"]
+        + out["likely_benign_count"]
+        + out["benign_count"]
+        + out["conflicting_count"]
+        + out["not_provided_count"]
+        + out["other_count"]
     )
     assert buckets == out["total_count"]
     assert out["other_count"] >= 0
@@ -794,18 +842,21 @@ Expected: FAIL (`KeyError: 'other_count'`).
 ```
 and derive it in `get_gene_clinvar_summary` before returning:
 ```python
-        payload = model.model_dump()
-        known = (
-            payload["pathogenic_count"] + payload["likely_pathogenic_count"]
-            + payload["vus_count"] + payload["likely_benign_count"]
-            + payload["benign_count"] + payload["conflicting_count"]
-            + payload["not_provided_count"]
-        )
-        payload["other_count"] = max(0, payload["total_count"] - known)
-        if response_mode == "minimal":
-            for key in ("consequence_categories", "top_traits", "star_distribution"):
-                payload.pop(key, None)
-        return payload
+payload = model.model_dump()
+known = (
+    payload["pathogenic_count"]
+    + payload["likely_pathogenic_count"]
+    + payload["vus_count"]
+    + payload["likely_benign_count"]
+    + payload["benign_count"]
+    + payload["conflicting_count"]
+    + payload["not_provided_count"]
+)
+payload["other_count"] = max(0, payload["total_count"] - known)
+if response_mode == "minimal":
+    for key in ("consequence_categories", "top_traits", "star_distribution"):
+        payload.pop(key, None)
+return payload
 ```
 
 - [ ] **Step 4: Run tests, expect PASS**

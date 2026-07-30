@@ -36,9 +36,7 @@ def test_gene_stripped_hgvs_key_is_indexed(repo):
     # The gene-less canonical form must exist as an EQUALITY key (not just resolvable
     # via the LIKE fallback). Keys are stored lower-cased.
     for key in ("nm_007294.4:c.5266dupc", "nm_007294.4:c.5333-1g>a"):
-        hit = repo._conn.execute(
-            "SELECT 1 FROM hgvs_lookup WHERE hgvs_norm = ?", (key,)
-        ).fetchone()
+        hit = repo._conn.execute("SELECT 1 FROM hgvs_lookup WHERE hgvs_norm = ?", (key,)).fetchone()
         assert hit is not None, f"missing gene-stripped key: {key}"
     # And it resolves to the right variant.
     assert repo.get_by_hgvs("NM_007294.4:c.5266dupC")["variation_id"] == 100001
@@ -117,9 +115,13 @@ def test_finalize_other_count_catches_unbucketed():
     acc.add_variant({"classification": "risk factor", "star_rating": 1})  # outside named buckets
     stats = acc.finalize()
     known = (
-        stats["pathogenic_count"] + stats["likely_pathogenic_count"] + stats["vus_count"]
-        + stats["benign_count"] + stats["likely_benign_count"]
-        + stats["conflicting_count"] + stats["not_provided_count"]
+        stats["pathogenic_count"]
+        + stats["likely_pathogenic_count"]
+        + stats["vus_count"]
+        + stats["benign_count"]
+        + stats["likely_benign_count"]
+        + stats["conflicting_count"]
+        + stats["not_provided_count"]
     )
     assert stats["other_count"] == stats["total_count"] - known
     assert stats["other_count"] == 1
@@ -133,12 +135,16 @@ Expected: FAIL (`KeyError: 'other_count'`).
 - [ ] **Step 3: Implement** — in `finalize`, just before building the `stats` dict, compute the catch-all, and add the key:
 
 ```python
-        known_buckets = (
-            self.pathogenic_count + self.likely_pathogenic_count + self.vus_count
-            + self.benign_count + self.likely_benign_count
-            + self.conflicting_count + self.not_provided_count
-        )
-        other_count = max(0, total - known_buckets)
+known_buckets = (
+    self.pathogenic_count
+    + self.likely_pathogenic_count
+    + self.vus_count
+    + self.benign_count
+    + self.likely_benign_count
+    + self.conflicting_count
+    + self.not_provided_count
+)
+other_count = max(0, total - known_buckets)
 ```
 then add `"other_count": other_count,` to the `stats` dict (next to `not_provided_count`).
 
