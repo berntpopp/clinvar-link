@@ -9,7 +9,7 @@
 # builds from source instead). It then serves the unified FastAPI host (/health)
 # + MCP streamable-HTTP app (/mcp) on one port.
 
-FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS builder
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -39,7 +39,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.7@sha256:1e26f9a868360eeb32500a35e05787ffff
 RUN uv sync --frozen --no-dev --active --no-install-project
 
 
-FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS prepared
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS prepared
 
 ARG APP_VERSION=0.0.0
 ARG VCS_REF=0000000000000000000000000000000000000000
@@ -114,15 +114,15 @@ COPY --chown=app:app ./mcp_server.py ./pyproject.toml ./README.md ./
 COPY --chown=app:app ./docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN /opt/venv/bin/pip install . --no-deps && chmod +x /usr/local/bin/entrypoint.sh \
-    && rm -rf /usr/local/lib/python3.12/ensurepip \
-              /usr/local/lib/python3.12/site-packages/pip \
-              /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-              /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12 \
-              /opt/venv/lib/python3.12/site-packages/pip \
-              /opt/venv/lib/python3.12/site-packages/pip-*.dist-info \
-              /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.12 \
+    && rm -rf /usr/local/lib/python3.14/ensurepip \
+              /usr/local/lib/python3.14/site-packages/pip \
+              /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
+              /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14 \
+              /opt/venv/lib/python3.14/site-packages/pip \
+              /opt/venv/lib/python3.14/site-packages/pip-*.dist-info \
+              /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.14 \
               /root/.cache/pip /home/app/web/clinvar_link \
-    && find /usr/local/lib/python3.12 /opt/venv /home/app/web -type d -name __pycache__ -prune -exec rm -rf '{}' +
+    && find /usr/local/lib/python3.14 /opt/venv /home/app/web -type d -name __pycache__ -prune -exec rm -rf '{}' +
 
 RUN find / -xdev -perm /6000 -exec chmod a-s '{}' + \
     && test -z "$(find / -xdev -perm /6000 -print -quit)"

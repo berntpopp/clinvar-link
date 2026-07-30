@@ -4,6 +4,43 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-30
+
+Interpreter migration. 0.5.1 deliberately held the container on the Python 3.12 line and
+recorded why; this release completes the move to 3.14 and closes Dependabot #33, which was red
+because it changed the base image alone.
+
+### Changed
+
+- **Moved the container base to `python:3.14-slim`**
+  (`sha256:cea0e604…`, the digest the rest of the fleet is already on) in **both** build stages,
+  and repointed every interpreter-versioned path inside the image with it: the `ensurepip` /
+  `pip` purge, the `pip3.12` → `pip3.14` console scripts, and the `__pycache__` sweep root.
+- **Repointed `container-release.json`'s `data.image_allowlist` to
+  `opt/venv/lib/python3.14/site-packages/…`.** This is what made the bare base bump red, and it
+  is the whole reason this is a migration rather than a bump. The router's `_container-ci.yml`
+  feeds that allowlist to the OCI content inspector; moving the interpreter relocates the five
+  package-data files, the 3.12 allowlist then matches nothing, and every relocated file is
+  reported as a denied path. Verified both ways against the actually-built image: the 3.14
+  allowlist resolves all five entries and the inspector returns `pass`, while replaying the old
+  3.12 allowlist against the same image reproduces #33's `policy_violation` exactly.
+
+### Notes
+
+- **The package support floor stays at 3.12 on purpose.** `requires-python = ">=3.12"`, the
+  `3.12`/`3.13`/`3.14` classifiers, ruff `target-version = "py312"`, mypy
+  `python_version = "3.12"` and CI's `python-version` are a *support policy*, not a description
+  of the shipped image, and they are unchanged. ruff's and mypy's version knobs must name the
+  **oldest** supported interpreter — set to `py314` while `requires-python` still admits 3.12
+  they would emit and accept 3.14-only constructs and quietly break the 3.12 support the
+  classifiers advertise. The whole rest of the fleet that has already moved (the router,
+  gnomad, mgi, pubtator, vep and six more) ships 3.14 on the same >=3.12 floor, and the
+  vendored fleet README linter pins the `Python 3.12+` badge for every repo.
+- **The shipped interpreter is still gated.** `conformance.yml` builds this Dockerfile and runs
+  the transport and behaviour probes against the running 3.14 container, and `container-ci.yml`
+  builds and inspects the real image; the unit gate deliberately runs on the 3.12 floor. The
+  full unit suite was additionally run against 3.14 locally for this change.
+
 ## [0.5.1] - 2026-07-30
 
 Maintenance release. **This repo had no `.github/dependabot.yml` and never had one**, so its
