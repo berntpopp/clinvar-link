@@ -4,6 +4,23 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-08-10
+
+Consolidated Dependabot maintenance release. No API, MCP or data-contract
+behaviour change.
+
+### Security
+
+- Updated locked `cryptography` to 50.0.0, closing CVE-2026-69247 without
+  weakening the image vulnerability gate.
+
+### Changed
+
+- Updated Uvicorn to 0.52.1, Typer to 0.27.1, FastMCP to 3.4.6 and Ruff to
+  the current 0.16.x release.
+- Updated both CodeQL phases together to v4.37.6, provenance attestation to
+  v4.2.2, and both reusable container workflows to reviewed router v0.7.4.
+
 ## [0.5.3] - 2026-07-30
 
 Follow-up to 0.5.2. That release moved the container to Python 3.14; this one
