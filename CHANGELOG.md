@@ -4,6 +4,11 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pin production and Nginx Proxy Manager deployments to the verified immutable
+  ClinVar `bundle-2026-08-23` release and its compressed/expanded SHA-256 identities.
+
 ## [0.5.6] - 2026-08-31
 
 ### Fixed

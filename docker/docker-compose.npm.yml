@@ -28,14 +28,17 @@ services:
       - 'CLINVAR_LINK_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
       - CLINVAR_LINK_LOG_LEVEL=${LOG_LEVEL_API:-INFO}
       - CLINVAR_LINK_LOG_FORMAT=json
-      - CLINVAR_LINK_ENVIRONMENT=development
+      - CLINVAR_LINK_ENVIRONMENT=production
       - CLINVAR_LINK_DATA_DIR=/data/current
       - CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/data
-      # First boot pulls the latest prebuilt SQLite bundle from GitHub Releases
-      # and atomically installs it (far faster than building from the NCBI dump).
-      # `latest` is a floating pin, so it is only accepted with DEVELOPMENT_LATEST.
-      - CLINVAR_LINK_BUNDLE_URL=latest
-      - CLINVAR_LINK_DEVELOPMENT_LATEST=true
+      # First boot pulls the exact reviewed release from GitHub Releases and
+      # atomically installs it (far faster than building from the NCBI dump).
+      - CLINVAR_LINK_BUNDLE_URL=${CLINVAR_DATA_BUNDLE_URL:?set exact release asset URL}
+      - CLINVAR_LINK_BUNDLE_RELEASE_TAG=${CLINVAR_DATA_RELEASE_TAG:?set bundle-YYYY-MM-DD}
+      - CLINVAR_LINK_BUNDLE_EXPECTED_SHA256=${CLINVAR_DATA_SHA256:?set compressed SHA-256}
+      - CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256=${CLINVAR_DATA_EXPANDED_SHA256:?set expanded SHA-256}
+      - CLINVAR_LINK_BUNDLE_EXPECTED_SCHEMA_VERSION=${CLINVAR_DATA_SCHEMA_VERSION:-1.0.0}
+      - CLINVAR_LINK_DEVELOPMENT_LATEST=false
       - CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link
       - CLINVAR_LINK_BUILD_LOCAL=false
       # Stage the downloaded .zst in the app-owned data volume (same fs as the

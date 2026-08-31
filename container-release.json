@@ -27,8 +27,8 @@
   },
   "data": {
     "mode": "external-reference",
-    "release_tag": "bundle-2026-07-07",
-    "digest": "sha256:52eed6e488f9934432034449281afb73ed699a1b7e39cd85c0a1e731d82e48a8",
+    "release_tag": "bundle-2026-08-23",
+    "digest": "sha256:98e91c634c50f22f0bd80dd67764c18c5f5d5afbbdff7624e52c1d826f850b70",
     "image_allowlist": [
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/__init__.py",
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/indexes.sql",
