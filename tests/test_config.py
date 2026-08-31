@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from clinvar_link.config import ServerConfig, Settings, settings
@@ -17,6 +18,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _SHA = "a" * 64
 _EXPANDED_SHA = "b" * 64
+
+CLINVAR_RELEASE_TAG = "bundle-2026-08-23"
+CLINVAR_BUNDLE_URL = (
+    "https://github.com/berntpopp/clinvar-link/releases/download/"
+    f"{CLINVAR_RELEASE_TAG}/clinvar.sqlite.zst"
+)
+CLINVAR_COMPRESSED_SHA256 = "98e91c634c50f22f0bd80dd67764c18c5f5d5afbbdff7624e52c1d826f850b70"
+CLINVAR_EXPANDED_SHA256 = "24ad1d16aa61477da43bd3892b8ff94ff63d2f03ac7e34907948d585f5d163f7"
 
 
 def _production_settings(**overrides: object) -> Settings:
@@ -117,6 +126,83 @@ def test_release_config_declares_the_init_sidecar_role() -> None:
     assert auxiliary["egress"] == "approved-networks"
     assert sorted(auxiliary["writable_targets"]) == ["/data", "/tmp"]  # noqa: S108
     assert config["smoke"]["profile"] == "immutable-bundle"
+
+
+def test_container_release_pins_verified_clinvar_bundle() -> None:
+    """The central release record must select the accepted immutable bundle."""
+    config = json.loads((ROOT / "container-release.json").read_text())
+    assert config["data"]["release_tag"] == CLINVAR_RELEASE_TAG
+    assert config["data"]["digest"] == f"sha256:{CLINVAR_COMPRESSED_SHA256}"
+
+
+def _docker_example_env() -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in (ROOT / ".env.docker.example").read_text().splitlines():
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value
+    return values
+
+
+def test_docker_example_records_verified_clinvar_bundle_pin() -> None:
+    """The documented Compose env source must carry the complete accepted identity."""
+    env = _docker_example_env()
+    assert env["CLINVAR_DATA_BUNDLE_URL"] == CLINVAR_BUNDLE_URL
+    assert env["CLINVAR_DATA_RELEASE_TAG"] == CLINVAR_RELEASE_TAG
+    assert env["CLINVAR_DATA_SHA256"] == CLINVAR_COMPRESSED_SHA256
+    assert env["CLINVAR_DATA_EXPANDED_SHA256"] == CLINVAR_EXPANDED_SHA256
+    assert env["CLINVAR_DATA_SCHEMA_VERSION"] == "1.0.0"
+
+
+@pytest.mark.parametrize("filename", ["docker-compose.prod.yml", "docker-compose.npm.yml"])
+def test_deployment_compose_consumes_exact_production_bundle_pin(filename: str) -> None:
+    """Production and NPM Compose sources must reject floating/development data."""
+    compose = (ROOT / "docker" / filename).read_text()
+    assert "CLINVAR_LINK_ENVIRONMENT: production" in compose or (
+        "CLINVAR_LINK_ENVIRONMENT=production" in compose
+    )
+    assert "CLINVAR_LINK_BUNDLE_URL" in compose and "${CLINVAR_DATA_BUNDLE_URL" in compose
+    assert "CLINVAR_LINK_BUNDLE_RELEASE_TAG" in compose and "${CLINVAR_DATA_RELEASE_TAG" in compose
+    assert "CLINVAR_LINK_BUNDLE_EXPECTED_SHA256" in compose and "${CLINVAR_DATA_SHA256" in compose
+    assert "CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256" in compose and (
+        "${CLINVAR_DATA_EXPANDED_SHA256" in compose
+    )
+    assert "CLINVAR_LINK_DEVELOPMENT_LATEST=true" not in compose
+    assert "CLINVAR_LINK_BUNDLE_URL=latest" not in compose
+
+
+def test_npm_compose_preserves_container_hardening() -> None:
+    """The NPM backend remains private and runs with the fleet hardening policy."""
+    compose = (ROOT / "docker/docker-compose.npm.yml").read_text()
+    assert "read_only: true" in compose
+    assert "no-new-privileges:true" in compose
+    assert "cap_drop:\n      - ALL" in compose
+    assert "ports:" not in compose
+    assert 'expose:\n      - "8000"' in compose
+
+
+def test_npm_compose_forces_pinned_materialization_before_readonly_server() -> None:
+    """NPM must pull the pin once, then run the app without bootstrap or writes."""
+    compose = yaml.safe_load((ROOT / "docker/docker-compose.npm.yml").read_text())
+    init = compose["services"]["clinvar-data-init"]
+    app = compose["services"]["clinvar_link"]
+
+    assert init["entrypoint"] == ["clinvar-link-data", "pull"]
+    assert init["environment"]["CLINVAR_LINK_BUNDLE_URL"].startswith("${CLINVAR_DATA_BUNDLE_URL:")
+    assert init["environment"]["CLINVAR_LINK_BUNDLE_EXPECTED_SHA256"].startswith(
+        "${CLINVAR_DATA_SHA256:"
+    )
+    assert init["environment"]["CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256"].startswith(
+        "${CLINVAR_DATA_EXPANDED_SHA256:"
+    )
+    assert init["volumes"] == ["clinvar-reference:/data"]
+    assert init["restart"] == "no"
+
+    assert app["depends_on"]["clinvar-data-init"]["condition"] == ("service_completed_successfully")
+    assert app["entrypoint"][:2] == ["clinvar-link", "serve"]
+    assert "bootstrap" not in app["entrypoint"]
+    assert app["volumes"] == ["clinvar-reference:/data:ro"]
+    assert app["read_only"] is True
 
 
 def test_compose_declares_no_top_level_extension_fields() -> None:

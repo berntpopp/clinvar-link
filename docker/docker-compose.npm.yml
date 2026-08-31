@@ -3,46 +3,82 @@
 # Self-contained (used standalone, not layered on docker-compose.yml): one
 # unified container serves the FastAPI REST API on / and the MCP streamable-HTTP
 # transport on /mcp via a single port (8000). NPM reverse-proxies to the fixed
-# container_name on the shared external npm_default network. Mirrors the
-# gtex-link / mgi-link fleet pattern. First boot pulls the prebuilt ClinVar
-# SQLite bundle from GitHub Releases into the persisted data volume.
+# container_name on the shared external npm_default network. First boot uses a
+# one-shot init sidecar to pull the exact ClinVar bundle into a private
+# reference volume; the request-facing app mounts that volume read-only.
 #
 #   docker compose -f docker/docker-compose.npm.yml --env-file .env.docker up -d --build
 name: clinvar-link-npm
 
 services:
+  clinvar-data-init:
+    # The init sidecar pulls the exact reviewed release; it never reuses an
+    # existing database or resolves a floating GitHub release.
+    image: ${CLINVAR_LINK_IMAGE:?Set CLINVAR_LINK_IMAGE to ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
+    pull_policy: missing
+    entrypoint: ["clinvar-link-data", "pull"]
+    environment: &npm-data
+      CLINVAR_LINK_ENVIRONMENT: production
+      CLINVAR_LINK_DATA_DIR: /data/current
+      CLINVAR_LINK_BUNDLE_REFERENCE_ROOT: /data
+      CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR: /data
+      CLINVAR_LINK_BUNDLE_URL: ${CLINVAR_DATA_BUNDLE_URL:?set exact release asset URL}
+      CLINVAR_LINK_BUNDLE_RELEASE_TAG: ${CLINVAR_DATA_RELEASE_TAG:?set bundle-YYYY-MM-DD}
+      CLINVAR_LINK_BUNDLE_EXPECTED_SHA256: ${CLINVAR_DATA_SHA256:?set compressed SHA-256}
+      CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256: ${CLINVAR_DATA_EXPANDED_SHA256:?set expanded SHA-256}
+      CLINVAR_LINK_BUNDLE_EXPECTED_SCHEMA_VERSION: ${CLINVAR_DATA_SCHEMA_VERSION:-1.0.0}
+      CLINVAR_LINK_DEVELOPMENT_LATEST: "false"
+      CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
+      CLINVAR_LINK_BUILD_LOCAL: "false"
+    volumes:
+      - clinvar-reference:/data
+    networks:
+      - clinvar_link_internal_net
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+          pids: 128
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   clinvar_link:
     # Deploy pulls the released, attested image; it never builds from source.
     # Pin a digest, not a tag: there is no `latest`, and only a digest is immutable.
     image: ${CLINVAR_LINK_IMAGE:?Set CLINVAR_LINK_IMAGE to ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
     pull_policy: missing
     container_name: clinvar-link-npm
+    depends_on:
+      clinvar-data-init:
+        condition: service_completed_successfully
     # NO published host ports - NPM handles all routing via the container name.
     expose:
       - "8000"
     environment:
-      - CLINVAR_LINK_MCP_TRANSPORT=unified
-      - CLINVAR_LINK_MCP_HOST=0.0.0.0
-      - CLINVAR_LINK_MCP_PORT=8000
-      - CLINVAR_LINK_MCP_PATH=/mcp
-      - 'CLINVAR_LINK_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
-      - CLINVAR_LINK_LOG_LEVEL=${LOG_LEVEL_API:-INFO}
-      - CLINVAR_LINK_LOG_FORMAT=json
-      - CLINVAR_LINK_ENVIRONMENT=development
-      - CLINVAR_LINK_DATA_DIR=/data/current
-      - CLINVAR_LINK_BUNDLE_REFERENCE_ROOT=/data
-      # First boot pulls the latest prebuilt SQLite bundle from GitHub Releases
-      # and atomically installs it (far faster than building from the NCBI dump).
-      # `latest` is a floating pin, so it is only accepted with DEVELOPMENT_LATEST.
-      - CLINVAR_LINK_BUNDLE_URL=latest
-      - CLINVAR_LINK_DEVELOPMENT_LATEST=true
-      - CLINVAR_LINK_GITHUB_REPO=berntpopp/clinvar-link
-      - CLINVAR_LINK_BUILD_LOCAL=false
-      # Stage the downloaded .zst in the app-owned data volume (same fs as the
-      # DB, so the post-decompress swap is atomic; no large root-owned tmpfs).
-      - CLINVAR_LINK_BUNDLE_DOWNLOAD_DIR=/data
-    # The image ENTRYPOINT bootstraps the index then exec's the unified server,
-    # reading CLINVAR_LINK_MCP_TRANSPORT/HOST/PORT above; no command override.
+      <<: *npm-data
+      CLINVAR_LINK_MCP_TRANSPORT: unified
+      CLINVAR_LINK_MCP_HOST: 0.0.0.0
+      CLINVAR_LINK_MCP_PORT: 8000
+      CLINVAR_LINK_MCP_PATH: /mcp
+      CLINVAR_LINK_MCP_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","clinvar-link.genefoundry.org"]'
+      CLINVAR_LINK_LOG_LEVEL: ${LOG_LEVEL_API:-INFO}
+      CLINVAR_LINK_LOG_FORMAT: json
+    # The bundle is materialized by the completed init sidecar. Starting the
+    # server directly prevents the image bootstrap path from reusing stale data.
+    entrypoint: ["clinvar-link", "serve", "--transport", "unified", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
       test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
@@ -57,8 +93,8 @@ services:
       # TMPDIR=/tmp (set in the image) - scratch space.
       - /tmp:rw,noexec,nosuid,size=256m,mode=1777
     volumes:
-      # Persist the installed ClinVar SQLite index across container restarts.
-      - clinvar-data:/data
+      # The server only reads the exact bundle materialized by the init sidecar.
+      - clinvar-reference:/data:ro
     networks:
       - clinvar_link_internal_net
       - npm_proxy_network
@@ -85,7 +121,7 @@ services:
     init: true
 
 volumes:
-  clinvar-data:
+  clinvar-reference:
     driver: local
 
 networks:

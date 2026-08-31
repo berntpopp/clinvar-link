@@ -46,16 +46,18 @@ exact data pin (the config validator enforces the data half — see
 
 ```bash
 CLINVAR_LINK_IMAGE=ghcr.io/berntpopp/clinvar-link@sha256:<digest> \
-CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-YYYY-MM-DD/clinvar.sqlite.zst \
-CLINVAR_DATA_RELEASE_TAG=bundle-YYYY-MM-DD \
-CLINVAR_DATA_SHA256=<sha256 of the .zst> \
-CLINVAR_DATA_EXPANDED_SHA256=<sha256 of the expanded .sqlite> \
+CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-2026-08-23/clinvar.sqlite.zst \
+CLINVAR_DATA_RELEASE_TAG=bundle-2026-08-23 \
+CLINVAR_DATA_SHA256=98e91c634c50f22f0bd80dd67764c18c5f5d5afbbdff7624e52c1d826f850b70 \
+CLINVAR_DATA_EXPANDED_SHA256=24ad1d16aa61477da43bd3892b8ff94ff63d2f03ac7e34907948d585f5d163f7 \
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 ```
 
 `container-release.json` records the release's declared data contract
 (`data-bound`, the pinned `release_tag` and its digest) and is the source of
-truth for the container release workflows.
+truth for the container release workflows. The NPM overlay consumes the same
+exact pin from `.env.docker` and runs in production mode; it never uses
+`latest`.
 
 ### Behind a reverse proxy
 
