@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from clinvar_link.config import ServerConfig, Settings, settings
@@ -178,6 +179,30 @@ def test_npm_compose_preserves_container_hardening() -> None:
     assert "cap_drop:\n      - ALL" in compose
     assert "ports:" not in compose
     assert 'expose:\n      - "8000"' in compose
+
+
+def test_npm_compose_forces_pinned_materialization_before_readonly_server() -> None:
+    """NPM must pull the pin once, then run the app without bootstrap or writes."""
+    compose = yaml.safe_load((ROOT / "docker/docker-compose.npm.yml").read_text())
+    init = compose["services"]["clinvar-data-init"]
+    app = compose["services"]["clinvar_link"]
+
+    assert init["entrypoint"] == ["clinvar-link-data", "pull"]
+    assert init["environment"]["CLINVAR_LINK_BUNDLE_URL"].startswith("${CLINVAR_DATA_BUNDLE_URL:")
+    assert init["environment"]["CLINVAR_LINK_BUNDLE_EXPECTED_SHA256"].startswith(
+        "${CLINVAR_DATA_SHA256:"
+    )
+    assert init["environment"]["CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256"].startswith(
+        "${CLINVAR_DATA_EXPANDED_SHA256:"
+    )
+    assert init["volumes"] == ["clinvar-reference:/data"]
+    assert init["restart"] == "no"
+
+    assert app["depends_on"]["clinvar-data-init"]["condition"] == ("service_completed_successfully")
+    assert app["entrypoint"][:2] == ["clinvar-link", "serve"]
+    assert "bootstrap" not in app["entrypoint"]
+    assert app["volumes"] == ["clinvar-reference:/data:ro"]
+    assert app["read_only"] is True
 
 
 def test_compose_declares_no_top_level_extension_fields() -> None:
