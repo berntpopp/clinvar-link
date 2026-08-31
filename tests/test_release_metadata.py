@@ -142,3 +142,10 @@ def test_release_states_fail_closed_for_any_existing_identity_mismatch(tmp_path:
     assert (
         decide_release_state(current_path, existing_path, is_draft=True) is ReleaseState.COLLISION
     )
+
+    typed_mismatch = json.loads(current_path.read_text())
+    typed_mismatch["variant_count"] = float(typed_mismatch["variant_count"])
+    typed_path = tmp_path / "typed-mismatch.json"
+    typed_path.write_text(json.dumps(typed_mismatch), encoding="utf-8")
+    with pytest.raises(ReleaseIdentityError, match="variant_count"):
+        decide_release_state(current_path, typed_path, is_draft=False)

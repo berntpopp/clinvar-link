@@ -34,6 +34,7 @@ _STABLE_FIELDS = (
     "variant_count",
     "gene_count",
 )
+_INTEGER_STABLE_FIELDS = frozenset({"asset_size", "expanded_size", "variant_count", "gene_count"})
 
 
 class ReleaseState(StrEnum):
@@ -173,6 +174,12 @@ def _read_metadata(path: Path) -> dict[str, Any]:
     for field in _STABLE_FIELDS:
         if field not in payload or payload[field] is None:
             raise ReleaseIdentityError(f"release metadata lacks required field: {field}")
+        value = payload[field]
+        if field in _INTEGER_STABLE_FIELDS:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ReleaseIdentityError(f"release metadata has malformed {field}")
+        elif not isinstance(value, str) or not value:
+            raise ReleaseIdentityError(f"release metadata has malformed {field}")
     return payload
 
 
