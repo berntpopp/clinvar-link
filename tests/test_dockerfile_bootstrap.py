@@ -32,3 +32,6 @@ def test_runtime_installs_openssl_security_updates():
     runtime_stage = text.split("AS prepared", maxsplit=1)[1]
 
     assert "    openssl \\" in runtime_stage
+    assert (
+        "apt-get install -y --only-upgrade openssl libssl3t64 openssl-provider-legacy"
+    ) in runtime_stage

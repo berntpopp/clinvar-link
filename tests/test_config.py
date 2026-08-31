@@ -98,6 +98,15 @@ def test_production_compose_splits_init_and_read_only_reference() -> None:
     assert '["clinvar-link-data", "pull"]' in production
 
 
+def test_production_compose_uses_approved_restart_policies() -> None:
+    production = (ROOT / "docker/docker-compose.prod.yml").read_text()
+    init_service, application_service = production.split("  clinvar-link:\n", maxsplit=1)
+
+    assert 'restart: "no"' in init_service
+    assert "restart: unless-stopped" in application_service
+    assert "restart: on-failure" not in production
+
+
 def test_release_config_declares_the_init_sidecar_role() -> None:
     """The central compose gate authorizes the sidecar by role, never by name."""
     config = json.loads((ROOT / "container-release.json").read_text())
