@@ -21,7 +21,6 @@ def test_dockerfile_uses_the_current_fixed_python_runtime_digest():
     """Both Python 3.14 stages share the reviewed CVE-remediated base index."""
     text = Path("docker/Dockerfile").read_text()
     expected = (
-        "python:3.14-slim@sha256:"
-        "cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5"
+        "python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5"
     )
     assert text.count(expected) == 2
