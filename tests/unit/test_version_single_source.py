@@ -35,6 +35,11 @@ def test_pyproject_is_the_single_source() -> None:
     assert version(DIST) == _pyproject_version()
 
 
+def test_current_version_has_a_changelog_release_entry() -> None:
+    changelog = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
+    assert f"## [{_pyproject_version()}]" in changelog.read_text(encoding="utf-8")
+
+
 def test_dunder_version_is_metadata_derived() -> None:
     assert __version__ == version(DIST)
 
