@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import zstandard
 
-from clinvar_link.exceptions import DownloadError
+from clinvar_link.exceptions import DownloadError, ReleaseIdentityError
 from clinvar_link.ingest.download_security import (
     DownloadPolicy,
     copy_bounded,
@@ -119,23 +119,30 @@ def _read_release_date(db_path: Path) -> str | None:
     return str(row[0])
 
 
-def _release_tag(release_date: str | None) -> str:
+def release_tag_for_date(release_date: str | None) -> str:
     """Derive a ``bundle-<YYYY-MM-DD>`` tag from a release date string.
 
     Accepts either an ISO-ish date (a leading ``YYYY-MM-DD`` is extracted) or an
-    RFC 2822 / HTTP ``Last-Modified`` string; falls back to ``bundle-unknown``.
+    RFC 2822 / HTTP ``Last-Modified`` string.  Missing or malformed source
+    metadata is not a release identity and therefore fails closed.
     """
-    if release_date:
-        match = _DATE_PREFIX_RE.search(release_date)
-        if match:
-            return f"bundle-{match.group(1)}"
+    if not release_date:
+        raise ReleaseIdentityError("ClinVar release date is required for an immutable bundle tag")
+    match = _DATE_PREFIX_RE.fullmatch(release_date.strip())
+    if match:
         try:
-            parsed = parsedate_to_datetime(release_date)
-        except (TypeError, ValueError):
-            parsed = None
-        if isinstance(parsed, datetime):
-            return f"bundle-{parsed.date().isoformat()}"
-    return "bundle-unknown"
+            return f"bundle-{datetime.fromisoformat(match.group(1)).date().isoformat()}"
+        except ValueError as exc:
+            raise ReleaseIdentityError(
+                f"invalid ISO ClinVar release date: {release_date!r}"
+            ) from exc
+    try:
+        parsed = parsedate_to_datetime(release_date)
+    except (TypeError, ValueError) as exc:
+        raise ReleaseIdentityError(f"invalid ClinVar release date: {release_date!r}") from exc
+    if parsed is None:
+        raise ReleaseIdentityError(f"invalid ClinVar release date: {release_date!r}")
+    return f"bundle-{parsed.date().isoformat()}"
 
 
 def pack_bundle(db_path: Path, out_dir: Path, *, level: int = 19) -> dict[str, Any]:
@@ -180,7 +187,7 @@ def pack_bundle(db_path: Path, out_dir: Path, *, level: int = 19) -> dict[str, A
         "sha256_path": str(sha256_path),
         "sha256": sha256,
         "size_bytes": zst_path.stat().st_size,
-        "release_tag": _release_tag(release_date),
+        "release_tag": release_tag_for_date(release_date),
         "release_date": release_date,
     }
 

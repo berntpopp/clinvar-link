@@ -130,6 +130,7 @@ def _build_local(*, force: bool) -> dict[str, Any]:
             etag=download.get("etag"),
             last_modified=download.get("last_modified"),
             source_sha256=download.get("sha256"),
+            source_retrieved_at=download.get("retrieved_at"),
         )
 
 
@@ -176,6 +177,7 @@ def refresh() -> None:
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
                 source_sha256=download.get("sha256"),
+                source_retrieved_at=download.get("retrieved_at"),
             )
     except (DownloadError, ClinVarServerError, OSError, sqlite3.Error) as exc:
         console.print(f"[red]ERROR:[/red] refresh failed: {exc}")

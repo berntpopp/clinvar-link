@@ -36,30 +36,9 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          uv run python - <<'PY'
-          import hashlib, json, sqlite3
-          from datetime import UTC, datetime
-          from pathlib import Path
-          db=Path("data/clinvar.sqlite"); asset=Path("dist/clinvar.sqlite.zst")
-          con=sqlite3.connect(db); con.row_factory=sqlite3.Row
-          meta=dict(con.execute("select * from meta where id=1").fetchone()); con.close()
-          release=str(meta["clinvar_release_date"])[:10]
-          tag=f"bundle-{release}"
-          file_hash=hashlib.sha256(db.read_bytes()).hexdigest()
-          tree=hashlib.sha256(f"clinvar.sqlite\0{0o444:04o}\0{db.stat().st_size}\0{file_hash}\n".encode()).hexdigest()
-          payload={"tag":tag,"asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(),
-                   "asset_size":asset.stat().st_size,"expanded_tree_sha256":tree,
-                   "expanded_size":db.stat().st_size,"schema_version":"1.0.0",
-                   "source_sha256":meta["source_sha256"],"source_url":meta["source_url"],
-                   "retrieved_at":datetime.now(UTC).isoformat().replace("+00:00","Z"),
-                   "variant_count":meta["variant_count"],"gene_count":meta["gene_count"]}
-          Path("dist/bundle-metadata.json").write_text(json.dumps(payload,sort_keys=True)+"\n")
-          with Path("dist/SHA256SUMS").open("w") as out:
-              for path in sorted(Path("dist").glob("*")):
-                  if path.name != "SHA256SUMS": out.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
-          with Path("tag.txt").open("w") as out: out.write(tag)
-          PY
-          echo "tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
+          tag="$(uv run python -m clinvar_link.ingest.release_metadata build \
+            --db-path data/clinvar.sqlite --asset-path dist/clinvar.sqlite.zst --out-dir dist)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: clinvar-data-${{ steps.meta.outputs.tag }}
@@ -90,30 +69,54 @@ jobs:
       - name: Verify transferred bytes
         working-directory: dist
         run: sha256sum --check SHA256SUMS
-      - name: Create an empty draft or prove an identical rerun
-        id: draft
+      - name: Select immutable release state
+        id: release-state
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/tmp/release.json 2>/dev/null; then
-            test "$(jq -r .isDraft /tmp/release.json)" = true || { echo "published release collision: $TAG" >&2; exit 1; }
+          state=create
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/tmp/release.json; then
             mkdir -p /tmp/existing
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/existing || true
-            if test -f /tmp/existing/SHA256SUMS && cmp -s dist/SHA256SUMS /tmp/existing/SHA256SUMS; then
-              echo "upload=false" >> "$GITHUB_OUTPUT"
-              exit 0
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/existing
+            expected_assets='SHA256SUMS
+          bundle-metadata.json
+          clinvar.sqlite.zst
+          clinvar.sqlite.zst.sha256'
+            actual_assets="$(find /tmp/existing -maxdepth 1 -type f -printf '%f\n' | sort)"
+            test "$actual_assets" = "$expected_assets" || {
+              echo "release $TAG has missing, corrupt, or extra assets" >&2
+              exit 1
+            }
+            (cd /tmp/existing && sha256sum --check SHA256SUMS)
+            state="$(uv run python -m clinvar_link.ingest.release_metadata state \
+              --current dist/bundle-metadata.json --existing /tmp/existing/bundle-metadata.json \
+              $(test "$(jq -r .isDraft /tmp/release.json)" = true && echo --draft))"
+            case "$state" in
+              published_noop|draft_publish_existing) gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" ;;
+              collision) echo "immutable release collision: $TAG" >&2; exit 1 ;;
+              *) echo "unexpected release state: $state" >&2; exit 1 ;;
+            esac
+          else
+            response=/tmp/release-view.txt
+            if gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response" 2>&1; then
+              echo "release lookup disagrees with gh release view" >&2
+              exit 1
             fi
-            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            grep -Eq '^HTTP/[0-9.]+ 404' "$response" || { cat "$response" >&2; exit 1; }
           fi
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true --title "$TAG" --notes "Immutable ClinVar reference bundle; research use only."
-          echo "upload=true" >> "$GITHUB_OUTPUT"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: Create empty immutable draft
+        if: steps.release-state.outputs.state == 'create'
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true --title "$TAG" --notes "Immutable ClinVar reference bundle; research use only."
       - name: Upload without replacement
-        if: steps.draft.outputs.upload == 'true'
+        if: steps.release-state.outputs.state == 'create'
         run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
       - name: Attest exact release assets
+        if: steps.release-state.outputs.state == 'create'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/*"
       - name: Publish once and verify immutable assets
+        if: steps.release-state.outputs.state == 'create' || steps.release-state.outputs.state == 'draft_publish_existing'
         run: |
           set -euo pipefail
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

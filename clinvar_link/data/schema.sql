@@ -14,6 +14,7 @@ CREATE TABLE meta (
     source_etag           TEXT,
     source_last_modified  TEXT,
     source_sha256         TEXT,
+    source_retrieved_at   TEXT,
     variant_count         INTEGER,
     gene_count            INTEGER,
     build_utc             TEXT,
