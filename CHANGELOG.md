@@ -4,6 +4,17 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-08-31
+
+### Fixed
+
+- Preserve NCBI's actual validator state in immutable bundle provenance: an absent ETag is recorded
+  explicitly as `null` while Last-Modified, source digest, URL, and retrieval time remain required.
+- Pin reusable container CI and release workflows to the released v0.8.3 trusted-builder revision,
+  and keep README badge identity stable in isolated Git worktrees.
+- Upgrade the final image's OpenSSL packages from the current Debian security index and use the
+  centrally approved application restart policy required by the v0.8.3 container gate.
+
 ## [0.5.5] - 2026-08-31
 
 ### Fixed
