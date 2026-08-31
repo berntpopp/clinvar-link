@@ -95,6 +95,15 @@ def _required_text(row: sqlite3.Row, field: str) -> str:
     return value
 
 
+def _optional_text(row: sqlite3.Row, field: str) -> str | None:
+    value = row[field]
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ReleaseIdentityError(f"ClinVar {field.replace('_', ' ')} is malformed")
+    return value
+
+
 def _required_nonnegative_int(row: sqlite3.Row, field: str) -> int:
     value = row[field]
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -142,7 +151,7 @@ def build_release_metadata(
         "schema_version": f"{_required_nonnegative_int(row, 'schema_version')}.0.0",
         "source_sha256": source_sha256,
         "source_url": _required_text(row, "source_url"),
-        "source_etag": _required_text(row, "source_etag"),
+        "source_etag": _optional_text(row, "source_etag"),
         "source_last_modified": _required_text(row, "source_last_modified"),
         "clinvar_release_date_raw": raw_date,
         "clinvar_release_date": tag.removeprefix("bundle-"),
@@ -172,9 +181,13 @@ def _read_metadata(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ReleaseIdentityError("release metadata must be a JSON object")
     for field in _STABLE_FIELDS:
-        if field not in payload or payload[field] is None:
+        if field not in payload:
             raise ReleaseIdentityError(f"release metadata lacks required field: {field}")
         value = payload[field]
+        if field == "source_etag":
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ReleaseIdentityError(f"release metadata has malformed {field}")
+            continue
         if field in _INTEGER_STABLE_FIELDS:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ReleaseIdentityError(f"release metadata has malformed {field}")

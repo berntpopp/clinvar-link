@@ -20,13 +20,13 @@ from clinvar_link.ingest.release_metadata import (
 FIXTURE = Path(__file__).parent / "fixtures" / "variant_summary_sample.txt"
 
 
-def _database_with_source_identity(tmp_path: Path) -> Path:
+def _database_with_source_identity(tmp_path: Path, *, etag: str | None = '"clinvar-etag"') -> Path:
     config = Settings(DATA_DIR=tmp_path, DB_FILENAME="clinvar.sqlite")
     database = build_database(
         config,
         source_path=FIXTURE,
         last_modified="Sun, 23 Aug 2026 00:00:00 GMT",
-        etag='"clinvar-etag"',
+        etag=etag,
         source_sha256="a" * 64,
         source_retrieved_at="2026-08-24T01:02:03Z",
     )["db_path"]
@@ -107,6 +107,49 @@ def test_build_release_metadata_streams_hashes_and_records_source_identity(
     assert payload["retrieved_at"] == "2026-08-24T01:02:03Z"
     assert payload["asset_sha256"]
     assert payload["expanded_tree_sha256"]
+
+
+def test_release_metadata_records_an_absent_source_etag_without_fabricating_one(
+    tmp_path: Path,
+) -> None:
+    """NCBI currently supplies Last-Modified but no ETag; preserve that absence exactly."""
+    db_path = _database_with_source_identity(tmp_path, etag=None)
+    asset_path = tmp_path / "clinvar.sqlite.zst"
+    asset_path.write_bytes(b"compressed ClinVar fixture")
+
+    build_release_metadata(
+        db_path,
+        asset_path,
+        tmp_path / "dist",
+        retrieved_at=datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC),
+    )
+
+    payload = json.loads((tmp_path / "dist" / "bundle-metadata.json").read_text())
+    assert "source_etag" in payload
+    assert payload["source_etag"] is None
+    assert payload["source_last_modified"] == "Sun, 23 Aug 2026 00:00:00 GMT"
+
+
+def test_release_identity_distinguishes_absent_and_present_source_etag(tmp_path: Path) -> None:
+    """A server-validator change cannot silently reuse an immutable release tag."""
+    db_path = _database_with_source_identity(tmp_path, etag=None)
+    asset_path = tmp_path / "clinvar.sqlite.zst"
+    asset_path.write_bytes(b"compressed ClinVar fixture")
+    build_release_metadata(
+        db_path,
+        asset_path,
+        tmp_path / "current",
+        retrieved_at=datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC),
+    )
+    current_path = tmp_path / "current" / "bundle-metadata.json"
+    existing = json.loads(current_path.read_text())
+    existing["source_etag"] = '"later-etag"'
+    existing_path = tmp_path / "existing.json"
+    existing_path.write_text(json.dumps(existing), encoding="utf-8")
+
+    assert (
+        decide_release_state(current_path, existing_path, is_draft=False) is ReleaseState.COLLISION
+    )
 
 
 def test_release_states_fail_closed_for_any_existing_identity_mismatch(tmp_path: Path) -> None:
