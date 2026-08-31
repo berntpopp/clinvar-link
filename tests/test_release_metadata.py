@@ -39,6 +39,7 @@ def _database_with_source_identity(tmp_path: Path) -> Path:
     [
         ("Sun, 23 Aug 2026 00:00:00 GMT", "bundle-2026-08-23"),
         ("2026-08-23", "bundle-2026-08-23"),
+        ("2026-08-23T00:00:00+00:00", "bundle-2026-08-23"),
     ],
 )
 def test_release_tag_for_date_normalizes_strict_source_dates(value: str, expected: str) -> None:

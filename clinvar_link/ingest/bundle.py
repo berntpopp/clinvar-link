@@ -53,7 +53,6 @@ _USER_AGENT = "clinvar-link/ingest (+https://github.com/berntpopp/clinvar-link)"
 _GITHUB_API = "https://api.github.com"
 _ZST_NAME = "clinvar.sqlite.zst"
 _BUNDLE_SUFFIX = ".sqlite.zst"
-_DATE_PREFIX_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 _BUNDLE_HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com"})
 _RELEASES_PER_PAGE = 5
 _MAX_RELEASE_PAGES = 20
@@ -128,14 +127,11 @@ def release_tag_for_date(release_date: str | None) -> str:
     """
     if not release_date:
         raise ReleaseIdentityError("ClinVar release date is required for an immutable bundle tag")
-    match = _DATE_PREFIX_RE.fullmatch(release_date.strip())
-    if match:
-        try:
-            return f"bundle-{datetime.fromisoformat(match.group(1)).date().isoformat()}"
-        except ValueError as exc:
-            raise ReleaseIdentityError(
-                f"invalid ISO ClinVar release date: {release_date!r}"
-            ) from exc
+    normalized = release_date.strip().replace("Z", "+00:00")
+    try:
+        return f"bundle-{datetime.fromisoformat(normalized).date().isoformat()}"
+    except ValueError:
+        pass
     try:
         parsed = parsedate_to_datetime(release_date)
     except (TypeError, ValueError) as exc:
