@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -36,10 +37,15 @@ def _read_cache(cache_path: Path) -> dict[str, dict[str, str | None]]:
 
 
 def _write_cache(
-    cache_path: Path, url: str, *, etag: str | None, last_modified: str | None
+    cache_path: Path,
+    url: str,
+    *,
+    etag: str | None,
+    last_modified: str | None,
+    retrieved_at: str,
 ) -> None:
     data = _read_cache(cache_path)
-    data[url] = {"etag": etag, "last_modified": last_modified}
+    data[url] = {"etag": etag, "last_modified": last_modified, "retrieved_at": retrieved_at}
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -109,6 +115,7 @@ def download_source(
                     "etag": headers.get("If-None-Match"),
                     "last_modified": headers.get("If-Modified-Since"),
                     "sha256": None,
+                    "retrieved_at": cached.get("retrieved_at"),
                 }
             response.raise_for_status()
             etag = response.headers.get("ETag")
@@ -119,6 +126,7 @@ def download_source(
                 max_bytes=max_bytes,
                 max_seconds=max_seconds,
             )
+            retrieved_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     except httpx.HTTPStatusError as exc:
         raise DownloadError(
             f"GET {url} failed: HTTP {exc.response.status_code}",
@@ -127,11 +135,18 @@ def download_source(
     except httpx.HTTPError as exc:
         raise DownloadError(f"GET {url} failed: {exc}") from exc
 
-    _write_cache(cache_path, url, etag=etag, last_modified=last_modified)
+    _write_cache(
+        cache_path,
+        url,
+        etag=etag,
+        last_modified=last_modified,
+        retrieved_at=retrieved_at,
+    )
     return {
         "status": "ok",
         "path": str(dest_path),
         "etag": etag,
         "last_modified": last_modified,
         "sha256": sha256,
+        "retrieved_at": retrieved_at,
     }

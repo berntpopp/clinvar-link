@@ -4,6 +4,19 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-08-31
+
+### Fixed
+
+- **Fail closed on ClinVar bundle release identity.** Bundle tags now use one public strict
+  ISO/RFC source-date parser; missing or malformed dates cannot publish `bundle-unknown`. Release
+  metadata streams artifact hashes and records raw/normalized date, source URL, ETag, digest, and
+  source retrieval time. Existing immutable releases are verified no-ops only when identities
+  match; published or draft mismatches fail without release deletion.
+- **Refresh release-build security inputs.** The Python 3.14 base image uses the reviewed fixed
+  digest; CodeQL, setup-uv, router container workflows, and the resolved dependency union are
+  updated together.
+
 ## [0.5.4] - 2026-08-10
 
 Consolidated Dependabot maintenance release. No API, MCP or data-contract

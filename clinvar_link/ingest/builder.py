@@ -434,6 +434,7 @@ def _write_meta(
     last_modified: str | None,
     release_date: str | None,
     source_sha256: str,
+    source_retrieved_at: str | None,
     variant_count: int,
     gene_count: int,
     build_duration_s: float,
@@ -442,9 +443,9 @@ def _write_meta(
         """
         INSERT INTO meta (
             id, schema_version, clinvar_release_date, source_url, source_etag,
-            source_last_modified, source_sha256, variant_count, gene_count,
+            source_last_modified, source_sha256, source_retrieved_at, variant_count, gene_count,
             build_utc, build_duration_s
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             SCHEMA_VERSION,
@@ -453,6 +454,7 @@ def _write_meta(
             etag,
             last_modified,
             source_sha256,
+            source_retrieved_at,
             variant_count,
             gene_count,
             datetime.now(tz=UTC).isoformat(),
@@ -470,6 +472,7 @@ def build_database(
     last_modified: str | None = None,
     release_date: str | None = None,
     source_sha256: str | None = None,
+    source_retrieved_at: str | None = None,
 ) -> dict[str, Any]:
     """Build the ClinVar SQLite index from ``source_path``, atomically.
 
@@ -569,6 +572,7 @@ def build_database(
                 last_modified=last_modified,
                 release_date=release_date,
                 source_sha256=sha256,
+                source_retrieved_at=source_retrieved_at,
                 variant_count=len(emitted),
                 gene_count=gene_count,
                 build_duration_s=time.perf_counter() - start,

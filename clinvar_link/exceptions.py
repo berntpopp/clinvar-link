@@ -86,6 +86,12 @@ class DownloadError(ClinVarServerError):
         self.status_code = status_code
 
 
+class ReleaseIdentityError(ClinVarServerError):
+    """Raised when immutable bundle release identity is absent or invalid."""
+
+    pass
+
+
 class ToolInputError(ValueError):
     """Local pre-lookup validation failure.
 
