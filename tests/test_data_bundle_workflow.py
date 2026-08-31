@@ -21,3 +21,13 @@ def test_data_bundle_workflow_uses_the_release_helper_and_never_deletes_drafts()
     assert "collision" in workflow
     assert "steps.release-state.outputs.state == 'create'" in workflow
     assert "steps.release-state.outputs.state == 'draft_publish_existing'" in workflow
+
+
+def test_publish_job_installs_the_release_state_helper() -> None:
+    """Existing releases must use the same checked-out immutable-state helper."""
+    publish_job = WORKFLOW.read_text(encoding="utf-8").split("  publish:", maxsplit=1)[1]
+
+    assert "actions/checkout@" in publish_job
+    assert "actions/setup-python@" in publish_job
+    assert "astral-sh/setup-uv@" in publish_job
+    assert "uv sync --frozen" in publish_job

@@ -49,13 +49,32 @@ def test_release_tag_for_date_normalizes_strict_source_dates(value: str, expecte
     assert release_tag_for_date(value) == expected
 
 
-@pytest.mark.parametrize("value", [None, "", "not a publication date", "2026-99-99"])
-def test_release_tag_for_date_rejects_absent_or_malformed_identity(value: str | None) -> None:
+@pytest.mark.parametrize("value", [None, "", "not a publication date", "2026-99-99", 1, True])
+def test_release_tag_for_date_rejects_absent_or_malformed_identity(value: object) -> None:
     """A missing source identity may never become a ``bundle-unknown`` release."""
     from clinvar_link.ingest.bundle import release_tag_for_date
 
     with pytest.raises(ReleaseIdentityError):
         release_tag_for_date(value)
+
+
+def test_release_metadata_rejects_a_missing_schema_version(tmp_path: Path) -> None:
+    """A corrupt database cannot define a fresh immutable release."""
+    db_path = _database_with_source_identity(tmp_path)
+    asset_path = tmp_path / "clinvar.sqlite.zst"
+    asset_path.write_bytes(b"compressed ClinVar fixture")
+    import sqlite3
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE meta SET schema_version = NULL WHERE id = 1")
+
+    with pytest.raises(ReleaseIdentityError, match="schema version"):
+        build_release_metadata(
+            db_path,
+            asset_path,
+            tmp_path / "dist",
+            retrieved_at=datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC),
+        )
 
 
 def test_build_release_metadata_streams_hashes_and_records_source_identity(

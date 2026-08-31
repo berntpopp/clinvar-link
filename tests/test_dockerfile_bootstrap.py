@@ -24,3 +24,11 @@ def test_dockerfile_uses_the_current_fixed_python_runtime_digest():
         "python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5"
     )
     assert text.count(expected) == 2
+
+
+def test_runtime_installs_openssl_security_updates():
+    """Keep the final scratch image clear of fixable OpenSSL CVEs."""
+    text = Path("docker/Dockerfile").read_text()
+    runtime_stage = text.split("AS prepared", maxsplit=1)[1]
+
+    assert "    openssl \\" in runtime_stage

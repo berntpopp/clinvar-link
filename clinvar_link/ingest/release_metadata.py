@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from clinvar_link.ingest.bundle import _expanded_tree_sha256, _sha256_file, rele
 
 _MAX_METADATA_BYTES = 1 << 20
 _ASSET_NAME = "clinvar.sqlite.zst"
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 _STABLE_FIELDS = (
     "tag",
     "asset_sha256",
@@ -85,6 +87,20 @@ def _source_retrieved_at(row: sqlite3.Row) -> str:
         raise ReleaseIdentityError("ClinVar source retrieval time is malformed") from exc
 
 
+def _required_text(row: sqlite3.Row, field: str) -> str:
+    value = row[field]
+    if not isinstance(value, str) or not value:
+        raise ReleaseIdentityError(f"ClinVar {field.replace('_', ' ')} is required")
+    return value
+
+
+def _required_nonnegative_int(row: sqlite3.Row, field: str) -> int:
+    value = row[field]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ReleaseIdentityError(f"ClinVar {field.replace('_', ' ')} is malformed")
+    return value
+
+
 def _write_checksums(out_dir: Path) -> None:
     checksum_path = out_dir / "SHA256SUMS"
     entries = [path for path in out_dir.iterdir() if path.is_file() and path != checksum_path]
@@ -110,9 +126,10 @@ def build_release_metadata(
         raise ReleaseIdentityError(
             "provided source retrieval time differs from database provenance"
         )
-    raw_date = row["clinvar_release_date"]
-    if not isinstance(raw_date, str):
-        raise ReleaseIdentityError("ClinVar release date is required")
+    raw_date = _required_text(row, "clinvar_release_date")
+    source_sha256 = _required_text(row, "source_sha256")
+    if _SHA256_RE.fullmatch(source_sha256) is None:
+        raise ReleaseIdentityError("ClinVar source SHA-256 is malformed")
     tag = release_tag_for_date(raw_date)
     out_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
@@ -121,17 +138,17 @@ def build_release_metadata(
         "asset_size": asset_path.stat().st_size,
         "expanded_tree_sha256": _expanded_tree_sha256(db_path, db_path.name),
         "expanded_size": db_path.stat().st_size,
-        "schema_version": f"{row['schema_version']}.0.0",
-        "source_sha256": row["source_sha256"],
-        "source_url": row["source_url"],
-        "source_etag": row["source_etag"],
-        "source_last_modified": row["source_last_modified"],
+        "schema_version": f"{_required_nonnegative_int(row, 'schema_version')}.0.0",
+        "source_sha256": source_sha256,
+        "source_url": _required_text(row, "source_url"),
+        "source_etag": _required_text(row, "source_etag"),
+        "source_last_modified": _required_text(row, "source_last_modified"),
         "clinvar_release_date_raw": raw_date,
         "clinvar_release_date": tag.removeprefix("bundle-"),
         "source_retrieved_at": source_retrieved_at,
         "retrieved_at": source_retrieved_at,
-        "variant_count": row["variant_count"],
-        "gene_count": row["gene_count"],
+        "variant_count": _required_nonnegative_int(row, "variant_count"),
+        "gene_count": _required_nonnegative_int(row, "gene_count"),
     }
     path = out_dir / "bundle-metadata.json"
     path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")

@@ -118,14 +118,14 @@ def _read_release_date(db_path: Path) -> str | None:
     return str(row[0])
 
 
-def release_tag_for_date(release_date: str | None) -> str:
+def release_tag_for_date(release_date: object) -> str:
     """Derive a ``bundle-<YYYY-MM-DD>`` tag from a release date string.
 
     Accepts either an ISO-ish date (a leading ``YYYY-MM-DD`` is extracted) or an
     RFC 2822 / HTTP ``Last-Modified`` string.  Missing or malformed source
     metadata is not a release identity and therefore fails closed.
     """
-    if not release_date:
+    if not isinstance(release_date, str) or not release_date.strip():
         raise ReleaseIdentityError("ClinVar release date is required for an immutable bundle tag")
     normalized = release_date.strip().replace("Z", "+00:00")
     try:
