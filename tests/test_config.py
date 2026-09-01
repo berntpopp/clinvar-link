@@ -280,3 +280,41 @@ def test_server_config_from_env_has_valid_port() -> None:
     assert isinstance(config.port, int)
     assert 1 <= config.port <= 65535
     assert config.mcp_path.startswith("/")
+
+
+class _TolerantSafeLoader(yaml.SafeLoader):
+    """A SafeLoader that ignores unknown custom tags (e.g. Compose ``!reset``)."""
+
+
+_TolerantSafeLoader.add_multi_constructor(
+    "!",
+    lambda loader, suffix, node: (
+        loader.construct_scalar(node) if isinstance(node, yaml.ScalarNode) else None
+    ),
+)
+
+
+def test_fleet_deploy_overlay_declares_numeric_user() -> None:
+    """The fleet controller's Compose projection requires a numeric non-root ``user``
+    on every service of the deployed NPM overlay; the shared release gate forbids
+    the same field on the Compose files it validates."""
+    # ruff's S506 only checks the loader name, not the class hierarchy;
+    # _TolerantSafeLoader subclasses yaml.SafeLoader, so this is safe.
+    compose = yaml.load(
+        (ROOT / "docker/docker-compose.npm.yml").read_text(),
+        Loader=_TolerantSafeLoader,  # noqa: S506
+    )
+    user_pattern = re.compile(r"^[1-9][0-9]*:[1-9][0-9]*$")
+    for name, service in compose["services"].items():
+        user = service.get("user")
+        assert user is not None, f"{name}: missing numeric user"
+        assert user_pattern.match(user), f"{name}: user {user!r} is not numeric non-root"
+
+    release_config = json.loads((ROOT / "container-release.json").read_text())
+    for filename in release_config["service"]["compose_files"]:
+        release_compose = yaml.load(
+            (ROOT / filename).read_text(),
+            Loader=_TolerantSafeLoader,  # noqa: S506
+        )
+        for name, service in release_compose["services"].items():
+            assert "user" not in service, f"{name}: user must not appear in {filename}"

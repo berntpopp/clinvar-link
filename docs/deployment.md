@@ -38,6 +38,28 @@ The host port defaults to `8000`; override with `CLINVAR_LINK_HOST_PORT`.
 | [`docker/docker-compose.prod.yml`](../docker/docker-compose.prod.yml) | Production: digest-pinned image, pinned immutable bundle, no published ports. |
 | [`docker/docker-compose.npm.yml`](../docker/docker-compose.npm.yml) | Nginx Proxy Manager front. |
 
+### Fleet deploy contract
+
+The GeneFoundry fleet controller (`strato_v6_docker_npm`) deploys and validates
+only `docker/docker-compose.npm.yml`. Every service there declares a numeric
+`user: "<uid>:<gid>"` — this image's own value from `docker/Dockerfile`, never
+copied from a sibling `-link` repo. `user` must **not** appear in the Compose
+files `container-release.json` lists (`docker-compose.yml`,
+`docker-compose.prod.yml`); the shared release gate forbids it there. Self-check
+the same way the controller does before releasing:
+
+```bash
+CLINVAR_LINK_IMAGE=ghcr.io/berntpopp/clinvar-link@sha256:<64 zeros> \
+CLINVAR_DATA_BUNDLE_URL=https://example.invalid/bundle.tar.gz \
+CLINVAR_DATA_RELEASE_TAG=bundle-2026-08-31 \
+CLINVAR_DATA_SHA256=<64 zeros> CLINVAR_DATA_EXPANDED_SHA256=<64 zeros> \
+docker compose -f docker/docker-compose.npm.yml config --format json > /tmp/clinvar.json
+# from a strato_v6_docker_npm checkout:
+uv run python -c "import sys, json; sys.path.insert(0, 'scripts'); \
+from utils.deployment_preflight import canonical_projection; \
+print(canonical_projection(json.load(open('/tmp/clinvar.json')), project='clinvar-link')['services'].keys())"
+```
+
 ### Production is pinned, not floating
 
 The production overlay refuses to start without an exact image digest **and** an
