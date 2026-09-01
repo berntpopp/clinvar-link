@@ -2,13 +2,6 @@
 
 All notable changes to clinvar-link are documented here.
 
-## [Unreleased]
-
-### Fixed
-
-- Pin production and Nginx Proxy Manager deployments to the verified immutable
-  ClinVar `bundle-2026-08-23` release and its compressed/expanded SHA-256 identities.
-
 ## [0.5.6] - 2026-08-31
 
 ### Fixed
@@ -19,6 +12,8 @@ All notable changes to clinvar-link are documented here.
   and keep README badge identity stable in isolated Git worktrees.
 - Upgrade the final image's OpenSSL packages from the current Debian security index and use the
   centrally approved application restart policy required by the v0.8.3 container gate.
+- Pin production and Nginx Proxy Manager deployments to the verified immutable
+  ClinVar `bundle-2026-08-31` release and its compressed/expanded SHA-256 identities.
 
 ## [0.5.5] - 2026-08-31
 

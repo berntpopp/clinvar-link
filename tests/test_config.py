@@ -19,13 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 _SHA = "a" * 64
 _EXPANDED_SHA = "b" * 64
 
-CLINVAR_RELEASE_TAG = "bundle-2026-08-23"
+CLINVAR_RELEASE_TAG = "bundle-2026-08-31"
 CLINVAR_BUNDLE_URL = (
     "https://github.com/berntpopp/clinvar-link/releases/download/"
     f"{CLINVAR_RELEASE_TAG}/clinvar.sqlite.zst"
 )
-CLINVAR_COMPRESSED_SHA256 = "98e91c634c50f22f0bd80dd67764c18c5f5d5afbbdff7624e52c1d826f850b70"
-CLINVAR_EXPANDED_SHA256 = "24ad1d16aa61477da43bd3892b8ff94ff63d2f03ac7e34907948d585f5d163f7"
+CLINVAR_COMPRESSED_SHA256 = "463a73b24973d22737383949030787fbc1a9455e247f9625fbd4fe78d41000fd"
+CLINVAR_EXPANDED_SHA256 = "afb1e6cbc7e4487e2db586e1726b8ca81eaa29b88b35a901c08a2e668ba72b85"
 
 
 def _production_settings(**overrides: object) -> Settings:

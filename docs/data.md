@@ -113,11 +113,11 @@ or when the local index is younger than `CLINVAR_LINK_REFRESH_TTL_DAYS`
 default (`CLINVAR_LINK_AUTO_BOOTSTRAP=false`).
 
 In production the refresh path is: a new bundle is published → containers `pull`
-that snapshot (production and NPM pin `bundle-2026-08-23` by exact URL,
+that snapshot (production and NPM pin `bundle-2026-08-31` by exact URL,
 release tag, compressed SHA-256
-`98e91c634c50f22f0bd80dd67764c18c5f5d5afbbdff7624e52c1d826f850b70`, and
+`463a73b24973d22737383949030787fbc1a9455e247f9625fbd4fe78d41000fd`, and
 expanded-tree SHA-256
-`24ad1d16aa61477da43bd3892b8ff94ff63d2f03ac7e34907948d585f5d163f7`; see
+`afb1e6cbc7e4487e2db586e1726b8ca81eaa29b88b35a901c08a2e668ba72b85`; see
 [configuration](configuration.md#prebuilt-bundle-distribution)).
 
 ## Licence & citation
