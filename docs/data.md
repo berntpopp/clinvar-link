@@ -115,7 +115,7 @@ default (`CLINVAR_LINK_AUTO_BOOTSTRAP=false`).
 In production the refresh path is: a new bundle is published → containers `pull`
 that snapshot (production and NPM pin `bundle-2026-08-31` by exact URL,
 release tag, compressed SHA-256
-`463a73b24973d22737383949030787fbc1a9455e247f9625fbd4fe78d41000fd`, and
+`463a73b2ae8aab3bc2758e703b3207d3b82eb23ca90b56b51f3fef3c73babac1`, and
 expanded-tree SHA-256
 `afb1e6cbc7e4487e2db586e1726b8ca81eaa29b88b35a901c08a2e668ba72b85`; see
 [configuration](configuration.md#prebuilt-bundle-distribution)).

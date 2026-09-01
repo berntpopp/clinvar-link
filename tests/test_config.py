@@ -24,7 +24,7 @@ CLINVAR_BUNDLE_URL = (
     "https://github.com/berntpopp/clinvar-link/releases/download/"
     f"{CLINVAR_RELEASE_TAG}/clinvar.sqlite.zst"
 )
-CLINVAR_COMPRESSED_SHA256 = "463a73b24973d22737383949030787fbc1a9455e247f9625fbd4fe78d41000fd"
+CLINVAR_COMPRESSED_SHA256 = "463a73b2ae8aab3bc2758e703b3207d3b82eb23ca90b56b51f3fef3c73babac1"
 CLINVAR_EXPANDED_SHA256 = "afb1e6cbc7e4487e2db586e1726b8ca81eaa29b88b35a901c08a2e668ba72b85"
 
 
