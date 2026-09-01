@@ -45,6 +45,27 @@ directory map.
 - **Keep the six-tool surface in lockstep:** `mcp/tools/` (registered),
   `mcp/facade.py`, and `mcp/resources._TOOLS` must agree.
 
+## Fleet deploy contract
+
+- `docker/docker-compose.npm.yml` is the file the GeneFoundry fleet controller
+  (`strato_v6_docker_npm`) deploys and validates. Every service there declares
+  `user: "<uid>:<gid>"` numerically — this image's own value from
+  `docker/Dockerfile` (measured, not copied from a sibling `-link` repo; siblings
+  differ).
+- `user` must **not** appear in the Compose files listed in `container-release.json`
+  (`docker/docker-compose.yml`, `docker/docker-compose.prod.yml`) — the shared
+  release gate (`container_release.py validate-compose`, `ALLOWED_SERVICE_KEYS`)
+  forbids it there.
+- Guard test: `tests/test_config.py::test_fleet_deploy_overlay_declares_numeric_user`.
+- Release checklist this repo enforces (see `tests/unit/test_version_single_source.py`):
+  bump `pyproject.toml` `version`, `uv lock`, add a `CHANGELOG.md` heading
+  `## [x.y.z] - YYYY-MM-DD`, update `CITATION.cff` `version:` **and**
+  `date-released:` to the release date (the test pins `date-released` as a literal
+  matching the newest release, not a computed CHANGELOG lookup — bump both
+  together), tag `vx.y.z`, then approve the `release` environment gate via
+  `gh api repos/berntpopp/clinvar-link/actions/runs/<id>/pending_deployments`
+  (it can gate twice; `status: waiting` is the approval gate, not a slow build).
+
 ## Data plane
 
 - The local SQLite index is built from the ClinVar weekly bulk dump by

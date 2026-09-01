@@ -36,6 +36,11 @@ services:
       - clinvar_link_internal_net
     restart: "no"
     read_only: true
+    # GeneFoundry deploy contract: the fleet controller (strato_v6_docker_npm,
+    # scripts/utils/deployment_preflight.py) accepts a declared user only as numeric
+    # non-root, and its runtime observer proves the effective uid from /proc.
+    # This is THIS image's own uid:gid (docker/Dockerfile) -- sibling -link images differ.
+    user: "999:999"
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=256m,mode=1777
     security_opt:
@@ -89,6 +94,11 @@ services:
       start_period: 300s
     restart: unless-stopped
     read_only: true
+    # GeneFoundry deploy contract: the fleet controller (strato_v6_docker_npm,
+    # scripts/utils/deployment_preflight.py) accepts a declared user only as numeric
+    # non-root, and its runtime observer proves the effective uid from /proc.
+    # This is THIS image's own uid:gid (docker/Dockerfile) -- sibling -link images differ.
+    user: "999:999"
     tmpfs:
       # TMPDIR=/tmp (set in the image) - scratch space.
       - /tmp:rw,noexec,nosuid,size=256m,mode=1777

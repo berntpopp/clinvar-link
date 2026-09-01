@@ -2,6 +2,13 @@
 
 All notable changes to clinvar-link are documented here.
 
+## [0.5.7] - 2026-09-02
+
+### Fixed
+
+- Deploy: declare the image's numeric uid:gid in docker/docker-compose.npm.yml so the fleet
+  controller can deploy the service; a guard test keeps `user` out of the release Compose files.
+
 ## [0.5.6] - 2026-08-31
 
 ### Fixed
