@@ -13,7 +13,7 @@ authors:
   given-names: Bernt
   email: bernt.popp@charite.de
   affiliation: Charité – Universitätsmedizin Berlin
-version: 0.5.6
+version: 0.5.7
 license: MIT
 repository-code: https://github.com/berntpopp/clinvar-link
 url: https://genefoundry.org
@@ -31,4 +31,4 @@ keywords:
 - model-context-protocol
 - pathogenicity
 - variant-interpretation
-date-released: '2026-08-31'
+date-released: '2026-09-02'

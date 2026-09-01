@@ -44,7 +44,7 @@ def test_citation_metadata_matches_current_release() -> None:
     citation = Path(__file__).resolve().parents[2] / "CITATION.cff"
     content = citation.read_text(encoding="utf-8")
     assert f"version: {_pyproject_version()}" in content
-    assert "date-released: '2026-08-31'" in content
+    assert "date-released: '2026-09-02'" in content
 
 
 def test_dunder_version_is_metadata_derived() -> None:
