@@ -26,6 +26,13 @@ CLINVAR_BUNDLE_URL = (
 )
 CLINVAR_COMPRESSED_SHA256 = "463a73b2ae8aab3bc2758e703b3207d3b82eb23ca90b56b51f3fef3c73babac1"
 CLINVAR_EXPANDED_SHA256 = "afb1e6cbc7e4487e2db586e1726b8ca81eaa29b88b35a901c08a2e668ba72b85"
+# The GeneFoundry runtime-v1 identity digest: sha256 of the canonical identity manifest
+# the init sidecar seals beside the materialized index. It is what /health publishes and
+# what the fleet controller compares against, and it moves only with a data release.
+CLINVAR_DATA_IDENTITY_DIGEST = (
+    "sha256:70e8fc1e8c2edad8c6f9bae91606ec86b3cbf6118f7ac8da1cb356b1a36855d6"
+)
+CLINVAR_DATA_VOLUME = "clinvar-link-npm_clinvar-data"
 
 
 def _production_settings(**overrides: object) -> Settings:
@@ -132,7 +139,15 @@ def test_container_release_pins_verified_clinvar_bundle() -> None:
     """The central release record must select the accepted immutable bundle."""
     config = json.loads((ROOT / "container-release.json").read_text())
     assert config["data"]["release_tag"] == CLINVAR_RELEASE_TAG
-    assert config["data"]["digest"] == f"sha256:{CLINVAR_COMPRESSED_SHA256}"
+    # `data.digest` is the runtime-v1 identity digest, not the compressed asset digest:
+    # it is the value /health must prove from the materialized bytes. The compressed
+    # digest stays the bundle-integrity check, declared in smoke_environment.
+    assert config["data"]["digest"] == CLINVAR_DATA_IDENTITY_DIGEST
+    assert config["data_identity_contract"] == "runtime-v1"
+    assert config["smoke_environment"] == [
+        f"CLINVAR_LINK_BUNDLE_EXPECTED_SHA256={CLINVAR_COMPRESSED_SHA256}"
+    ]
+    assert config["preparation"] == "docker/ci-prepare-smoke.sh"
 
 
 def _docker_example_env() -> dict[str, str]:
@@ -195,13 +210,13 @@ def test_npm_compose_forces_pinned_materialization_before_readonly_server() -> N
     assert init["environment"]["CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256"].startswith(
         "${CLINVAR_DATA_EXPANDED_SHA256:"
     )
-    assert init["volumes"] == ["clinvar-reference:/data"]
+    assert init["volumes"] == ["clinvar-data:/data"]
     assert init["restart"] == "no"
 
     assert app["depends_on"]["clinvar-data-init"]["condition"] == ("service_completed_successfully")
     assert app["entrypoint"][:2] == ["clinvar-link", "serve"]
     assert "bootstrap" not in app["entrypoint"]
-    assert app["volumes"] == ["clinvar-reference:/data:ro"]
+    assert app["volumes"] == ["clinvar-data:/data:ro"]
     assert app["read_only"] is True
 
 
@@ -318,3 +333,41 @@ def test_fleet_deploy_overlay_declares_numeric_user() -> None:
         )
         for name, service in release_compose["services"].items():
             assert "user" not in service, f"{name}: user must not appear in {filename}"
+
+
+def test_fleet_deploy_overlay_selects_the_physical_data_volume() -> None:
+    """The data volume must be selectable by name, defaulting to the live volume.
+
+    The fleet controller activates a new data release by rendering an override that sets
+    ``volumes.<logical>.name``, so the logical key here has to be the one its reviewed
+    adapter table records (``clinvar-data``) and the default has to be the physical volume
+    that already exists on the server — otherwise a deploy silently creates an empty
+    volume and the service comes back with no data.
+    """
+    compose = yaml.load(
+        (ROOT / "docker/docker-compose.npm.yml").read_text(),
+        Loader=_TolerantSafeLoader,  # noqa: S506 - subclasses yaml.SafeLoader
+    )
+    volume = compose["volumes"]["clinvar-data"]
+    assert volume["name"] == f"${{CLINVAR_DATA_VOLUME:-{CLINVAR_DATA_VOLUME}}}"
+    for service in compose["services"].values():
+        for mount in service["volumes"]:
+            assert mount.split(":", 1)[0] == "clinvar-data"
+
+
+def test_fleet_deploy_overlay_pins_the_runtime_identity_digest() -> None:
+    """Both services must carry the expected runtime-v1 identity of the pinned release."""
+    compose = yaml.load(
+        (ROOT / "docker/docker-compose.npm.yml").read_text(),
+        Loader=_TolerantSafeLoader,  # noqa: S506 - subclasses yaml.SafeLoader
+    )
+    expected = f"${{CLINVAR_DATA_IDENTITY_DIGEST:-{CLINVAR_DATA_IDENTITY_DIGEST}}}"
+    for service in compose["services"].values():
+        assert service["environment"]["CLINVAR_LINK_DATA_IDENTITY_DIGEST"] == expected
+
+
+def test_smoke_preparation_hook_is_an_executable_regular_file() -> None:
+    """`container-release.json` names it and the central CI workflow runs it with bash."""
+    hook = ROOT / "docker" / "ci-prepare-smoke.sh"
+    assert hook.is_file() and not hook.is_symlink()
+    assert hook.stat().st_mode & 0o111, "the preparation hook must be executable"

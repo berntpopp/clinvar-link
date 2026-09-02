@@ -7,6 +7,11 @@
 # one-shot init sidecar to pull the exact ClinVar bundle into a private
 # reference volume; the request-facing app mounts that volume read-only.
 #
+# The init also seals a canonical `data-identity-manifest.json` beside the index it
+# materialized (GeneFoundry runtime-v1). The server rehashes it when it opens the store
+# and /health publishes the configured identity next to the materialized one, so the fleet
+# controller can prove which data release is live before and after it switches volumes.
+#
 #   docker compose -f docker/docker-compose.npm.yml --env-file .env.docker up -d --build
 name: clinvar-link-npm
 
@@ -27,11 +32,16 @@ services:
       CLINVAR_LINK_BUNDLE_EXPECTED_SHA256: ${CLINVAR_DATA_SHA256:?set compressed SHA-256}
       CLINVAR_LINK_BUNDLE_EXPECTED_EXPANDED_SHA256: ${CLINVAR_DATA_EXPANDED_SHA256:?set expanded SHA-256}
       CLINVAR_LINK_BUNDLE_EXPECTED_SCHEMA_VERSION: ${CLINVAR_DATA_SCHEMA_VERSION:-1.0.0}
+      # GeneFoundry runtime-v1 data identity: the digest of the canonical identity
+      # manifest the init seals beside the index. /health publishes it next to the
+      # identity actually materialized, and refuses to report healthy when they differ.
+      # It is `container-release.json` .data.digest and moves only with a data release.
+      CLINVAR_LINK_DATA_IDENTITY_DIGEST: ${CLINVAR_DATA_IDENTITY_DIGEST:-sha256:70e8fc1e8c2edad8c6f9bae91606ec86b3cbf6118f7ac8da1cb356b1a36855d6}
       CLINVAR_LINK_DEVELOPMENT_LATEST: "false"
       CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
       CLINVAR_LINK_BUILD_LOCAL: "false"
     volumes:
-      - clinvar-reference:/data
+      - clinvar-data:/data
     networks:
       - clinvar_link_internal_net
     restart: "no"
@@ -104,7 +114,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=256m,mode=1777
     volumes:
       # The server only reads the exact bundle materialized by the init sidecar.
-      - clinvar-reference:/data:ro
+      - clinvar-data:/data:ro
     networks:
       - clinvar_link_internal_net
       - npm_proxy_network
@@ -131,7 +141,14 @@ services:
     init: true
 
 volumes:
-  clinvar-reference:
+  # The fleet controller switches data releases by rendering an override that sets
+  # `volumes.<logical>.name`, so the logical key here IS the name its reviewed adapter
+  # table (strato_v6_docker_npm, scripts/utils/data_adapters.py) records: `clinvar-data`.
+  # The default is the physical volume that already exists on the server, so an unchanged
+  # environment renders an unchanged name and no data is orphaned; CLINVAR_DATA_VOLUME is
+  # what a candidate volume is selected through.
+  clinvar-data:
+    name: "${CLINVAR_DATA_VOLUME:-clinvar-link-npm_clinvar-data}"
     driver: local
 
 networks:

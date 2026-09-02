@@ -43,6 +43,7 @@ from clinvar_link.ingest.download_security import (
     stream_atomic,
 )
 from clinvar_link.ingest.lock import build_lock
+from clinvar_link.runtime_data_identity import write_identity_manifest
 
 if TYPE_CHECKING:
     from clinvar_link.config import Settings
@@ -536,7 +537,17 @@ def install_preseeded(
     }
 
 
-def _select_reference(root: Path, target: Path, identity: dict[str, Any]) -> None:
+def _select_reference(
+    root: Path, target: Path, db_path: Path, release_tag: str, identity: dict[str, Any]
+) -> dict[str, str]:
+    """Seal the version directory, prove its runtime identity, then select it.
+
+    The GeneFoundry ``runtime-v1`` contract wants an identity that is verifiable from the
+    materialized bytes alone, so the manifest is written LAST and covers every regular
+    file in the version directory (the index and ``data-identity.json``). Only then is
+    ``current`` repointed: a reader that follows the symlink always finds a directory
+    whose identity has already been proven.
+    """
     identity_path = target / "data-identity.json"
     temporary_identity = target / ".data-identity.json.tmp"
     temporary_identity.write_text(
@@ -544,12 +555,14 @@ def _select_reference(root: Path, target: Path, identity: dict[str, Any]) -> Non
         encoding="utf-8",
     )
     os.replace(temporary_identity, identity_path)
+    proven = write_identity_manifest(target, release_tag, [db_path, identity_path])
     temporary_link = root / f".current-{os.getpid()}-{time.time_ns()}"
     try:
         temporary_link.symlink_to(target.name)
         os.replace(temporary_link, root / "current")
     finally:
         temporary_link.unlink(missing_ok=True)
+    return proven
 
 
 def pull_latest(config: Settings) -> dict[str, Any]:
@@ -604,6 +617,7 @@ def pull_latest(config: Settings) -> dict[str, Any]:
     )
     target_db = config.db_path
     target: Path | None = None
+    proven: dict[str, str] | None = None
     if exact:
         target = config.BUNDLE_REFERENCE_ROOT / expected_sha256.lower()
         target_db = target / config.DB_FILENAME
@@ -640,9 +654,11 @@ def pull_latest(config: Settings) -> dict[str, Any]:
                 "expanded_sha256": install["expanded_sha256"],
                 "schema_version": install["schema_version"],
             }
-            _select_reference(config.BUNDLE_REFERENCE_ROOT, target, identity)
+            proven = _select_reference(
+                config.BUNDLE_REFERENCE_ROOT, target, target_db, release_tag, identity
+            )
 
-    return {
+    summary = {
         "release_tag": release_tag,
         "asset_url": asset_url,
         "sha256": expected_sha256,
@@ -652,3 +668,9 @@ def pull_latest(config: Settings) -> dict[str, Any]:
         "expanded_sha256": install["expanded_sha256"],
         "schema_version": install["schema_version"],
     }
+    if proven is not None:
+        # The digest the deployment must be pinned to. Printed by `clinvar-link-data pull`
+        # so an operator advancing the data pin can read it straight out of the init log
+        # instead of recomputing it.
+        summary["data_identity_digest"] = proven["digest"]
+    return summary

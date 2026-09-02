@@ -60,6 +60,60 @@ from utils.deployment_preflight import canonical_projection; \
 print(canonical_projection(json.load(open('/tmp/clinvar.json')), project='clinvar-link')['services'].keys())"
 ```
 
+### Runtime data identity (`runtime-v1`)
+
+The fleet controller deploys a new **data** release by switching the physical volume the
+stack mounts, so it has to be able to ask a running container what data it is actually
+serving. `clinvar-link` answers that on `/health`:
+
+```jsonc
+{
+  "status": "healthy",
+  "data_available": true,
+  "release_identity": {
+    "schema_version": 1,
+    "data_identity": {
+      "expected": { "release_tag": "bundle-2026-08-31", "digest": "sha256:70e8…" },
+      "actual":   { "release_tag": "bundle-2026-08-31", "digest": "sha256:70e8…" }
+    }
+  }
+}
+```
+
+`expected` is what the deployment was configured for (`CLINVAR_LINK_BUNDLE_RELEASE_TAG` +
+`CLINVAR_LINK_DATA_IDENTITY_DIGEST`, which is `container-release.json` `.data.digest`).
+`actual` is proven from the bytes on the volume: `clinvar-data-init` seals a canonical
+`data-identity-manifest.json` — every authoritative file's path, size and SHA-256 —
+beside the index it just installed, and the server rehashes all of it once when it opens
+the store. **Unequal is not healthy**: `/health` returns `503` with
+`data_available: false` and no `release_identity`, so a proxy and the controller both stop
+short of serving the wrong data release. Verification is a store-open cost, not a
+per-request one; the index is ~4.8 GB.
+
+The controller also execs a deterministic, read-only semantic probe in the app container:
+
+```bash
+docker compose exec -T clinvar_link python -m clinvar_link.data_probe
+# {"data_schema_version":"1","query_result_sha256":"d4735e3a…","record_count":4558706}
+```
+
+It opens the index `mode=ro&immutable=1` (so observing can never create a `-wal` sidecar
+and invalidate the volume's identity), needs no network, and runs as the image's non-root
+user.
+
+The data volume's logical Compose key is `clinvar-data` — the key the controller's
+reviewed adapter table names — and its physical name is selectable so a candidate volume
+can be switched in:
+
+```yaml
+volumes:
+  clinvar-data:
+    name: "${CLINVAR_DATA_VOLUME:-clinvar-link-npm_clinvar-data}"
+```
+
+The default is the volume that already exists on the server, so an unchanged environment
+renders an unchanged name.
+
 ### Production is pinned, not floating
 
 The production overlay refuses to start without an exact image digest **and** an
