@@ -2,6 +2,37 @@
 
 All notable changes to clinvar-link are documented here.
 
+## [0.5.8] - 2026-09-02
+
+### Added
+
+- **Adopt the GeneFoundry `runtime-v1` data identity contract.** `clinvar-data-init` now seals a
+  canonical `data-identity-manifest.json` (path, size and SHA-256 of every authoritative file)
+  beside the index it materializes, and the server rehashes it once when it opens the store.
+  `/health` publishes `data_available` and
+  `release_identity.data_identity.{expected,actual}` — each `{release_tag, digest}` — and returns
+  503 rather than reporting healthy when the materialized data is not the configured release.
+- `python -m clinvar_link.data_probe`: a deterministic, read-only semantic probe the fleet
+  controller execs in the app container. It prints one JSON object with exactly
+  `{data_schema_version, record_count, query_result_sha256}`, opens the index
+  `mode=ro&immutable=1`, needs no network, and runs as the image's non-root user.
+- `docker/ci-prepare-smoke.sh`: pins the container smoke stack to the exact reviewed data release
+  named in `container-release.json` instead of the base compose's development `BUNDLE_URL=latest`.
+
+### Changed
+
+- Deploy: the data volume's logical Compose key is `clinvar-data` again — the name the fleet
+  controller's reviewed adapter table uses — and its physical name is selectable through
+  `${CLINVAR_DATA_VOLUME:-clinvar-link-npm_clinvar-data}`, defaulting to the volume that already
+  exists on the server. The previous `clinvar-reference` key would have created a new, empty
+  volume on the next deploy.
+- `container-release.json` declares `data_identity_contract: runtime-v1`; `.data.digest` is now the
+  runtime identity digest that `/health` proves, and the compressed bundle digest moved to
+  `smoke_environment`. `startup_timeout_seconds` raised to 900 to cover materializing and hashing
+  the ~4.8 GB index.
+- Pin the reusable router container CI and release workflows to genefoundry-router v0.8.5
+  (`31ea81cee5475fc3655c047c63a89739948f99a9`).
+
 ## [0.5.7] - 2026-09-02
 
 ### Fixed
