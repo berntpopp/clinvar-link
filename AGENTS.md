@@ -84,6 +84,10 @@ directory map.
   smoke stack would compare the runtime identity against a moving bundle.
 - The reusable router workflows are pinned by SHA in **every** `.github/workflows/*.yml`
   and asserted by `tests/test_container_workflow_pins.py`; bump them together.
+- **`data.schema_compatibility`** (`container-release.json`, since v0.5.9 / router v0.8.6):
+  `["1"]` — the bare `data_schema_version` `python -m clinvar_link.data_probe` reports
+  (an integer schema id, not the `"1.0.0"` bundle-label string). Bump it only when
+  `data_probe`'s reported schema id changes.
 - Release checklist this repo enforces (see `tests/unit/test_version_single_source.py`):
   bump `pyproject.toml` `version`, `uv lock`, add a `CHANGELOG.md` heading
   `## [x.y.z] - YYYY-MM-DD`, update `CITATION.cff` `version:` **and**
