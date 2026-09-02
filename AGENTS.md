@@ -57,6 +57,33 @@ directory map.
   release gate (`container_release.py validate-compose`, `ALLOWED_SERVICE_KEYS`)
   forbids it there.
 - Guard test: `tests/test_config.py::test_fleet_deploy_overlay_declares_numeric_user`.
+- **Data identity contract: `runtime-v1`** (`container-release.json`
+  `data_identity_contract`). `clinvar-data-init` seals a canonical
+  `data-identity-manifest.json` beside the materialized index (see
+  `clinvar_link/runtime_data_identity.py`); the server rehashes those bytes once when it
+  opens the store and `/health` publishes
+  `release_identity.data_identity.{expected,actual}`, each `{release_tag, digest}`.
+  Unequal is **not healthy** — `/health` returns 503 with `data_available: false`. The
+  expected pair comes from `CLINVAR_LINK_BUNDLE_RELEASE_TAG` +
+  `CLINVAR_LINK_DATA_IDENTITY_DIGEST`, and the digest is `container-release.json`
+  `.data.digest`. It moves **only** with a data release; recompute it by materializing
+  the new bundle and reading `data_identity_digest` from the `clinvar-link-data pull`
+  summary.
+- **Controller probe:** `python -m clinvar_link.data_probe`, exec'd in the running app
+  container. It prints one JSON object with exactly
+  `{"data_schema_version", "record_count", "query_result_sha256"}`, opens the index
+  `mode=ro&immutable=1`, needs no network, and runs as the image's non-root user.
+- **Data volume:** the logical Compose key is `clinvar-data` — the name the controller's
+  reviewed adapter table uses — and its physical name is selectable:
+  `${CLINVAR_DATA_VOLUME:-clinvar-link-npm_clinvar-data}`. The default is the volume that
+  already exists on the server; never rename the logical key without changing the adapter
+  table, and never drop the default without migrating the data.
+- **CI smoke pin:** `docker/ci-prepare-smoke.sh` (declared as `preparation`) replaces the
+  base compose's development `BUNDLE_URL=latest` with the exact release named in
+  `container-release.json`, for both the init sidecar and the application. Without it the
+  smoke stack would compare the runtime identity against a moving bundle.
+- The reusable router workflows are pinned by SHA in **every** `.github/workflows/*.yml`
+  and asserted by `tests/test_container_workflow_pins.py`; bump them together.
 - Release checklist this repo enforces (see `tests/unit/test_version_single_source.py`):
   bump `pyproject.toml` `version`, `uv lock`, add a `CHANGELOG.md` heading
   `## [x.y.z] - YYYY-MM-DD`, update `CITATION.cff` `version:` **and**

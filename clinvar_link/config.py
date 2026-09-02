@@ -21,6 +21,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_DATA_DIR = _REPO_ROOT / "data"
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_SHA256_LOWER_RE = re.compile(r"^[0-9a-f]{64}$")
 _RELEASE_TAG_RE = re.compile(r"^bundle-\d{4}-\d{2}-\d{2}$")
 
 
@@ -111,6 +112,13 @@ class Settings(BaseSettings):
     BUNDLE_EXPECTED_SHA256: str | None = None
     BUNDLE_EXPECTED_EXPANDED_SHA256: str | None = None
     BUNDLE_EXPECTED_SCHEMA_VERSION: str | None = None
+    # GeneFoundry runtime-v1 data identity. ``BUNDLE_RELEASE_TAG`` plus this digest are the
+    # identity the deployment is CONFIGURED for; the materializer writes the identity it
+    # actually produced beside the index, and /health publishes both. They are set
+    # together or not at all: a deployment that names neither publishes no
+    # ``release_identity`` (development), and one that names both refuses to report
+    # healthy until the materialized bytes prove exactly that pair.
+    DATA_IDENTITY_DIGEST: str | None = None
     BUNDLE_MAX_BYTES: int = Field(
         default=2 << 30,
         gt=0,
@@ -188,6 +196,16 @@ class Settings(BaseSettings):
             return f"/{v}"
         return v
 
+    @field_validator("DATA_IDENTITY_DIGEST")
+    @classmethod
+    def validate_identity_digest(cls, v: str | None) -> str | None:
+        """Require the fleet-wide ``sha256:<64 lowercase hex>`` digest form."""
+        if v is None or v == "":
+            return None
+        if not v.startswith("sha256:") or not _SHA256_LOWER_RE.fullmatch(v.removeprefix("sha256:")):
+            raise ValueError("DATA_IDENTITY_DIGEST must be sha256:<64 lowercase hex characters>")
+        return v
+
     @field_validator("MCP_ALLOWED_HOSTS")
     @classmethod
     def reject_wildcard_hosts(cls, v: list[str]) -> list[str]:
@@ -237,6 +255,27 @@ class Settings(BaseSettings):
     def db_path(self) -> Path:
         """Absolute path to the SQLite index (``DATA_DIR / DB_FILENAME``)."""
         return self.DATA_DIR / self.DB_FILENAME
+
+    @property
+    def materialized_root(self) -> Path:
+        """The immutable directory the index was materialized into.
+
+        ``DATA_DIR`` is ``/data/current`` in the container, a symlink the init sidecar
+        repoints at the version directory it just sealed. The runtime identity is proven
+        against that directory, never through the selector, so a candidate volume the
+        fleet controller has not switched to yet verifies exactly like the live one.
+        """
+        return self.DATA_DIR.resolve()
+
+    @property
+    def expected_data_identity(self) -> dict[str, str] | None:
+        """Return the runtime-v1 identity this deployment is configured for, if any."""
+        if not self.BUNDLE_RELEASE_TAG or not self.DATA_IDENTITY_DIGEST:
+            return None
+        return {
+            "release_tag": self.BUNDLE_RELEASE_TAG,
+            "digest": self.DATA_IDENTITY_DIGEST,
+        }
 
     @property
     def cors_origins_list(self) -> list[str]:

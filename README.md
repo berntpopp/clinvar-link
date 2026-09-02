@@ -103,6 +103,12 @@ Paste it verbatim; never paraphrase or fabricate it. Full account of the build,
 the HGVS indexing strategy and the bundle-publishing model:
 [docs/data.md](docs/data.md).
 
+A pinned deployment can also **prove** which data release it is serving: the data-init
+sidecar seals a canonical identity manifest beside the index, and `/health` publishes the
+configured and the materialized `{release_tag, digest}` side by side — reporting `503`
+rather than healthy when they differ. See
+[runtime data identity](docs/deployment.md#runtime-data-identity-runtime-v1).
+
 ## Documentation
 
 - [Data: source, build, distribution, refresh](docs/data.md) — the bulk pipeline, the prebuilt bundle, the refresh model, the citation contract.

@@ -99,6 +99,38 @@ Two publishers exist, and both produce the same artifact shape — a
 > before uploading, and `BUNDLE_MAX_BYTES` (2 GiB) enforces the same ceiling on
 > the consuming side.
 
+## Runtime data identity
+
+A deployment does not just need *an* index; it needs to be able to prove **which** data
+release it is serving. When `pull` is given the complete exact identity
+(`BUNDLE_RELEASE_TAG` + `BUNDLE_EXPECTED_SHA256` + `BUNDLE_EXPECTED_EXPANDED_SHA256` +
+`BUNDLE_EXPECTED_SCHEMA_VERSION`) it materializes into an immutable version directory
+`<BUNDLE_REFERENCE_ROOT>/<compressed sha256>/` and seals it:
+
+```
+/data/463a73…/clinvar.sqlite               # 0444, the index
+/data/463a73…/data-identity.json           # release tag + compressed/expanded digests
+/data/463a73…/data-identity-manifest.json  # 0444, canonical runtime-v1 manifest
+/data/current -> 463a73…                   # selector, repointed last
+```
+
+`data-identity-manifest.json` is the GeneFoundry **`runtime-v1`** contract
+(`clinvar_link/runtime_data_identity.py`): `{schema_version, release_tag, inputs}`, where
+every input carries its relative path, byte size and SHA-256, sorted by path. The
+identity **digest** is the SHA-256 of that manifest serialized as canonical JSON, so it
+changes if any authoritative byte, any file name, or the release tag changes.
+
+`clinvar-link-data pull` prints that digest as `data_identity_digest`. It is the value
+that belongs in `container-release.json` `.data.digest` and in
+`CLINVAR_LINK_DATA_IDENTITY_DIGEST`; the server rehashes the volume when it opens the
+store and refuses to report healthy unless the two agree. See
+[deployment](deployment.md#runtime-data-identity-runtime-v1) for the `/health` payload and
+the read-only `python -m clinvar_link.data_probe` observation.
+
+The manifest is written **last** and the `current` symlink is repointed **after** it, so a
+reader that follows the selector always lands on a directory whose identity has already
+been proven — including a candidate volume the fleet controller has not switched to yet.
+
 ## Refresh
 
 ClinVar publishes a new release **weekly**, so schedule a `refresh` (for source

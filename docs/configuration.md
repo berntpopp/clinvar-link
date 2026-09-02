@@ -37,6 +37,7 @@ How the server obtains a prebuilt `clinvar.sqlite.zst` instead of building one.
 | `BUNDLE_EXPECTED_SHA256` | unset | Expected sha256 of the **compressed** asset. **Required in production.** |
 | `BUNDLE_EXPECTED_EXPANDED_SHA256` | unset | Expected sha256 of the **expanded** DB. **Required in production.** |
 | `BUNDLE_EXPECTED_SCHEMA_VERSION` | unset | Must be `1.0.0` in production. |
+| `DATA_IDENTITY_DIGEST` | unset | `sha256:<64 hex>` of the sealed `runtime-v1` identity manifest this deployment expects. Set together with `BUNDLE_RELEASE_TAG` to make `/health` publish and enforce `release_identity`; unset (development) publishes none. See [runtime data identity](deployment.md#runtime-data-identity-runtime-v1). |
 | `BUNDLE_PATH` | unset | Install from a **local** `.zst` file instead of downloading (air-gapped). |
 | `GITHUB_REPO` | `berntpopp/clinvar-link` | Repo whose Releases publish the bundle. |
 | `BUNDLE_ASSET_NAME` | `clinvar.sqlite.zst` | Release asset name. |

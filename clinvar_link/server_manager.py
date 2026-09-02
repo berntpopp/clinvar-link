@@ -21,6 +21,7 @@ import uvicorn
 from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 from fastmcp.server.http import HostOriginGuardMiddleware
 
@@ -29,9 +30,16 @@ from clinvar_link.config import ServerConfig, settings
 from clinvar_link.exceptions import ConfigurationError, MCPIntegrationError, StartupError
 from clinvar_link.logging_config import configure_logging
 from clinvar_link.mcp.facade import create_clinvar_mcp
+from clinvar_link.runtime_data_identity import (
+    RuntimeDataIdentityError,
+    verify_runtime_identity,
+)
 from clinvar_link.services.clinvar_service import ClinVarService
 
 _BUILD_HINT = "Build it with 'clinvar-link-data build' before starting the server."
+# One public reason string for every data-identity failure: an unauthenticated probe
+# must not learn which digest mismatched or which file went missing.
+PUBLIC_DATA_UNAVAILABLE_REASON = "reference data unavailable"
 
 
 class UnifiedServerManager:
@@ -79,6 +87,45 @@ class UnifiedServerManager:
         build_database(settings, source_path=source_path)
         self.logger.info("AUTO_BOOTSTRAP: build complete", db_path=str(settings.db_path))
 
+    # ---------------- runtime data identity ----------------
+
+    def _bind_runtime_data_identity(self, app: FastAPI) -> None:
+        """Prove the materialized data identity once, at store-open time.
+
+        The GeneFoundry ``runtime-v1`` contract wants ``/health`` to publish what the
+        deployment is configured for next to what the init sidecar actually materialized.
+        The ClinVar index is several gigabytes, so it is rehashed here — once, while the
+        store opens — and the proven pair is cached on ``app.state``; ``/health`` then
+        costs nothing. A deployment that names no expected identity (development) simply
+        publishes no ``release_identity``.
+        """
+        app.state.clinvar_data_identity = None
+        app.state.clinvar_data_identity_error = None
+        expected = settings.expected_data_identity
+        if expected is None:
+            self.logger.info("No runtime data identity configured; skipping verification")
+            return
+        try:
+            actual = verify_runtime_identity(settings.materialized_root)
+        except (OSError, RuntimeDataIdentityError) as exc:
+            app.state.clinvar_data_identity_error = PUBLIC_DATA_UNAVAILABLE_REASON
+            self.logger.error(
+                "ClinVar runtime data identity verification failed",
+                data_root=str(settings.DATA_DIR),
+                error=str(exc),
+            )
+            return
+        app.state.clinvar_data_identity = actual
+        if actual != expected:
+            app.state.clinvar_data_identity_error = PUBLIC_DATA_UNAVAILABLE_REASON
+            self.logger.error(
+                "Materialized ClinVar data identity does not match the configured release",
+                expected=expected,
+                actual=actual,
+            )
+            return
+        self.logger.info("ClinVar runtime data identity verified", **actual)
+
     # ---------------- FastAPI host (health only) ----------------
 
     async def _create_fastapi_app(self, config: ServerConfig) -> FastAPI:
@@ -87,6 +134,7 @@ class UnifiedServerManager:
             self.logger.info("Starting ClinVar Link host application...")
             service = self._create_service()
             app.state.clinvar_service = service
+            self._bind_runtime_data_identity(app)
             self.logger.info("Service ready", db_path=str(settings.db_path))
             try:
                 yield
@@ -126,19 +174,41 @@ class UnifiedServerManager:
         )
 
         @app.get("/health")
-        async def health() -> dict[str, Any]:
+        async def health() -> Any:
             release_date: str | None = None
             service = getattr(app.state, "clinvar_service", None)
             if service is not None:
                 with suppress(Exception):  # best-effort; never fail health on meta
                     meta = await service.get_clinvar_meta()
                     release_date = meta.get("release_date")
-            return {
+            result: dict[str, Any] = {
                 "status": "healthy",
                 "version": __version__,
                 "transport": "streamable-http-stateless",
                 "clinvar_release_date": release_date,
+                "data_available": service is not None,
             }
+            expected = settings.expected_data_identity
+            if expected is None:
+                # Development: nothing was pinned, so there is no identity to prove and no
+                # runtime-v1 fragment to publish. Deployments always pin both halves.
+                return result
+            actual = getattr(app.state, "clinvar_data_identity", None)
+            if actual != expected:
+                # Readiness, not liveness: never report healthy to a proxy or the fleet
+                # controller while the served bytes are not the reviewed data release.
+                result["status"] = "degraded"
+                result["data_available"] = False
+                result["reason"] = (
+                    getattr(app.state, "clinvar_data_identity_error", None)
+                    or PUBLIC_DATA_UNAVAILABLE_REASON
+                )
+                return JSONResponse(result, status_code=503)
+            result["release_identity"] = {
+                "schema_version": 1,
+                "data_identity": {"expected": expected, "actual": actual},
+            }
+            return result
 
         return app
 
