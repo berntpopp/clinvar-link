@@ -2,6 +2,16 @@
 
 All notable changes to clinvar-link are documented here.
 
+## [0.5.9] - 2026-09-02
+
+### Changed
+
+- Declare `data.schema_compatibility: ["1"]` in `container-release.json` — the bare
+  `data_schema_version` `python -m clinvar_link.data_probe` reports — now that
+  genefoundry-router v0.8.6 accepts the field.
+- Pin the reusable router container CI and release workflows to genefoundry-router v0.8.6
+  (`3d3cc20477828ddbd8a0c980b5b4f709e2612c02`).
+
 ## [0.5.8] - 2026-09-02
 
 ### Added

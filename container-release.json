@@ -32,6 +32,7 @@
     "mode": "external-reference",
     "release_tag": "bundle-2026-08-31",
     "digest": "sha256:70e8fc1e8c2edad8c6f9bae91606ec86b3cbf6118f7ac8da1cb356b1a36855d6",
+    "schema_compatibility": ["1"],
     "image_allowlist": [
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/__init__.py",
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/indexes.sql",
