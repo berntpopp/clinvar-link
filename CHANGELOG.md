@@ -2,6 +2,15 @@
 
 All notable changes to clinvar-link are documented here.
 
+## [0.5.10] - 2026-09-18
+
+### Changed
+
+- Consolidate Dependabot updates and security fixes across runtime and dev dependencies.
+- Pin reusable router container CI and release workflows to genefoundry-router v0.9.1 (`adfc1cffed6530d6453c9dbb40be5f4c5884b8a2`).
+- Update setup-uv to v10.1.0 and CodeQL action to v4.38.0.
+- Ensure package manager upgrades in Dockerfile base runtime stage.
+
 ## [0.5.9] - 2026-09-02
 
 ### Changed
