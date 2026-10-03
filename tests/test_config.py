@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -196,9 +198,43 @@ def test_npm_compose_preserves_container_hardening() -> None:
     assert 'expose:\n      - "8000"' in compose
 
 
+def test_deployed_npm_stack_keeps_one_no_new_privileges_entry_per_service() -> None:
+    """The controller deploys the standalone NPM file with one hardening option."""
+    docker = shutil.which("docker")
+    assert docker is not None
+    result = subprocess.run(  # noqa: S603 -- fixed Compose files and example environment
+        [
+            docker,
+            "compose",
+            "--env-file",
+            ".env.docker.example",
+            "-f",
+            "docker/docker-compose.npm.yml",
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    model = json.loads(result.stdout)
+    for service in model["services"].values():
+        assert service["security_opt"] == ["no-new-privileges:true"]
+
+
+def test_release_config_declares_the_complete_deployed_compose_stack() -> None:
+    release = json.loads((ROOT / "container-release.json").read_text())
+    assert release["service"]["deployed_compose_files"] == ["docker/docker-compose.npm.yml"]
+
+
 def test_npm_compose_forces_pinned_materialization_before_readonly_server() -> None:
     """NPM must pull the pin once, then run the app without bootstrap or writes."""
-    compose = yaml.safe_load((ROOT / "docker/docker-compose.npm.yml").read_text())
+    compose = yaml.load(
+        (ROOT / "docker/docker-compose.npm.yml").read_text(),
+        Loader=_TolerantSafeLoader,  # noqa: S506 - subclasses SafeLoader
+    )
     init = compose["services"]["clinvar-data-init"]
     app = compose["services"]["clinvar_link"]
 
@@ -301,11 +337,17 @@ class _TolerantSafeLoader(yaml.SafeLoader):
     """A SafeLoader that ignores unknown custom tags (e.g. Compose ``!reset``)."""
 
 
+def _construct_compose_tag(loader: _TolerantSafeLoader, node: yaml.Node) -> object:
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    return loader.construct_scalar(node)
+
+
 _TolerantSafeLoader.add_multi_constructor(
     "!",
-    lambda loader, suffix, node: (
-        loader.construct_scalar(node) if isinstance(node, yaml.ScalarNode) else None
-    ),
+    lambda loader, suffix, node: _construct_compose_tag(loader, node),
 )
 
 
