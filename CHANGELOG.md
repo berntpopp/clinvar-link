@@ -412,4 +412,3 @@ ERRORS instead of returning an empty success. Behaviour Conformance v1 (hardened
   ports, no `container_name`, and the standard `GF_HEALTHCHECK_HOST` healthcheck.
 - Inline the compose service definitions: top-level `x-*` anchors are emitted
   verbatim by `docker compose config` and are rejected as unapproved fields.
-
