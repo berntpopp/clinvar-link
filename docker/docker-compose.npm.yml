@@ -36,7 +36,7 @@ services:
       # manifest the init seals beside the index. /health publishes it next to the
       # identity actually materialized, and refuses to report healthy when they differ.
       # It is `container-release.json` .data.digest and moves only with a data release.
-      CLINVAR_LINK_DATA_IDENTITY_DIGEST: ${CLINVAR_DATA_IDENTITY_DIGEST:-sha256:70e8fc1e8c2edad8c6f9bae91606ec86b3cbf6118f7ac8da1cb356b1a36855d6}
+      CLINVAR_LINK_DATA_IDENTITY_DIGEST: ${CLINVAR_DATA_IDENTITY_DIGEST:-sha256:e871870a70c239c9ab79b1b2f8aa7fe11305d059d10f03814cc82022ec675cb5}
       CLINVAR_LINK_DEVELOPMENT_LATEST: "false"
       CLINVAR_LINK_GITHUB_REPO: berntpopp/clinvar-link
       CLINVAR_LINK_BUILD_LOCAL: "false"

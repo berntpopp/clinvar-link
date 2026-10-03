@@ -21,6 +21,9 @@ def test_data_bundle_workflow_uses_the_release_helper_and_never_deletes_drafts()
     assert "collision" in workflow
     assert "steps.release-state.outputs.state == 'create'" in workflow
     assert "steps.release-state.outputs.state == 'draft_publish_existing'" in workflow
+    assert 'gh release verify "$TAG"' not in workflow
+    assert 'gh release verify-asset "$TAG" "/tmp/existing/$asset"' in workflow
+    assert 'gh release verify-asset "$TAG" "dist/$asset"' in workflow
 
 
 def test_publish_job_installs_the_release_state_helper() -> None:
