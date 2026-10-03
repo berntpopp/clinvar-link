@@ -20,7 +20,7 @@ from clinvar_link.logging_config import configure_logging
 from clinvar_link.runtime_data_identity import write_identity_manifest
 from clinvar_link.server_manager import UnifiedServerManager
 
-RELEASE_TAG = "bundle-2026-08-31"
+RELEASE_TAG = "bundle-2026-09-29"
 
 
 async def _health(monkeypatch: pytest.MonkeyPatch, data_dir: Path, **overrides: object) -> tuple:

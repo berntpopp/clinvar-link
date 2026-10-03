@@ -51,7 +51,7 @@ the same way the controller does before releasing:
 ```bash
 CLINVAR_LINK_IMAGE=ghcr.io/berntpopp/clinvar-link@sha256:<64 zeros> \
 CLINVAR_DATA_BUNDLE_URL=https://example.invalid/bundle.tar.gz \
-CLINVAR_DATA_RELEASE_TAG=bundle-2026-08-31 \
+CLINVAR_DATA_RELEASE_TAG=bundle-2026-09-29 \
 CLINVAR_DATA_SHA256=<64 zeros> CLINVAR_DATA_EXPANDED_SHA256=<64 zeros> \
 docker compose -f docker/docker-compose.npm.yml config --format json > /tmp/clinvar.json
 # from a strato_v6_docker_npm checkout:
@@ -73,8 +73,8 @@ serving. `clinvar-link` answers that on `/health`:
   "release_identity": {
     "schema_version": 1,
     "data_identity": {
-      "expected": { "release_tag": "bundle-2026-08-31", "digest": "sha256:70e8…" },
-      "actual":   { "release_tag": "bundle-2026-08-31", "digest": "sha256:70e8…" }
+      "expected": { "release_tag": "bundle-2026-09-29", "digest": "sha256:e871…" },
+      "actual":   { "release_tag": "bundle-2026-09-29", "digest": "sha256:e871…" }
     }
   }
 }
@@ -122,10 +122,10 @@ exact data pin (the config validator enforces the data half — see
 
 ```bash
 CLINVAR_LINK_IMAGE=ghcr.io/berntpopp/clinvar-link@sha256:<digest> \
-CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-2026-08-31/clinvar.sqlite.zst \
-CLINVAR_DATA_RELEASE_TAG=bundle-2026-08-31 \
-CLINVAR_DATA_SHA256=463a73b2ae8aab3bc2758e703b3207d3b82eb23ca90b56b51f3fef3c73babac1 \
-CLINVAR_DATA_EXPANDED_SHA256=afb1e6cbc7e4487e2db586e1726b8ca81eaa29b88b35a901c08a2e668ba72b85 \
+CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-2026-09-29/clinvar.sqlite.zst \
+CLINVAR_DATA_RELEASE_TAG=bundle-2026-09-29 \
+CLINVAR_DATA_SHA256=1187a6fdcae4225e5e583c94aef2a8f7d0ea687f832d1b12d96c3701ecdc4c59 \
+CLINVAR_DATA_EXPANDED_SHA256=c790f26ac5506534d380c3278953024a313c9cd03ce67a798ff5e584d3e770c8 \
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 ```
 

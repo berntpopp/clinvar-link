@@ -21,6 +21,22 @@ def test_data_bundle_workflow_uses_the_release_helper_and_never_deletes_drafts()
     assert "collision" in workflow
     assert "steps.release-state.outputs.state == 'create'" in workflow
     assert "steps.release-state.outputs.state == 'draft_publish_existing'" in workflow
+    assert 'gh release verify "$TAG"' not in workflow
+    assert "published_noop)" in workflow
+    assert (
+        './scripts/verify_release_assets.sh "$TAG" "/tmp/existing" "$GITHUB_REPOSITORY"' in workflow
+    )
+    assert "draft_publish_existing)" in workflow
+    assert "./scripts/verify_draft_release_assets.sh" in workflow
+    assert "git/ref/tags/$TAG" in workflow
+    assert "draft recovery requires an existing tag that resolves to a source commit" in workflow
+    publication = workflow.split("- name: Publish once and verify immutable assets", maxsplit=1)[1]
+    assert publication.index('gh release edit "$TAG"') < publication.index(
+        "./scripts/verify_release_assets.sh"
+    )
+    assert 'steps.release-state.outputs.state }}" == draft_publish_existing' in publication
+    assert './scripts/verify_release_assets.sh "$TAG" "/tmp/existing"' in publication
+    assert './scripts/verify_release_assets.sh "$TAG" "dist"' in publication
 
 
 def test_publish_job_installs_the_release_state_helper() -> None:

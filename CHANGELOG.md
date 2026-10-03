@@ -5,6 +5,13 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-10-03
+
+### Changed
+
+- Pin production and NPM deployments to the published ClinVar `bundle-2026-09-29` data identity.
+- Verify each published release asset's provenance instead of requiring an attestation on the Git tag.
+
 ## [0.5.11] - 2026-10-03
 
 - Update PyJWT to 2.15.0 and virtualenv to 21.7.13; preserve the open grouped Python dependency targets.

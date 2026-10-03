@@ -30,8 +30,8 @@
   },
   "data": {
     "mode": "external-reference",
-    "release_tag": "bundle-2026-08-31",
-    "digest": "sha256:70e8fc1e8c2edad8c6f9bae91606ec86b3cbf6118f7ac8da1cb356b1a36855d6",
+    "release_tag": "bundle-2026-09-29",
+    "digest": "sha256:e871870a70c239c9ab79b1b2f8aa7fe11305d059d10f03814cc82022ec675cb5",
     "schema_compatibility": ["1"],
     "image_allowlist": [
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/__init__.py",
@@ -49,7 +49,7 @@
     "profile": "immutable-bundle"
   },
   "smoke_environment": [
-    "CLINVAR_LINK_BUNDLE_EXPECTED_SHA256=463a73b2ae8aab3bc2758e703b3207d3b82eb23ca90b56b51f3fef3c73babac1"
+    "CLINVAR_LINK_BUNDLE_EXPECTED_SHA256=1187a6fdcae4225e5e583c94aef2a8f7d0ea687f832d1b12d96c3701ecdc4c59"
   ],
   "preparation": "docker/ci-prepare-smoke.sh"
 }
