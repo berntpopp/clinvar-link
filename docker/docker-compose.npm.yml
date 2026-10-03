@@ -19,7 +19,7 @@ services:
   clinvar-data-init:
     # The init sidecar pulls the exact reviewed release; it never reuses an
     # existing database or resolves a floating GitHub release.
-    image: ${CLINVAR_LINK_IMAGE:?Set CLINVAR_LINK_IMAGE to ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
+    image: ${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
     pull_policy: missing
     entrypoint: ["clinvar-link-data", "pull"]
     environment: &npm-data
@@ -53,7 +53,7 @@ services:
     user: "999:999"
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=256m,mode=1777
-    security_opt:
+    security_opt: !override
       - no-new-privileges:true
     cap_drop:
       - ALL
@@ -70,10 +70,10 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  clinvar_link:
+  clinvar-link:
     # Deploy pulls the released, attested image; it never builds from source.
     # Pin a digest, not a tag: there is no `latest`, and only a digest is immutable.
-    image: ${CLINVAR_LINK_IMAGE:?Set CLINVAR_LINK_IMAGE to ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
+    image: ${CLINVAR_LINK_IMAGE:?set ghcr.io/berntpopp/clinvar-link@sha256:<digest>}
     pull_policy: missing
     container_name: clinvar-link-npm
     depends_on:
@@ -133,7 +133,7 @@ services:
         max-size: "50m"
         max-file: "5"
         labels: "service=clinvar-link,environment=production,proxy=npm"
-    security_opt:
+    security_opt: !override
       - no-new-privileges:true
     cap_drop:
       - ALL
