@@ -186,6 +186,7 @@ def test_draft_verifier_requires_exact_source_workflow_and_ref(tmp_path: Path) -
         "unknown",
         "path-traversal",
         "malformed",
+        "unterminated-malformed",
     ],
 )
 def test_checksum_inventory_must_be_exact_before_any_github_call(
@@ -203,9 +204,14 @@ def test_checksum_inventory_must_be_exact_before_any_github_call(
         lines.append(f"{'0' * 64}  unexpected.bin")
     elif entries == "path-traversal":
         lines.append(f"{'0' * 64}  ../outside")
-    else:
+    elif entries == "malformed":
         lines.append("bad checksum entry")
-    (assets / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    checksum_text = "\n".join(lines)
+    if entries != "unterminated-malformed":
+        checksum_text += "\n"
+    else:
+        checksum_text += "\nmalformed final entry"
+    (assets / "SHA256SUMS").write_text(checksum_text, encoding="utf-8")
 
     binary_dir = tmp_path / "bin"
     binary_dir.mkdir()

@@ -16,7 +16,7 @@ validate_release_checksums() {
     return 1
   fi
 
-  while IFS= read -r line; do
+  while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ ! "$line" =~ ^[0-9a-f]{64}\ \ ([A-Za-z0-9._-]+)$ ]]; then
       echo "SHA256SUMS contains a malformed entry" >&2
       return 1
