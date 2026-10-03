@@ -14,14 +14,10 @@ if [[ ! "$source_commit" =~ ^[0-9a-f]{40,64}$ ]]; then
   echo "draft recovery requires a full trusted source commit SHA" >&2
   exit 1
 fi
-if [[ ! -f "$asset_dir/SHA256SUMS" ]]; then
-  echo "draft release assets are missing SHA256SUMS" >&2
-  exit 1
-fi
-(cd "$asset_dir" && sha256sum --check SHA256SUMS)
+source "$(dirname "${BASH_SOURCE[0]}")/validate_release_checksums.sh"
+validate_release_checksums "$asset_dir"
 
-while read -r _ asset; do
-  [[ -n "$asset" ]] || continue
+for asset in SHA256SUMS bundle-metadata.json clinvar.sqlite.zst clinvar.sqlite.zst.sha256; do
   if ! gh attestation verify "$asset_dir/$asset" \
     --repo "$repository" \
     --signer-workflow "$repository/.github/workflows/data-bundle.yml" \
@@ -31,4 +27,4 @@ while read -r _ asset; do
     echo "draft release $tag is incomplete: asset $asset lacks build provenance for source commit $source_commit; refusing publication" >&2
     exit 1
   fi
-done < "$asset_dir/SHA256SUMS"
+done

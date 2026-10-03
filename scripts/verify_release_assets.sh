@@ -10,13 +10,9 @@ tag=$1
 asset_dir=$2
 repository=$3
 
-if [[ ! -f "$asset_dir/SHA256SUMS" ]]; then
-  echo "release assets are missing SHA256SUMS" >&2
-  exit 1
-fi
-(cd "$asset_dir" && sha256sum --check SHA256SUMS)
+source "$(dirname "${BASH_SOURCE[0]}")/validate_release_checksums.sh"
+validate_release_checksums "$asset_dir"
 
-while read -r _ asset; do
-  [[ -n "$asset" ]] || continue
+for asset in SHA256SUMS bundle-metadata.json clinvar.sqlite.zst clinvar.sqlite.zst.sha256; do
   gh release verify-asset "$tag" "$asset_dir/$asset" --repo "$repository"
-done < "$asset_dir/SHA256SUMS"
+done
