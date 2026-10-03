@@ -2,6 +2,14 @@
 
 All notable changes to clinvar-link are documented here.
 
+
+## [Unreleased]
+
+## [0.5.11] - 2026-10-03
+
+- Update PyJWT to 2.15.0 and virtualenv to 21.7.13; preserve the open grouped Python dependency targets.
+- Refresh the pinned Python 3.14 base image, GitHub Actions, and router v0.9.3 reusable container workflows.
+- Keep the production NPM overlay’s no-new-privileges setting unique across merged Compose files.
 ## [0.5.10] - 2026-09-18
 
 ### Changed
@@ -404,3 +412,4 @@ ERRORS instead of returning an empty success. Behaviour Conformance v1 (hardened
   ports, no `container_name`, and the standard `GF_HEALTHCHECK_HOST` healthcheck.
 - Inline the compose service definitions: top-level `x-*` anchors are emitted
   verbatim by `docker compose config` and are rejected as unapproved fields.
+
