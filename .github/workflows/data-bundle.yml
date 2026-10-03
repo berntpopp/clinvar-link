@@ -100,10 +100,24 @@ jobs:
               --current dist/bundle-metadata.json --existing /tmp/existing/bundle-metadata.json \
               $(test "$(jq -r .isDraft /tmp/release.json)" = true && echo --draft))"
             case "$state" in
-              published_noop|draft_publish_existing)
-                while read -r _ asset; do
-                  gh release verify-asset "$TAG" "/tmp/existing/$asset" --repo "$GITHUB_REPOSITORY"
-                done < /tmp/existing/SHA256SUMS
+              published_noop)
+                ./scripts/verify_release_assets.sh "$TAG" "/tmp/existing" "$GITHUB_REPOSITORY"
+                ;;
+              draft_publish_existing)
+                tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
+                object_type="$(jq -r '.object.type' <<<"$tag_object")"
+                source_commit="$(jq -r '.object.sha' <<<"$tag_object")"
+                if [[ "$object_type" == tag ]]; then
+                  tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$source_commit")"
+                  object_type="$(jq -r '.object.type' <<<"$tag_object")"
+                  source_commit="$(jq -r '.object.sha' <<<"$tag_object")"
+                fi
+                [[ "$object_type" == commit ]] || {
+                  echo "draft recovery requires an existing tag that resolves to a source commit" >&2
+                  exit 1
+                }
+                ./scripts/verify_draft_release_assets.sh \
+                  "$TAG" "/tmp/existing" "$GITHUB_REPOSITORY" "$source_commit"
                 ;;
               collision) echo "immutable release collision: $TAG" >&2; exit 1 ;;
               *) echo "unexpected release state: $state" >&2; exit 1 ;;
@@ -133,4 +147,8 @@ jobs:
         run: |
           set -euo pipefail
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
-          while read -r _ asset; do gh release verify-asset "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY"; done < dist/SHA256SUMS
+          if [[ "${{ steps.release-state.outputs.state }}" == draft_publish_existing ]]; then
+            ./scripts/verify_release_assets.sh "$TAG" "/tmp/existing" "$GITHUB_REPOSITORY"
+          else
+            ./scripts/verify_release_assets.sh "$TAG" "dist" "$GITHUB_REPOSITORY"
+          fi

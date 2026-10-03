@@ -97,7 +97,14 @@ def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
     # Hard-coding the SHA made every legitimate version bump of this action a CI
     # failure, which is a maintenance trap rather than a supply-chain guarantee.
     assert re.search(r"actions/attest-build-provenance@[0-9a-f]{40} # v\d", workflow)
-    assert "gh release verify-asset" in workflow
+    assert "./scripts/verify_release_assets.sh" in workflow
+    assert "./scripts/verify_draft_release_assets.sh" in workflow
+    draft_verifier = (ROOT / "scripts/verify_draft_release_assets.sh").read_text()
+    assert "--source-digest" in draft_verifier
+    assert (
+        'if [[ "${{ steps.release-state.outputs.state }}" == draft_publish_existing ]]' in workflow
+    )
+    assert '"/tmp/existing"' in workflow
     assert "--clobber" not in workflow
 
 
