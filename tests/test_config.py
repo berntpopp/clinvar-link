@@ -198,8 +198,8 @@ def test_npm_compose_preserves_container_hardening() -> None:
     assert 'expose:\n      - "8000"' in compose
 
 
-def test_full_npm_overlay_keeps_one_no_new_privileges_entry_per_service() -> None:
-    """The deployed base + prod + NPM overlay must render without duplicate options."""
+def test_deployed_npm_stack_keeps_one_no_new_privileges_entry_per_service() -> None:
+    """The controller deploys the standalone NPM file with one hardening option."""
     docker = shutil.which("docker")
     assert docker is not None
     result = subprocess.run(  # noqa: S603 -- fixed Compose files and example environment
@@ -208,10 +208,6 @@ def test_full_npm_overlay_keeps_one_no_new_privileges_entry_per_service() -> Non
             "compose",
             "--env-file",
             ".env.docker.example",
-            "-f",
-            "docker/docker-compose.yml",
-            "-f",
-            "docker/docker-compose.prod.yml",
             "-f",
             "docker/docker-compose.npm.yml",
             "config",
@@ -230,11 +226,7 @@ def test_full_npm_overlay_keeps_one_no_new_privileges_entry_per_service() -> Non
 
 def test_release_config_declares_the_complete_deployed_compose_stack() -> None:
     release = json.loads((ROOT / "container-release.json").read_text())
-    assert release["service"]["deployed_compose_files"] == [
-        "docker/docker-compose.yml",
-        "docker/docker-compose.prod.yml",
-        "docker/docker-compose.npm.yml",
-    ]
+    assert release["service"]["deployed_compose_files"] == ["docker/docker-compose.npm.yml"]
 
 
 def test_npm_compose_forces_pinned_materialization_before_readonly_server() -> None:
@@ -244,7 +236,7 @@ def test_npm_compose_forces_pinned_materialization_before_readonly_server() -> N
         Loader=_TolerantSafeLoader,  # noqa: S506 - subclasses SafeLoader
     )
     init = compose["services"]["clinvar-data-init"]
-    app = compose["services"]["clinvar-link"]
+    app = compose["services"]["clinvar_link"]
 
     assert init["entrypoint"] == ["clinvar-link-data", "pull"]
     assert init["environment"]["CLINVAR_LINK_BUNDLE_URL"].startswith("${CLINVAR_DATA_BUNDLE_URL:")
