@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "data-bundle.yml"
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "data-bundle.yml"
+STATE_SCRIPT = ROOT / "scripts" / "select_release_state.sh"
 
 
 def test_data_bundle_workflow_uses_the_release_helper_and_never_deletes_drafts() -> None:
     """Publication mutations are selected by the typed identity state only."""
-    workflow = WORKFLOW.read_text(encoding="utf-8")
+    workflow = WORKFLOW.read_text(encoding="utf-8") + STATE_SCRIPT.read_text(encoding="utf-8")
 
     assert "clinvar_link.ingest.release_metadata" in workflow
     assert 'str(meta["clinvar_release_date"])[:10]' not in workflow
@@ -47,3 +49,37 @@ def test_publish_job_installs_the_release_state_helper() -> None:
     assert "actions/setup-python@" in publish_job
     assert "astral-sh/setup-uv@" in publish_job
     assert "uv sync --frozen" in publish_job
+
+
+def _jobs() -> tuple[str, str]:
+    build, publish = WORKFLOW.read_text(encoding="utf-8").split("  publish:", maxsplit=1)
+    return build, publish
+
+
+def test_release_state_is_decided_before_the_gate_with_a_read_only_token() -> None:
+    """An already-published bundle must never request data-release approval."""
+    build, publish = _jobs()
+
+    assert "./scripts/select_release_state.sh" in build
+    assert "state: ${{ steps.release-state.outputs.state }}" in build
+    assert "contents: read" in build
+    assert "write" not in build.split("jobs:", maxsplit=1)[1]
+    gate_condition = (
+        "if: needs.build.outputs.state == 'create' || "
+        "needs.build.outputs.state == 'draft_publish_existing'"
+    )
+    assert publish.index(gate_condition) < publish.index("environment: data-release")
+    # The in-gate re-check (write token, sees drafts) stays authoritative.
+    assert "./scripts/select_release_state.sh" in publish
+
+
+def test_publish_no_ops_when_a_newer_bundle_is_already_published() -> None:
+    """An approval granted to a stale run must not publish an older bundle."""
+    _, publish = _jobs()
+
+    supersede = publish.index("id: supersede")
+    assert supersede < publish.index("actions/download-artifact@")
+    assert supersede < publish.index("id: release-state")
+    assert "--exclude-drafts" in publish
+    assert '[[ "$latest" > "$TAG" ]]' in publish
+    assert publish.count("if: steps.supersede.outputs.superseded != 'true'") == 3

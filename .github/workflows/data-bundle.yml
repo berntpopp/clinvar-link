@@ -15,6 +15,7 @@ jobs:
       contents: read
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
+      state: ${{ steps.release-state.outputs.state }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -39,6 +40,14 @@ jobs:
           tag="$(uv run python -m clinvar_link.ingest.release_metadata build \
             --db-path data/clinvar.sqlite --asset-path dist/clinvar.sqlite.zst --out-dir dist)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # Decide before the data-release gate so an existing bundle never asks for approval.
+      # A read-only token cannot see drafts; they read as `create` and re-resolve in publish.
+      - name: Select immutable release state
+        id: release-state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: ./scripts/select_release_state.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: clinvar-data-${{ steps.meta.outputs.tag }}
@@ -48,6 +57,7 @@ jobs:
 
   publish:
     needs: build
+    if: needs.build.outputs.state == 'create' || needs.build.outputs.state == 'draft_publish_existing'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: data-release
@@ -71,66 +81,31 @@ jobs:
           version: "0.8.7"
           enable-cache: false
       - run: uv sync --frozen
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      # A run approved after a newer bundle shipped is obsolete (and its artifact may have
+      # expired): no-op instead of publishing an older bundle. Tags are bundle-YYYY-MM-DD.
+      - name: Skip when a newer bundle is already published
+        id: supersede
+        run: |
+          set -euo pipefail
+          latest="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
+            --json tagName --jq '[.[].tagName | select(startswith("bundle-"))] | max // ""')"
+          if [[ "$latest" > "$TAG" ]]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG superseded by published $latest; nothing to publish."
+          fi
+      - if: steps.supersede.outputs.superseded != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: clinvar-data-${{ needs.build.outputs.tag }}
           path: dist
       - name: Verify transferred bytes
+        if: steps.supersede.outputs.superseded != 'true'
         working-directory: dist
         run: sha256sum --check SHA256SUMS
-      - name: Select immutable release state
+      - name: Re-check immutable release state behind the gate
         id: release-state
-        run: |
-          set -euo pipefail
-          state=create
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/tmp/release.json; then
-            mkdir -p /tmp/existing
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/existing
-            expected_assets='SHA256SUMS
-          bundle-metadata.json
-          clinvar.sqlite.zst
-          clinvar.sqlite.zst.sha256'
-            actual_assets="$(find /tmp/existing -maxdepth 1 -type f -printf '%f\n' | sort)"
-            test "$actual_assets" = "$expected_assets" || {
-              echo "release $TAG has missing, corrupt, or extra assets" >&2
-              exit 1
-            }
-            (cd /tmp/existing && sha256sum --check SHA256SUMS)
-            state="$(uv run python -m clinvar_link.ingest.release_metadata state \
-              --current dist/bundle-metadata.json --existing /tmp/existing/bundle-metadata.json \
-              $(test "$(jq -r .isDraft /tmp/release.json)" = true && echo --draft))"
-            case "$state" in
-              published_noop)
-                ./scripts/verify_release_assets.sh "$TAG" "/tmp/existing" "$GITHUB_REPOSITORY"
-                ;;
-              draft_publish_existing)
-                tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
-                object_type="$(jq -r '.object.type' <<<"$tag_object")"
-                source_commit="$(jq -r '.object.sha' <<<"$tag_object")"
-                if [[ "$object_type" == tag ]]; then
-                  tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$source_commit")"
-                  object_type="$(jq -r '.object.type' <<<"$tag_object")"
-                  source_commit="$(jq -r '.object.sha' <<<"$tag_object")"
-                fi
-                [[ "$object_type" == commit ]] || {
-                  echo "draft recovery requires an existing tag that resolves to a source commit" >&2
-                  exit 1
-                }
-                ./scripts/verify_draft_release_assets.sh \
-                  "$TAG" "/tmp/existing" "$GITHUB_REPOSITORY" "$source_commit"
-                ;;
-              collision) echo "immutable release collision: $TAG" >&2; exit 1 ;;
-              *) echo "unexpected release state: $state" >&2; exit 1 ;;
-            esac
-          else
-            response=/tmp/release-view.txt
-            if gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response" 2>&1; then
-              echo "release lookup disagrees with gh release view" >&2
-              exit 1
-            fi
-            grep -Eq '^HTTP/[0-9.]+ 404' "$response" || { cat "$response" >&2; exit 1; }
-          fi
-          echo "state=$state" >> "$GITHUB_OUTPUT"
+        if: steps.supersede.outputs.superseded != 'true'
+        run: ./scripts/select_release_state.sh
       - name: Create empty immutable draft
         if: steps.release-state.outputs.state == 'create'
         run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true --title "$TAG" --notes "Immutable ClinVar reference bundle; research use only."
