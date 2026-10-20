@@ -5,6 +5,12 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.14] - 2026-10-20
+
+### Changed
+
+- Pin production and NPM deployments to the published ClinVar `bundle-2026-10-19` data identity (ClinVar `variant_summary` of 2026-10-19: 4,690,277 variants, 42,879 genes; runtime-v1 digest `sha256:f8f40ca837bf047628b99800e93ffecd681280e23b9617b9aff56895f7032635`).
+
 ## [0.5.13] - 2026-10-20
 
 ### Security
