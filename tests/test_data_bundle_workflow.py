@@ -61,7 +61,7 @@ def test_release_state_is_decided_before_the_gate_with_a_read_only_token() -> No
     build, publish = _jobs()
 
     assert "./scripts/select_release_state.sh" in build
-    assert "state: ${{ steps.release-state.outputs.state }}" in build
+    assert "steps.release-state.outputs.state }}" in build
     assert "contents: read" in build
     assert "write" not in build.split("jobs:", maxsplit=1)[1]
     gate_condition = (
@@ -83,3 +83,19 @@ def test_publish_no_ops_when_a_newer_bundle_is_already_published() -> None:
     assert "--exclude-drafts" in publish
     assert '[[ "$latest" > "$TAG" ]]' in publish
     assert publish.count("if: steps.supersede.outputs.superseded != 'true'") == 3
+
+
+def test_unchanged_upstream_skips_the_build_and_the_gate() -> None:
+    """Rebuilds are not byte-identical, so the no-op is decided from upstream before building."""
+    from clinvar_link.config import Settings
+
+    build, _ = _jobs()
+    skip = build.index("id: existing")
+
+    assert skip < build.index("uv run clinvar-link-data build")
+    assert f"SOURCE_URL: {Settings.model_fields['SOURCE_URL'].default}" in build
+    assert './scripts/verify_release_assets.sh "$tag" /tmp/published' in build
+    assert (
+        "state: ${{ steps.existing.outputs.state || steps.release-state.outputs.state }}" in build
+    )
+    assert build.count("if: steps.existing.outputs.state != 'published_noop'") == 4

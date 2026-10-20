@@ -14,8 +14,8 @@ jobs:
     permissions:
       contents: read
     outputs:
-      tag: ${{ steps.meta.outputs.tag }}
-      state: ${{ steps.release-state.outputs.state }}
+      tag: ${{ steps.existing.outputs.tag || steps.meta.outputs.tag }}
+      state: ${{ steps.existing.outputs.state || steps.release-state.outputs.state }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -26,7 +26,32 @@ jobs:
           version: "0.8.7"
           enable-cache: false
       - run: uv sync --frozen
+      # Rebuilds are not byte-identical (the DB stamps source_retrieved_at), so an
+      # unchanged upstream is detected from Last-Modified before building, then verified.
+      - name: Skip when this upstream release is already published
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_URL: https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz
+        run: |
+          set -euo pipefail
+          last_modified="$(curl -fsSI "$SOURCE_URL" | tr -d '\r' \
+            | sed -n 's/^[Ll]ast-[Mm]odified: //p')"
+          [[ -n "$last_modified" ]] || exit 0
+          tag="$(uv run python -c 'import sys
+          from clinvar_link.ingest.bundle import release_tag_for_date
+          print(release_tag_for_date(sys.argv[1]))' "$last_modified")"
+          [[ "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft \
+            --jq .isDraft 2>/dev/null)" == false ]] || exit 0
+          mkdir -p /tmp/published
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir /tmp/published
+          [[ "$(jq -r .source_last_modified /tmp/published/bundle-metadata.json)" == "$last_modified" ]] \
+            || exit 0
+          ./scripts/verify_release_assets.sh "$tag" /tmp/published "$GITHUB_REPOSITORY"
+          echo "Upstream $last_modified is already published and verified as $tag."
+          { echo "tag=$tag"; echo "state=published_noop"; } >> "$GITHUB_OUTPUT"
       - name: Build and pack without credentials
+        if: steps.existing.outputs.state != 'published_noop'
         env:
           CLINVAR_LINK_DATA_DIR: data
         run: |
@@ -35,6 +60,7 @@ jobs:
           uv run clinvar-link-data pack --out-dir dist
       - name: Create exact release metadata
         id: meta
+        if: steps.existing.outputs.state != 'published_noop'
         run: |
           set -euo pipefail
           tag="$(uv run python -m clinvar_link.ingest.release_metadata build \
@@ -44,11 +70,13 @@ jobs:
       # A read-only token cannot see drafts; they read as `create` and re-resolve in publish.
       - name: Select immutable release state
         id: release-state
+        if: steps.existing.outputs.state != 'published_noop'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
         run: ./scripts/select_release_state.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: steps.existing.outputs.state != 'published_noop'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: clinvar-data-${{ steps.meta.outputs.tag }}
           path: dist/
