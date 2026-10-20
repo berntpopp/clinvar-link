@@ -208,7 +208,7 @@ def envelope(result: dict[str, Any]) -> dict[str, Any]:
         if block.get("type") == "text":
             try:
                 parsed = json.loads(block.get("text") or "")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if isinstance(parsed, dict):
                 return parsed

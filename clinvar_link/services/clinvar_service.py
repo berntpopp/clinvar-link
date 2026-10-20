@@ -182,7 +182,7 @@ def _as_sqlite_int(text: str, *, field: str) -> int | None:
     """Parse a numeric identifier, rejecting one SQLite could never store (int64 overflow)."""
     try:
         value = int(text)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if abs(value) > _INT64_MAX:
         raise ToolInputError(

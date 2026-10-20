@@ -3,7 +3,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TRUSTED_BUILDER_SHA = "88b565f1b6047f47fd58138cbf041994bb137c03"  # genefoundry-router v0.10.4
+TRUSTED_BUILDER_SHA = "e8931f0114bba3568517d1c7b1f990bea2be31af"  # genefoundry-router v0.10.5
 
 
 def test_all_router_reusable_workflows_use_the_exact_trusted_builder() -> None:

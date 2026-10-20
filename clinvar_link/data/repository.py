@@ -103,7 +103,7 @@ class ClinVarRepository:
         text = text.strip()
         try:
             vid = int(text)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         return self.get_by_variation_id(vid)
 

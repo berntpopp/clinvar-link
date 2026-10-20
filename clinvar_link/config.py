@@ -39,7 +39,7 @@ class ServerConfig:
     log_level: str = "INFO"
 
     @classmethod
-    def from_env(cls) -> "ServerConfig":
+    def from_env(cls) -> ServerConfig:
         """Create configuration from environment variables."""
         return cls(
             transport=settings.MCP_TRANSPORT,
@@ -215,7 +215,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _default_bundle_download_dir(self) -> "Settings":
+    def _default_bundle_download_dir(self) -> Settings:
         """Default the bundle staging dir to ``DATA_DIR`` unless one was given.
 
         ``BUNDLE_DOWNLOAD_DIR`` and ``DATA_DIR`` share the same default sentinel,

@@ -26,6 +26,7 @@ def test_repo_slug_uses_trusted_origin_in_a_differently_named_worktree(
     monkeypatch.setattr(checker, "ROOT", worktree)
 
     class Result:
+        returncode = 0
         stdout = "https://github.com/berntpopp/clinvar-link.git\n"
 
     monkeypatch.setattr(checker.subprocess, "run", lambda *args, **kwargs: Result())

@@ -283,7 +283,7 @@ def format_accession(variation_id: str) -> str:
     """
     try:
         return f"VCV{int(variation_id):09d}"
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return f"VCV{variation_id}"
 
 
@@ -296,7 +296,7 @@ def _safe_int(val: str | None) -> int | None:
         return None
     try:
         return int(val.strip())
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
