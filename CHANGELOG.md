@@ -5,6 +5,16 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.13] - 2026-10-20
+
+### Security
+
+- Upgrade `mcp` to 1.30.0 to resolve the open Dependabot alert.
+
+### Changed
+
+- Consolidate Dependabot updates: bump the Python dependency group (ruff 0.17.1, mypy, pydantic, fastapi, typer and related packages), GitHub Actions (setup-uv v10.3.0, upload-artifact v7.0.2, CodeQL v4.38.3), and pin the reusable router container workflows to genefoundry-router v0.10.4.
+
 ## [0.5.12] - 2026-10-03
 
 ### Changed
