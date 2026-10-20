@@ -82,7 +82,7 @@ line-length = 100
 target-version = "py314"
 # Vendored byte-identical from genefoundry-router docs/conformance (never reformatted here);
 # docs/superpowers are historical plans, frozen at their pre-3.14 text.
-extend-exclude = ["tests/conformance/conformance.py", "tests/conformance/behaviour.py", "docs/superpowers"]
+extend-exclude = ["tests/conformance/conformance.py", "docs/superpowers"]
 
 [tool.ruff.lint]
 # `select`, not `extend-select`: ruff 0.16 grew its implicit default rule set from

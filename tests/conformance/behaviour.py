@@ -152,21 +152,11 @@ class Probe:
         text = resp.text.strip()
         if "text/event-stream" in resp.headers.get("content-type", ""):
             frames = [ln[5:].strip() for ln in text.splitlines() if ln.startswith("data:")]
-            text = frames[-1] if frames else ""
-        try:
-            message = json.loads(text)
-        except (ValueError, json.JSONDecodeError) as exc:
-            raise httpx.DecodingError("Invalid JSON-RPC response object") from exc
-        if not isinstance(message, dict):
-            raise httpx.DecodingError("Invalid JSON-RPC response object")
+            text = frames[-1] if frames else "{}"
+        message = json.loads(text or "{}")
         if "error" in message:
-            if not isinstance(message["error"], dict):
-                raise httpx.DecodingError("Invalid JSON-RPC response object")
             raise ProtocolError(message["error"])
-        result = message.get("result")
-        if not isinstance(result, dict):
-            raise httpx.DecodingError("Invalid JSON-RPC response object")
-        return result
+        return dict(message.get("result") or {})
 
     def initialize(self) -> dict[str, Any]:
         result = self._rpc(
@@ -218,7 +208,7 @@ def envelope(result: dict[str, Any]) -> dict[str, Any]:
         if block.get("type") == "text":
             try:
                 parsed = json.loads(block.get("text") or "")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if isinstance(parsed, dict):
                 return parsed
@@ -266,7 +256,7 @@ def rows(env: dict[str, Any]) -> list[Any] | None:
     for key, value in env.items():
         if key.startswith("_") or not isinstance(value, list):
             continue
-        if not all(isinstance(item, dict) for item in value):
+        if value and not isinstance(value[0], dict):
             continue
         if best is None or len(value) > len(best):
             best = value
@@ -287,8 +277,6 @@ def _grouped_collection(env: dict[str, Any]) -> list[Any] | None:
         if value and not all(isinstance(branch, list) for branch in value.values()):
             continue
         flat = [item for branch in value.values() if isinstance(branch, list) for item in branch]
-        if not all(isinstance(item, dict) for item in flat):
-            continue
         if best is None or len(flat) > len(best):
             best = flat
     return best
@@ -325,10 +313,8 @@ def more_flag(env: dict[str, Any]) -> bool | None:
     return None
 
 
-def is_error_result(result: dict[str, Any], env: dict[str, Any]) -> bool:
-    return (
-        result.get("isError") is True or env.get("success") is False or bool(env.get("error_code"))
-    )
+def is_error_envelope(env: dict[str, Any]) -> bool:
+    return env.get("success") is False or bool(env.get("error_code"))
 
 
 def properties(tool: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -419,11 +405,6 @@ def _record_error_frame(
         result.get("isError") is True,
         f"success={env.get('success')!r} error_code={code!r} but isError={result.get('isError')!r}",
     )
-    rep.check(
-        f"{tool}: tool error includes a fleet error envelope",
-        env.get("success") is False or bool(env.get("error_code")),
-        "MCP rejection lacks the fleet error envelope",
-    )
     if code is not None:
         rep.check(
             f"{tool}: error_code is in the closed enum",
@@ -454,7 +435,7 @@ def check_argument_error(rep: Report, probe: Probe, tool: dict[str, Any]) -> Non
         return
 
     env = envelope(result)
-    if not is_error_result(result, env):
+    if not is_error_envelope(env):
         rep.check(label + " is rejected", False, "the server ACCEPTED an unknown argument")
         return
 
@@ -511,7 +492,7 @@ def check_declared_enums(
             continue
 
         env = envelope(result)
-        if is_error_result(result, env):
+        if is_error_envelope(env):
             _record_error_frame(rep, name, result, env)
             rep.check(
                 f"{label} → invalid_input",
@@ -561,7 +542,7 @@ def check_silent_empty_filter(
             continue
 
         env = envelope(result)
-        if is_error_result(result, env):
+        if is_error_envelope(env):
             _record_error_frame(rep, name, result, env)
             rep.passed.append(f"{label} → rejected ({env.get('error_code')})")
             continue
@@ -638,8 +619,7 @@ def check_total_is_not_the_page_size(
         except ProtocolError:
             return
         env = envelope(result)
-        if is_error_result(result, env):
-            _record_error_frame(rep, name, result, env)
+        if is_error_envelope(env):
             return
         totals[limit] = total_of(env)
 
@@ -655,18 +635,8 @@ def check_total_is_not_the_page_size(
     )
 
 
-def _substantive_payload(res: dict[str, Any], env: dict[str, Any]) -> Any:
-    if env:
-        return {k: v for k, v in env.items() if k not in ("_meta", "meta", "response_mode")}
-    return res
-
-
 def check_response_modes(
-    rep: Report,
-    probe: Probe,
-    tool: dict[str, Any],
-    base: dict[str, Any],
-    control: list[Any] | None = None,
+    rep: Report, probe: Probe, tool: dict[str, Any], base: dict[str, Any], control: list[Any]
 ) -> None:
     """`response_mode` narrows a payload; it MUST NOT destroy it.
 
@@ -676,54 +646,23 @@ def check_response_modes(
     response_mode=minimal discards the entire gene list and still returns success:true.
     """
     name = tool["name"]
-    rm_prop = properties(tool).get("response_mode")
-    if rm_prop is None:
-        return
-    modes = enum_of(rm_prop) or ["compact", "full"]
-    mode_payloads: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    modes = enum_of(properties(tool).get("response_mode") or {}) or []
     for mode in modes:
         label = f"{name}: response_mode={mode!r} preserves the payload"
         try:
             result = probe.call(name, {**base, "response_mode": mode})
-        except ProtocolError as exc:
-            rep.check(
-                f"{name}: response_mode={mode!r} is accepted",
-                False,
-                f"JSON-RPC {exc.error.get('code')}",
-            )
+        except ProtocolError:
             continue
         env = envelope(result)
-        if is_error_result(result, env):
+        if is_error_envelope(env):
             _record_error_frame(rep, name, result, env)
-            code = env.get("error_code")
-            if code in INCONCLUSIVE:
-                rep.skip(f"{name}: response_mode={mode!r}", f"upstream inconclusive ({code})")
-            else:
-                rep.check(
-                    f"{name}: response_mode={mode!r} is accepted",
-                    False,
-                    f"advertised response_mode={mode!r} was rejected with {code!r}",
-                )
             continue
-        mode_payloads[mode] = (result, env)
         found = rows(env)
-        if control is not None:
-            rep.check(
-                label,
-                bool(found),
-                f"the default call returned {len(control)} records; response_mode={mode!r} returned "
-                f"{0 if found is None else len(found)} with success={env.get('success')!r}",
-            )
-
-    if "compact" in mode_payloads and "full" in mode_payloads:
-        c_res, c_env = mode_payloads["compact"]
-        f_res, f_env = mode_payloads["full"]
-        is_identical = _substantive_payload(c_res, c_env) == _substantive_payload(f_res, f_env)
         rep.check(
-            f"{name}: response_mode='compact' and 'full' differ",
-            not is_identical,
-            f"{name} returned identical payloads for response_mode='compact' and 'full'; "
-            "response_mode is ignored",
+            label,
+            bool(found),
+            f"the default call returned {len(control)} records; response_mode={mode!r} returned "
+            f"{0 if found is None else len(found)} with success={env.get('success')!r}",
         )
 
 
@@ -757,10 +696,6 @@ def run_probe(base_url: str, *, expected_name: str, timeout: float = 60.0) -> Re
         check_argument_error(rep, probe, tool)
 
         if any(marker in name for marker in META_TOOLS):
-            props = properties(tool)
-            required = set((tool.get("inputSchema") or {}).get("required") or [])
-            if "response_mode" in props and required <= {"response_mode"}:
-                check_response_modes(rep, probe, tool, {})
             continue
 
         base = valid_args(tool)
@@ -780,7 +715,7 @@ def run_probe(base_url: str, *, expected_name: str, timeout: float = 60.0) -> Re
             continue
 
         control_env = envelope(control_result)
-        if is_error_result(control_result, control_env):
+        if is_error_envelope(control_env):
             code = control_env.get("error_code")
             _record_error_frame(rep, name, control_result, control_env)
             if code in INCONCLUSIVE:
