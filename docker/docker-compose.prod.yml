@@ -1,10 +1,10 @@
 # Production overlay for clinvar-link (Container & Deployment Hardening Standard v1).
 #
 #   CLINVAR_LINK_IMAGE=ghcr.io/berntpopp/clinvar-link@sha256:<digest> \
-#   CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-2026-09-29/clinvar.sqlite.zst \
-#   CLINVAR_DATA_RELEASE_TAG=bundle-2026-09-29 \
-#   CLINVAR_DATA_SHA256=1187a6fdcae4225e5e583c94aef2a8f7d0ea687f832d1b12d96c3701ecdc4c59 \
-#   CLINVAR_DATA_EXPANDED_SHA256=c790f26ac5506534d380c3278953024a313c9cd03ce67a798ff5e584d3e770c8 \
+#   CLINVAR_DATA_BUNDLE_URL=https://github.com/berntpopp/clinvar-link/releases/download/bundle-2026-10-19/clinvar.sqlite.zst \
+#   CLINVAR_DATA_RELEASE_TAG=bundle-2026-10-19 \
+#   CLINVAR_DATA_SHA256=21fb57baf41bdbb99976d0f4cc53ea6b00f277881f469e79a7e07153fb691b85 \
+#   CLINVAR_DATA_EXPANDED_SHA256=f7fffb576c2fdb7431ba89f3adaa984225aea5750833bb751fb10574c1063e6b \
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 #
 # clinvar-data-init materializes exactly the pinned, verified bundle into the

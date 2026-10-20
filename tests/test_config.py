@@ -21,18 +21,18 @@ ROOT = Path(__file__).resolve().parents[1]
 _SHA = "a" * 64
 _EXPANDED_SHA = "b" * 64
 
-CLINVAR_RELEASE_TAG = "bundle-2026-09-29"
+CLINVAR_RELEASE_TAG = "bundle-2026-10-19"
 CLINVAR_BUNDLE_URL = (
     "https://github.com/berntpopp/clinvar-link/releases/download/"
     f"{CLINVAR_RELEASE_TAG}/clinvar.sqlite.zst"
 )
-CLINVAR_COMPRESSED_SHA256 = "1187a6fdcae4225e5e583c94aef2a8f7d0ea687f832d1b12d96c3701ecdc4c59"
-CLINVAR_EXPANDED_SHA256 = "c790f26ac5506534d380c3278953024a313c9cd03ce67a798ff5e584d3e770c8"
+CLINVAR_COMPRESSED_SHA256 = "21fb57baf41bdbb99976d0f4cc53ea6b00f277881f469e79a7e07153fb691b85"
+CLINVAR_EXPANDED_SHA256 = "f7fffb576c2fdb7431ba89f3adaa984225aea5750833bb751fb10574c1063e6b"
 # The GeneFoundry runtime-v1 identity digest: sha256 of the canonical identity manifest
 # the init sidecar seals beside the materialized index. It is what /health publishes and
 # what the fleet controller compares against, and it moves only with a data release.
 CLINVAR_DATA_IDENTITY_DIGEST = (
-    "sha256:e871870a70c239c9ab79b1b2f8aa7fe11305d059d10f03814cc82022ec675cb5"
+    "sha256:f8f40ca837bf047628b99800e93ffecd681280e23b9617b9aff56895f7032635"
 )
 CLINVAR_DATA_VOLUME = "clinvar-link-npm_clinvar-data"
 
