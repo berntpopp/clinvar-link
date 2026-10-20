@@ -90,6 +90,7 @@ def test_vendored_data_contract_matches_recorded_hash() -> None:
 
 def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
     workflow = (ROOT / ".github/workflows/data-bundle.yml").read_text()
+    workflow += (ROOT / "scripts/select_release_state.sh").read_text()
     assert "build:" in workflow and "publish:" in workflow
     assert "draft=true" in workflow
     # The invariant is "release assets carry a build-provenance attestation, and the
