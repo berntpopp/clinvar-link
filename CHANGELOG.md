@@ -5,6 +5,12 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.15] - 2026-10-20
+
+### Security
+
+- certifi 2026.10.19: drops emSign root CAs whose intermediate CA keys were compromised (critical).
+
 ### Changed
 
 - Unify on Python 3.14 (requires-python, tooling, CI single-version matrix, router reusable workflows v0.10.5); cancel superseded PR runs; Dependabot no longer proposes Python minor jumps.
