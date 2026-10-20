@@ -27,7 +27,7 @@ def clinvar_freshness(
     try:
         # Raises ValueError on unparseable input (Python 3.10+); never returns None.
         released = parsedate_to_datetime(release_date)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if released.tzinfo is None:
         released = released.replace(tzinfo=UTC)

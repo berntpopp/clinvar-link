@@ -31,7 +31,7 @@ def _read_cache(cache_path: Path) -> dict[str, dict[str, str | None]]:
         return {}
     try:
         data = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
     return data if isinstance(data, dict) else {}
 
