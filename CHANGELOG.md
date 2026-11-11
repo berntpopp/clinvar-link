@@ -13,7 +13,7 @@ All notable changes to clinvar-link are documented here.
 
 ### Changed
 
-- Full `uv lock --upgrade`; fastmcp floor raised to >=3.4.10; GitHub Actions pins refreshed (setup-python v7.1.0, setup-uv v10.3.2, codeql-action v4.39.1).
+- Router reusable workflows re-pinned to v0.10.10 (fresh control ledger); beartype 0.23 data modules allowlisted in the image; full `uv lock --upgrade`; fastmcp floor raised to >=3.4.10; GitHub Actions pins refreshed (setup-python v7.1.0, setup-uv v10.3.2, codeql-action v4.39.1).
 
 ## [0.5.15] - 2026-10-20
 
