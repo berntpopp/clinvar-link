@@ -5,6 +5,16 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.5.16] - 2026-11-11
+
+### Security
+
+- Dependency sweep: Authlib 1.9.5 (critical/high/medium advisories incl. 1.9.1 fix), dnspython 2.9.2 (2.9.0 fix), joserfc 1.8.0 (1.7.6 fix), fastmcp/fastmcp-slim 3.4.11 (3.4.10 fix), opentelemetry-api 1.45.2, filelock 4.2.10, virtualenv 21.15.6 (21.14.9 fix).
+
+### Changed
+
+- Router reusable workflows re-pinned to v0.10.10 (fresh control ledger); beartype 0.23 data modules allowlisted in the image; full `uv lock --upgrade`; fastmcp floor raised to >=3.4.10; GitHub Actions pins refreshed (setup-python v7.1.0, setup-uv v10.3.2, codeql-action v4.39.1).
+
 ## [0.5.15] - 2026-10-20
 
 ### Security
