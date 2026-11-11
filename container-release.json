@@ -34,6 +34,10 @@
     "digest": "sha256:f8f40ca837bf047628b99800e93ffecd681280e23b9617b9aff56895f7032635",
     "schema_compatibility": ["1"],
     "image_allowlist": [
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/__init__.py",
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/hintdataabc.py",
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/hintdatacode.py",
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/hintdataerror.py",
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/__init__.py",
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/indexes.sql",
       "opt/venv/lib/python3.14/site-packages/clinvar_link/data/repository.py",
