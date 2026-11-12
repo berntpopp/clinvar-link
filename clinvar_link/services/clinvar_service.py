@@ -16,7 +16,7 @@ from typing import Any
 
 from clinvar_link.config import settings
 from clinvar_link.data.repository import ClinVarRepository
-from clinvar_link.exceptions import DataNotFoundError, ToolInputError
+from clinvar_link.exceptions import ClinVarDataError, DataNotFoundError, ToolInputError
 from clinvar_link.mcp.clinvar_date_cache import (
     has_cached_clinvar_release_date,
     set_cached_clinvar_release_date,
@@ -211,6 +211,10 @@ def _reject_forbidden_codepoints(value: str, *, field: str) -> None:
         )
 
 
+# get_variant lists at most this many citations (one variant cites 8,000+); citation_count is
+# always the full total.
+_MAX_CITATIONS = 50
+
 # Fields kept in the ``minimal`` variant projection.
 _MINIMAL_FIELDS = (
     "variation_id",
@@ -312,6 +316,14 @@ class ClinVarService:
             variant.model_dump(), response_mode, keep_traits_in_minimal=True
         )
         enforce_untrusted_text_limits(fenced)
+        # An index built before the citation table existed omits the field rather than
+        # claiming the variant is uncited.
+        if response_mode != "minimal" and await asyncio.to_thread(self.repo.has_citations):
+            cites, total = await asyncio.to_thread(
+                self.repo.citations, variant.variation_id, limit=_MAX_CITATIONS
+            )
+            projected["citations"] = cites
+            projected["citation_count"] = total
         return projected
 
     @staticmethod
@@ -847,6 +859,40 @@ class ClinVarService:
             "results": results,
             "count": len(results),
             **self._pagination(total, has_more, limit, offset),
+        }
+        self._lean_list(out, results, release, response_mode)
+        return out
+
+    async def get_variants_by_pmid(
+        self,
+        pmid: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        response_mode: str = "compact",
+    ) -> dict[str, Any]:
+        """List the variants whose ClinVar submissions cite PubMed ``pmid`` (var_citations)."""
+        text = pmid.strip()  # shape is enforced by the PubMedId schema pattern
+        if not await asyncio.to_thread(self.repo.has_citations):
+            raise ClinVarDataError("this ClinVar index predates the citation table; re-pull it")
+        limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
+        offset = max(0, offset)
+        total = await asyncio.to_thread(self.repo.count_by_pmid, text)
+        if total == 0:
+            raise DataNotFoundError(f"No ClinVar variant cites PMID {text}")
+        rows = await asyncio.to_thread(self.repo.variants_by_pmid, text, limit=limit, offset=offset)
+        release = await self._release_date()
+        projected_rows = [self._to_projected(row, release, response_mode) for row in rows]
+        results = [row for row, _ in projected_rows]
+        enforce_untrusted_text_limits(
+            [obj for _, fenced in projected_rows for obj in fenced],
+            max_objects=_LIST_TOOL_MAX_OBJECTS,
+        )
+        out: dict[str, Any] = {
+            "pmid": text,
+            "results": results,
+            "count": len(results),
+            **self._pagination(total, (offset + len(results)) < total, limit, offset),
         }
         self._lean_list(out, results, release, response_mode)
         return out

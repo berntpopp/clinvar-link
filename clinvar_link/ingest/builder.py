@@ -342,6 +342,38 @@ def _load_hgvs4variation(
     return inserted
 
 
+_CITATION_SOURCES = frozenset({"PubMed", "PubMedCentral", "NCBIBookShelf"})
+
+
+def _load_citations(
+    conn: sqlite3.Connection,
+    path: Path,
+    emitted: set[int],
+    *,
+    max_expanded_bytes: int,
+) -> None:
+    """Index ``var_citations.txt`` (VariationID -> cited PMID / PMCID / NBK id).
+
+    Columns: AlleleID, VariationID, rs, nsv, citation_source, citation_id, organization_ids.
+    Rows for variants outside the canonical index are dropped; ``INSERT OR IGNORE`` against the
+    UNIQUE ``idx_citation_vid`` collapses the per-AlleleID repeats of one citation.
+    """
+    sql = "INSERT OR IGNORE INTO variant_citation VALUES (?, ?, ?)"
+    pending: list[tuple[int, str, str]] = []
+    with _open_source(path, max_expanded_bytes=max_expanded_bytes) as handle:
+        for fields in csv.reader(handle, delimiter="\t"):
+            if len(fields) < 6 or fields[0].startswith("#"):
+                continue
+            vid = _int_or_none(fields[1])
+            source, cid = fields[4].strip(), fields[5].strip()
+            if vid in emitted and source in _CITATION_SOURCES and cid:
+                pending.append((vid, source, cid))
+            if len(pending) >= _INSERT_BATCH:
+                conn.executemany(sql, pending)
+                pending.clear()
+    conn.executemany(sql, pending)
+
+
 def _emit_canonical(
     batches: _Batches,
     accumulators: dict[str, GeneAccumulator],
@@ -468,6 +500,7 @@ def build_database(
     *,
     source_path: Path,
     hgvs_source_path: Path | None = None,
+    citations_source_path: Path | None = None,
     etag: str | None = None,
     last_modified: str | None = None,
     release_date: str | None = None,
@@ -483,6 +516,7 @@ def build_database(
     When ``hgvs_source_path`` is given, the secondary ``hgvs4variation`` source is
     streamed afterwards to index every coding/protein HGVS expression of each
     kept variant into ``hgvs_lookup`` (before the deferred indexes are built).
+    ``citations_source_path`` (``var_citations.txt``) likewise fills ``variant_citation``.
 
     Returns a summary dict: ``variant_count``, ``gene_count``,
     ``clinvar_release_date``, ``db_path``.
@@ -520,6 +554,10 @@ def build_database(
             # ``WHERE hgvs_norm = ?`` lookups as a leftmost-prefix scan.
             conn.execute(
                 "CREATE UNIQUE INDEX idx_hgvs_norm ON hgvs_lookup (hgvs_norm, variation_id)"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX idx_citation_vid "
+                "ON variant_citation (variation_id, source, citation_id)"
             )
 
             batches = _Batches(conn)
@@ -559,6 +597,14 @@ def build_database(
                 _load_hgvs4variation(
                     conn,
                     hgvs_source_path,
+                    emitted,
+                    max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES,
+                )
+
+            if citations_source_path is not None:
+                _load_citations(
+                    conn,
+                    citations_source_path,
                     emitted,
                     max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES,
                 )

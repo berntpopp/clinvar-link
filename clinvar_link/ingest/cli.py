@@ -33,6 +33,7 @@ console = Console()
 
 _SOURCE_FILENAME = "variant_summary.txt.gz"
 _HGVS_SOURCE_FILENAME = "hgvs4variation.txt.gz"
+_CITATIONS_FILENAME = "var_citations.txt"
 _CACHE_FILENAME = "download_cache.json"
 
 
@@ -69,6 +70,14 @@ def _maybe_download_hgvs(*, force: bool) -> Path | None:
         )
         return None
     return _hgvs_source_path()
+
+
+def _download_citations(*, force: bool) -> Path:
+    """Download var_citations.txt. A failure fails the build: a bundle that silently lacked
+    citations would answer every PMID lookup with not_found."""
+    path = settings.DATA_DIR / _CITATIONS_FILENAME
+    download_source(settings.VAR_CITATIONS_URL, path, cache_path=_cache_path(), force=force)
+    return path
 
 
 def _print_summary(summary: dict[str, Any], *, header: str) -> None:
@@ -127,6 +136,7 @@ def _build_local(*, force: bool) -> dict[str, Any]:
             settings,
             source_path=_source_path(),
             hgvs_source_path=hgvs_path,
+            citations_source_path=_download_citations(force=force),
             etag=download.get("etag"),
             last_modified=download.get("last_modified"),
             source_sha256=download.get("sha256"),
@@ -174,6 +184,7 @@ def refresh() -> None:
                 settings,
                 source_path=_source_path(),
                 hgvs_source_path=hgvs_path,
+                citations_source_path=_download_citations(force=False),
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
                 source_sha256=download.get("sha256"),

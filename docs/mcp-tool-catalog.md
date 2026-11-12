@@ -14,6 +14,7 @@ search_variants(query, gene_symbol?, classification?, min_stars?, assembly?,
 get_gene_clinvar_summary(gene_symbol, response_mode="compact", request_id?)
 get_variants_by_gene(gene_symbol, classification?, min_stars?, sort="stars_desc",
                      limit=50, offset=0, response_mode="compact", request_id?)
+get_variants_by_pmid(pmid, limit=50, offset=0, response_mode="compact", request_id?)
 get_server_capabilities(request_id?)
 ```
 

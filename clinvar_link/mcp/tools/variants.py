@@ -1,4 +1,4 @@
-"""Variant tools: get_variant, get_variants, search_variants.
+"""Variant tools: get_variant, get_variants, search_variants, get_variants_by_pmid.
 
 Every parameter is documented, exemplified and enum- or bound-constrained in
 :mod:`clinvar_link.mcp.params` (TOOL-SCHEMA-DOCUMENTATION-STANDARD v1). ``output_schema=None``
@@ -30,6 +30,7 @@ from clinvar_link.mcp.params import (
     MatchModeParam,
     MinStars,
     Offset,
+    PubMedId,
     Query,
     RequestId,
     ResponseModeParam,
@@ -192,4 +193,43 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 gene_symbol=gene_symbol,
                 request_id=request_id,
             ),
+        )
+
+    @mcp.tool(
+        name="get_variants_by_pmid",
+        title="Get ClinVar Variants by PubMed ID",
+        annotations=READ_ONLY_OPEN_WORLD,
+        tags={"variant"},
+        output_schema=None,
+    )
+    async def get_variants_by_pmid(
+        pmid: PubMedId,
+        limit: Limit = 50,
+        offset: Offset = 0,
+        response_mode: ResponseModeParam = "compact",
+        request_id: RequestId = None,
+    ) -> ToolReturn:
+        """List the ClinVar variants whose submissions cite a PubMed paper — the way to recover the genotypes a (paywalled) paper reported. Rows are per-variant (name with HGVS, gene, classification, stars), highest review confidence first, paginated with total_count / has_more / next_offset. Re-call get_variant on a row for its full citation list. In minimal/compact mode the citation is hoisted once to _meta.citation_template."""
+
+        async def _call() -> dict[str, Any]:
+            result = await service_factory().get_variants_by_pmid(
+                pmid, limit=limit, offset=offset, response_mode=response_mode
+            )
+            results = result.get("results") or []
+            next_commands: list[dict[str, Any]] = []
+            if results and results[0].get("vcv_accession"):
+                next_commands.append(
+                    {
+                        "tool": "get_variant",
+                        "arguments": {"identifier": results[0]["vcv_accession"]},
+                    }
+                )
+            next_commands.append({"tool": "get_server_capabilities", "arguments": {}})
+            result.setdefault("_meta", {})["next_commands"] = next_commands
+            return result
+
+        return await run_mcp_tool(
+            "get_variants_by_pmid",
+            _call,
+            context=McpErrorContext(tool_name="get_variants_by_pmid", request_id=request_id),
         )

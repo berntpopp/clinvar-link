@@ -36,6 +36,9 @@ class _FakeRepo:
     gene summary, and a batch of multi-trait variants for the response-wide
     object-count regression test. Never touches the real fixture DB."""
 
+    def has_citations(self) -> bool:
+        return False
+
     def meta(self) -> dict[str, Any]:
         return {"clinvar_release_date": "2026-01-01", "variant_count": 2, "gene_count": 1}
 

@@ -32,6 +32,8 @@ _INSTRUCTIONS = (
     "- Gene landscape: get_gene_clinvar_summary(gene_symbol=...) for counts by "
     "clinical significance and star rating; get_variants_by_gene(gene_symbol=...) "
     "for the per-variant rows.\n"
+    "- Literature: get_variant lists the PMIDs its submissions cite (citations); "
+    "get_variants_by_pmid(pmid=...) lists the variants a paper reports.\n"
     "- Response modes: minimal | compact | standard | full; compact is the "
     "default. Start compact and widen only when you need more detail.\n"
     "- Citation contract: every result carries a recommended_citation and the "

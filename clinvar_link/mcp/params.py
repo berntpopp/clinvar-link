@@ -140,6 +140,18 @@ Query = Annotated[
     ),
 ]
 
+PubMedId = Annotated[
+    str,
+    Field(
+        description=(
+            "A PubMed id, digits only (no 'PMID:' prefix). Matches the variants whose ClinVar "
+            "submissions cite that paper; a PMID no submission cites is not_found."
+        ),
+        examples=["29058690"],
+        pattern=r"^[1-9][0-9]{0,9}$",
+    ),
+]
+
 ClassificationFilter = Annotated[
     str | None,
     Field(
