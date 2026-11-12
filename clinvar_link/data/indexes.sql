@@ -16,3 +16,4 @@ CREATE INDEX idx_coord_assembly ON variant_coordinate (assembly, chromosome, sta
 CREATE INDEX idx_rsid ON rsid_lookup (rsid);
 CREATE INDEX idx_allele_id ON allele_id_lookup (allele_id);
 CREATE INDEX idx_gene_index ON gene_index (gene_symbol_upper);
+CREATE INDEX idx_citation_id ON variant_citation (citation_id, source);

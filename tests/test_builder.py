@@ -38,6 +38,8 @@ EXPECTED_INDEXES = {
     "idx_allele_id",
     "idx_hgvs_norm",
     "idx_gene_index",
+    "idx_citation_vid",
+    "idx_citation_id",
 }
 
 

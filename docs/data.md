@@ -50,6 +50,13 @@ for exhaustive multi-transcript HGVS coverage (~12 keys/variant), at roughly
 **2x DB size (~8 GB)**. The secondary download never fails the main build (it is
 logged as a warning).
 
+[`var_citations.txt`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/var_citations.txt)
+(~250 MB, `CLINVAR_LINK_VAR_CITATIONS_URL`) is **always** ingested into `variant_citation`
+(VariationID → PubMed / PubMedCentral / NCBIBookShelf id). It backs `get_variant`'s
+`citations` and `get_variants_by_pmid`; a failed download fails the build, so a bundle never
+silently lacks it. An index built before v0.6.0 has no such table: `get_variant` then omits
+`citations` and `get_variants_by_pmid` reports an error instead of `not_found`.
+
 `submission_summary.txt.gz` per-submitter detail is optional and **off in v1**
 (`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
 

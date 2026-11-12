@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     HGVS4VARIATION_URL: str = (
         "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz"
     )
+    # Literature each variant's submissions cite (PMIDs); always indexed, ~250 MB plain text.
+    VAR_CITATIONS_URL: str = (
+        "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/var_citations.txt"
+    )
     SOURCE_MAX_BYTES: int = Field(
         default=1 << 30,
         gt=0,

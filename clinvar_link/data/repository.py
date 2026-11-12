@@ -408,6 +408,45 @@ class ClinVarRepository:
             params.append(min_stars)
         return " AND ".join(clauses), params
 
+    # -- citations (var_citations.txt) ------------------------------------------
+
+    def has_citations(self) -> bool:
+        """True if this index carries ``variant_citation`` (bundles before v0.6.0 do not)."""
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'variant_citation'"
+        ).fetchone()
+        return row is not None
+
+    def citations(self, vid: int, *, limit: int) -> tuple[list[dict[str, str]], int]:
+        """Return (up to ``limit`` citations, total count) for one variant."""
+        rows = self._conn.execute(
+            "SELECT source, citation_id FROM variant_citation WHERE variation_id = ? "
+            "ORDER BY source, citation_id LIMIT ?",
+            (vid, limit),
+        ).fetchall()
+        total = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM variant_citation WHERE variation_id = ?", (vid,)
+        ).fetchone()
+        return [{"source": r["source"], "id": r["citation_id"]} for r in rows], int(total["n"])
+
+    def variants_by_pmid(self, pmid: str, *, limit: int, offset: int) -> list[dict[str, Any]]:
+        """Return the variants whose submissions cite PubMed ``pmid`` (highest stars first)."""
+        rows = self._conn.execute(
+            "SELECT v.* FROM variant v WHERE v.variation_id IN ("
+            "SELECT variation_id FROM variant_citation WHERE citation_id = ? AND source = 'PubMed'"
+            ") ORDER BY v.star_rating DESC, v.variation_id LIMIT ? OFFSET ?",
+            (pmid, limit, offset),
+        ).fetchall()
+        return [self._row_to_variant(r) for r in rows]
+
+    def count_by_pmid(self, pmid: str) -> int:
+        """Return how many variants cite PubMed ``pmid``."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM variant_citation WHERE citation_id = ? AND source = 'PubMed'",
+            (pmid,),
+        ).fetchone()
+        return int(row["n"]) if row is not None else 0
+
     # -- aggregates + provenance -----------------------------------------------
 
     def gene_exists(self, gene_symbol: str) -> bool:

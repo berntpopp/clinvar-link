@@ -88,6 +88,15 @@ CREATE TABLE gene_index (
     variation_id       INTEGER
 );
 
+-- Literature each variant's submissions cite (var_citations.txt). source is PubMed |
+-- PubMedCentral | NCBIBookShelf; citation_id is the PMID / PMCID / NBK id as text.
+-- A bundle built before this table existed simply lacks it (the server checks).
+CREATE TABLE variant_citation (
+    variation_id  INTEGER,
+    source        TEXT,
+    citation_id   TEXT
+);
+
 -- Per-gene aggregate summary (precomputed JSON blob).
 CREATE TABLE gene_summary (
     gene_symbol_upper  TEXT PRIMARY KEY,

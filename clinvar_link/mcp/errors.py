@@ -299,6 +299,11 @@ def _recovery_text(
             "values."
         )
     if error_code == "not_found":
+        if tool_name == "get_variants_by_pmid":
+            return (
+                "No ClinVar submission cites that PubMed id. Not a retry: the paper may report "
+                "no ClinVar variants. Try search_variants with the gene plus change instead."
+            )
         if is_gene:
             return (
                 "No ClinVar record for that gene in the local index. Confirm the HGNC "

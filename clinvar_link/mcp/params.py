@@ -53,7 +53,7 @@ Identifier = Annotated[
             "qualifier is optional), a ClinVar AlleleID, or a VariationID. Use id_type to force "
             "one interpretation; the default 'auto' detects the shape."
         ),
-        examples=["VCV000007105", "rs334", "NM_007294.4:c.5266dupC"],
+        examples=["VCV000007105", "rs334", "NM_007294.4:c.5266dup"],
         min_length=1,
         max_length=512,
     ),
@@ -137,6 +137,19 @@ Query = Annotated[
         examples=["BRCA1 c.5266dup"],
         min_length=1,
         max_length=512,
+    ),
+]
+
+PubMedId = Annotated[
+    str,
+    Field(
+        description=(
+            "A PubMed id: digits, optionally prefixed 'PMID:' (29058690 or PMID:29058690). "
+            "Matches the variants whose ClinVar submissions cite that paper; a PMID no "
+            "submission cites is not_found."
+        ),
+        examples=["29058690"],
+        pattern=r"^(?:[Pp][Mm][Ii][Dd]:\s*)?[1-9][0-9]{0,9}$",
     ),
 ]
 

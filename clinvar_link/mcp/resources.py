@@ -41,6 +41,7 @@ _TOOLS = [
     "search_variants",
     "get_gene_clinvar_summary",
     "get_variants_by_gene",
+    "get_variants_by_pmid",
 ]
 
 
@@ -97,6 +98,7 @@ def get_capabilities_resource() -> dict[str, Any]:
             "free text / gene + change -> search_variants -> get_variant",
             "gene symbol -> get_gene_clinvar_summary (classification landscape)",
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
+            "PubMed id -> get_variants_by_pmid (the variants a paper's submissions report)",
         ],
         # Response-Envelope Standard v1: the FULL closed, fleet-wide enum — the complete taxonomy
         # a client must be prepared to branch on, not the subset this server happens to emit
@@ -118,7 +120,8 @@ def get_capabilities_resource() -> dict[str, Any]:
         "limitations": [
             "Local SQLite index built from the weekly variant_summary bulk file; "
             "it lags the live ClinVar website by up to a week.",
-            "Per-submitter conflict detail (submission_summary) is not indexed in v1.",
+            "Per-submitter records and submission description text (submission_summary) "
+            "are not indexed; citations come from var_citations (PMIDs per variant).",
             "Coordinates follow the bulk file (GRCh37 and GRCh38 rows where present).",
             RESEARCH_USE_NOTICE,
         ],
@@ -130,6 +133,7 @@ def get_capabilities_resource() -> dict[str, Any]:
                 "search_variants",
                 "get_gene_clinvar_summary",
                 "get_variants_by_gene",
+                "get_variants_by_pmid",
             ],
         },
         "resources": {
@@ -174,6 +178,10 @@ def get_usage_resource() -> str:
         "landscape (counts by clinical significance and review-status star rating). "
         "Call `get_variants_by_gene(gene_symbol=...)` for the per-variant rows; "
         "narrow with the supported filters and raise `limit` only as needed.\n\n"
+        "## Literature\n"
+        "`get_variant` lists the PubMed / PMC / Bookshelf ids its submissions cite "
+        "(`citations`, first 50, plus `citation_count`). "
+        "`get_variants_by_pmid(pmid=...)` goes the other way: the variants a paper reports.\n\n"
         "## Response modes\n"
         "`minimal | compact | standard | full`. Compact is the default; start there "
         "and widen to `full` only for debugging or full submitter context.\n\n"
