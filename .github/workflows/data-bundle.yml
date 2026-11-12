@@ -4,15 +4,25 @@ on:
   schedule:
     - cron: "37 5 * * 5"
   workflow_dispatch:
+    inputs:
+      revision:
+        description: >-
+          Only after a bundle-format change (new tables) with an UNCHANGED upstream: publish
+          bundle-<date>-r<N> (N >= 2) beside the immutable bundle-<date>. Empty otherwise.
+        required: false
+        default: ""
 
 permissions: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # ~30 min weekly TSVs + ~15-25 min streaming the monthly VCV XML (measured in the build log).
+    timeout-minutes: 180
     permissions:
       contents: read
+    env:
+      REVISION: ${{ inputs.revision }}
     outputs:
       tag: ${{ steps.existing.outputs.tag || steps.meta.outputs.tag }}
       state: ${{ steps.existing.outputs.state || steps.release-state.outputs.state }}
@@ -26,6 +36,8 @@ jobs:
           version: "0.8.7"
           enable-cache: false
       - run: uv sync --frozen
+      - name: Validate the bundle revision input
+        run: '[[ -z "$REVISION" || "$REVISION" =~ ^([2-9]|[1-9][0-9]+)$ ]]'
       # Rebuilds are not byte-identical (the DB stamps source_retrieved_at), so an
       # unchanged upstream is detected from Last-Modified before building, then verified.
       - name: Skip when this upstream release is already published
@@ -40,7 +52,7 @@ jobs:
           [[ -n "$last_modified" ]] || exit 0
           tag="$(uv run python -c 'import sys
           from clinvar_link.ingest.bundle import release_tag_for_date
-          print(release_tag_for_date(sys.argv[1]))' "$last_modified")"
+          print(release_tag_for_date(sys.argv[1]))' "$last_modified")${REVISION:+-r$REVISION}"
           [[ "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft \
             --jq .isDraft 2>/dev/null)" == false ]] || exit 0
           mkdir -p /tmp/published
@@ -56,7 +68,16 @@ jobs:
           CLINVAR_LINK_DATA_DIR: data
         run: |
           set -euo pipefail
-          uv run clinvar-link-data build
+          df -h . /tmp
+          start=$SECONDS
+          if [[ -x /usr/bin/time ]]; then  # peak RSS + wall time for the build log
+            /usr/bin/time -v uv run clinvar-link-data build
+          else
+            uv run clinvar-link-data build
+          fi
+          echo "build wall time: $((SECONDS - start)) s"
+          df -h . /tmp
+          du -sh data/*
           uv run clinvar-link-data pack --out-dir dist
       - name: Create exact release metadata
         id: meta
@@ -64,7 +85,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="$(uv run python -m clinvar_link.ingest.release_metadata build \
-            --db-path data/clinvar.sqlite --asset-path dist/clinvar.sqlite.zst --out-dir dist)"
+            --db-path data/clinvar.sqlite --asset-path dist/clinvar.sqlite.zst --out-dir dist \
+            ${REVISION:+--revision "$REVISION"})"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       # Decide before the data-release gate so an existing bundle never asks for approval.
       # A read-only token cannot see drafts; they read as `create` and re-resolve in publish.

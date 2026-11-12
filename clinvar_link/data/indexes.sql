@@ -17,3 +17,5 @@ CREATE INDEX idx_rsid ON rsid_lookup (rsid);
 CREATE INDEX idx_allele_id ON allele_id_lookup (allele_id);
 CREATE INDEX idx_gene_index ON gene_index (gene_symbol_upper);
 CREATE INDEX idx_citation_id ON variant_citation (citation_id, source);
+CREATE INDEX idx_submission_vid ON submission (variation_id);
+CREATE INDEX idx_gene_alias ON gene_alias (symbol_upper);

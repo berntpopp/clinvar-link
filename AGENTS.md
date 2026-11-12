@@ -110,7 +110,9 @@ directory map.
 - ReviewStatus → 0–4 star rating via `data/review_status_stars.yaml`;
   ClinicalSignificance → normalized classification (pathogenic /
   likely_pathogenic / vus / likely_benign / benign / conflicting / not_provided
-  / other). `submission_summary` is optional and off in v1.
+  / other). OMIM submissions come from the monthly
+  VCV XML, streamed once per build (`ingest/submissions.py`); `submission_summary` only
+  serves as the independent count check.
 
 ## Testing
 

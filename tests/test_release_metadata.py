@@ -192,3 +192,33 @@ def test_release_states_fail_closed_for_any_existing_identity_mismatch(tmp_path:
     typed_path.write_text(json.dumps(typed_mismatch), encoding="utf-8")
     with pytest.raises(ReleaseIdentityError, match="variant_count"):
         decide_release_state(current_path, typed_path, is_draft=False)
+
+
+def test_revision_tags_a_format_rebuild_of_an_unchanged_upstream(tmp_path: Path) -> None:
+    """bundle-<date> is immutable, so a new-table rebuild of the same upstream is -r<N>."""
+    import sqlite3
+
+    db_path = _database_with_source_identity(tmp_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO data_source VALUES ('vcv_xml', 'https://x/ClinVarVCVRelease_00-latest.xml.gz',"
+        " 'Thu, 05 Nov 2026 00:07:53 GMT', ?, NULL, '2026-11-12T00:00:00Z', 37918)",
+        ("0" * 32,),
+    )
+    conn.commit()
+    conn.close()
+    asset_path = tmp_path / "clinvar.sqlite.zst"
+    asset_path.write_bytes(b"compressed")
+    retrieved = datetime(2026, 8, 24, 1, 2, 3, tzinfo=UTC)
+    metadata = build_release_metadata(
+        db_path, asset_path, tmp_path / "dist", retrieved_at=retrieved, revision=2
+    )
+    payload = json.loads(metadata.path.read_text())
+    assert metadata.tag == payload["tag"] == "bundle-2026-08-23-r2"
+    assert payload["clinvar_release_date"] == "2026-08-23"
+    assert payload["sources"]["vcv_xml"]["md5"] == "0" * 32
+    assert payload["sources"]["vcv_xml"]["record_count"] == 37918
+    with pytest.raises(ReleaseIdentityError):
+        build_release_metadata(
+            db_path, asset_path, tmp_path / "d2", retrieved_at=retrieved, revision=1
+        )

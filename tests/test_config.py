@@ -421,3 +421,25 @@ def test_smoke_preparation_hook_is_an_executable_regular_file() -> None:
     hook = ROOT / "docker" / "ci-prepare-smoke.sh"
     assert hook.is_file() and not hook.is_symlink()
     assert hook.stat().st_mode & 0o111, "the preparation hook must be executable"
+
+
+@pytest.mark.parametrize(
+    ("tag", "ok"),
+    [
+        ("bundle-2026-11-09-r2", True),
+        ("bundle-2026-11-09-r12", True),
+        ("bundle-2026-11-09-r1", False),
+        ("bundle-2026-11-09-r", False),
+        ("bundle-2026-11-09-x2", False),
+    ],
+)
+def test_production_accepts_only_well_formed_revision_tags(tag: str, ok: bool) -> None:
+    """A format rebuild of an unchanged upstream ships as bundle-<date>-r<N>, N >= 2."""
+    url = f"https://github.com/berntpopp/clinvar-link/releases/download/{tag}/clinvar.sqlite.zst"
+    if ok:
+        assert (
+            tag == _production_settings(BUNDLE_RELEASE_TAG=tag, BUNDLE_URL=url).BUNDLE_RELEASE_TAG
+        )
+    else:
+        with pytest.raises(ValidationError, match="release tag"):
+            _production_settings(BUNDLE_RELEASE_TAG=tag, BUNDLE_URL=url)

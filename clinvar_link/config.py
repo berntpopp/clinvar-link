@@ -22,7 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_DATA_DIR = _REPO_ROOT / "data"
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _SHA256_LOWER_RE = re.compile(r"^[0-9a-f]{64}$")
-_RELEASE_TAG_RE = re.compile(r"^bundle-\d{4}-\d{2}-\d{2}$")
+_RELEASE_TAG_RE = re.compile(r"^bundle-\d{4}-\d{2}-\d{2}(?:-r(?:[2-9]|[1-9]\d+))?$")
 
 
 @dataclass
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     # Build the SQLite index on first start if it is absent (off by default; a
     # cron/CLI job owns the refresh in production).
     AUTO_BOOTSTRAP: bool = False
-    # Index per-submitter conflict detail (submission_summary.txt.gz). Off in v1.
+    # Unused since v0.7.0 (OMIM submissions come from the VCV XML); kept so old .env files load.
     ENABLE_SUBMISSION_SUMMARY: bool = False
     # Opt-in: also ingest hgvs4variation.txt.gz (ALL transcript-version HGVS
     # expressions, ~12 keys/variant). Robust but roughly doubles the DB to
@@ -83,6 +83,25 @@ class Settings(BaseSettings):
     # Literature each variant's submissions cite (PMIDs); always indexed, ~250 MB plain text.
     VAR_CITATIONS_URL: str = (
         "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/var_citations.txt"
+    )
+    # Monthly VCV XML dump: the only bulk source of submission free text (OMIM, #122). Streamed
+    # once per build, never written to disk, and verified against NCBI's published ``.md5``.
+    VCV_XML_URL: str = (
+        "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/xml/ClinVarVCVRelease_00-latest.xml.gz"
+    )
+    VCV_XML_MAX_BYTES: int = Field(
+        default=16 << 30,
+        gt=0,
+        description="Compressed VCV XML limit; measured 5.7 GiB on 2026-11-12.",
+    )
+    VCV_XML_MAX_SECONDS: float = Field(default=3 * 3600.0, gt=0)
+    # Independent count check for the VCV XML parse (SCVs per allow-listed submitter).
+    SUBMISSION_SUMMARY_URL: str = (
+        "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/submission_summary.txt.gz"
+    )
+    # HGNC approved / previous / alias symbols, so a renamed gene finds its old submissions.
+    HGNC_URL: str = (
+        "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
     )
     SOURCE_MAX_BYTES: int = Field(
         default=1 << 30,

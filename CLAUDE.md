@@ -147,8 +147,8 @@ make ci-local                      # full local gate
   (`CLINVAR_LINK_REFRESH_TTL_DAYS`); it is a cheap no-op when the dump is
   unchanged. Schedule it weekly (systemd timer or cron — see `README.md` /
   `docker/README.md`).
-- `submission_summary.txt.gz` per-submitter detail is optional and off in v1
-  (`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
+- OMIM submissions (description text, conditions, PMIDs) are streamed from the monthly
+  VCV XML dump at build time (`ingest/submissions.py`, see `docs/data.md`); never live.
 - HGVS lookups in the **default shipped bundle** are indexed straight from the
   `variant_summary` `Name`: the full Name, the canonical nucleotide expression
   (the part of `Name` before the trailing `(p....)` protein suffix, e.g.

@@ -78,6 +78,9 @@ RESPONSE_MODES: tuple[str, ...] = tuple(item.value for item in ResponseMode)
 ID_TYPES: tuple[str, ...] = tuple(item.value for item in IdType)
 MATCH_MODES: tuple[str, ...] = ("auto", "and", "or")
 COUNT_MODES: tuple[str, ...] = ("exact", "none")
+# Submitters whose SCVs (with their free-text description) the build indexes from the VCV XML
+# (#122). Extending it widens the bundle; get_variants_by_gene's ``submitter`` enum is this.
+SUBMITTERS: tuple[str, ...] = ("OMIM",)
 # Mirrors ClinVarRepository.SORT_ORDERS (a drift test pins the two together).
 SORT_ORDERS: tuple[str, ...] = ("stars_desc", "stars_asc", "name", "variation_id")
 

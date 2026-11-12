@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Trimmed from ClinVarVCVRelease_2026-11 (records 1076, 254147, 254150 are real; the rest
+     are synthetic edge cases). Covers: OMIM + non-allow-listed submitters in one record, a
+     renamed gene (TRAF3IP1 -> IFT54), a multi-gene record, a missing description, unicode,
+     a non-current SCV, and partial records with missing identifiers. -->
+<ClinVarVariationRelease xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ReleaseDate="2026-11-05">
+<VariationArchive VariationID="1076" VariationName="NM_015272.5(RPGRIP1L):c.2050C&gt;T (p.Gln684Ter)" VariationType="single nucleotide variant" Accession="VCV000001076" Version="78" RecordType="classified">
+  <RecordStatus>current</RecordStatus>
+  <ClassifiedRecord>
+    <SimpleAllele AlleleID="16115" VariationID="1076">
+      <GeneList>
+        <Gene Symbol="RPGRIP1L" FullName="RPGRIP1 like" GeneID="23322" HGNC_ID="HGNC:29168" Source="submitted"/>
+      </GeneList>
+      <Name>NM_015272.5(RPGRIP1L):c.2050C&gt;T (p.Gln684Ter)</Name>
+    </SimpleAllele>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="21281">
+        <ClinVarAccession Accession="SCV000021281" Type="SCV" Version="2" SubmitterName="OMIM" OrgID="3"/>
+        <RecordStatus>current</RecordStatus>
+        <Classification DateLastEvaluated="2007-07-01">
+          <ReviewStatus>no assertion criteria provided</ReviewStatus>
+          <GermlineClassification>Pathogenic</GermlineClassification>
+        </Classification>
+        <ObservedInList>
+          <ObservedIn>
+            <Method><MethodType>literature only</MethodType></Method>
+            <ObservedData>
+              <Attribute Type="Description">In a patient with Joubert syndrome (JBTS7; 611560), Arts et al. (2007) identified compound heterozygosity for 2 mutations in the RPGRIP1L gene: a 2050C-T transition, resulting in a gln684-to-ter (Q684X) substitution, and a T615P (610937.0002) mutation.</Attribute>
+              <Citation><ID Source="PubMed">17558407</ID></Citation>
+              <XRef DB="OMIM" ID="611560" Type="MIM"/>
+            </ObservedData>
+          </ObservedIn>
+        </ObservedInList>
+        <SimpleAllele>
+          <GeneList><Gene Symbol="RPGRIP1L"/></GeneList>
+          <Name>RPGRIP1L, GLN684TER</Name>
+          <XRefList><XRef DB="OMIM" ID="610937.0009" Type="Allelic variant"/></XRefList>
+        </SimpleAllele>
+        <TraitSet Type="Disease">
+          <Trait Type="Disease"><Name><ElementValue Type="Preferred">JOUBERT SYNDROME 7</ElementValue></Name></Trait>
+        </TraitSet>
+      </ClinicalAssertion>
+      <ClinicalAssertion ID="999001">
+        <ClinVarAccession Accession="SCV009990001" Type="SCV" Version="1" SubmitterName="Example Diagnostics Lab" OrgID="999"/>
+        <RecordStatus>current</RecordStatus>
+        <ObservedInList><ObservedIn><ObservedData>
+          <Attribute Type="Description">Lab interpretation that must NOT be indexed.</Attribute>
+          <Citation><ID Source="PubMed">11111111</ID></Citation>
+        </ObservedData></ObservedIn></ObservedInList>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationID="254147" VariationName="NM_015650.4(IFT54):c.1559T&gt;G (p.Met520Arg)" VariationType="single nucleotide variant" Accession="VCV000254147" Version="14" RecordType="classified">
+  <ClassifiedRecord>
+    <SimpleAllele AlleleID="249155" VariationID="254147">
+      <GeneList>
+        <Gene Symbol="IFT54" GeneID="26146" HGNC_ID="HGNC:17861" Source="submitted"/>
+      </GeneList>
+    </SimpleAllele>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="579546">
+        <ClinVarAccession Accession="SCV000299232" Type="SCV" Version="1" SubmitterName="OMIM" OrgID="3"/>
+        <RecordStatus>current</RecordStatus>
+        <ObservedInList><ObservedIn><ObservedData>
+          <Attribute Type="Description">In 2 Portuguese brothers, born of probably consanguineous parents (family NPH579), with Senior-Loken syndrome-9 (SLSN9; 616629), Bizet et al. (2015) identified a homozygous c.1559T-G transversion in exon 13 of the TRAF3IP1 gene, resulting in a met520-to-arg (M520R) substitution.</Attribute>
+          <Citation><ID Source="PubMed">26487268</ID></Citation>
+        </ObservedData></ObservedIn></ObservedInList>
+        <SimpleAllele>
+          <GeneList><Gene Symbol="TRAF3IP1"/></GeneList>
+          <Name>TRAF3IP1, MET520ARG</Name>
+        </SimpleAllele>
+        <TraitSet Type="Disease">
+          <Trait Type="Disease"><Name><ElementValue Type="Preferred">SENIOR-LOKEN SYNDROME 9</ElementValue></Name></Trait>
+        </TraitSet>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationID="254150" VariationName="NM_015650.4(TRAF3IP1):c.51T&gt;G (p.Ile17Met)" VariationType="single nucleotide variant" Accession="VCV000254150" Version="9" RecordType="classified">
+  <ClassifiedRecord>
+    <SimpleAllele AlleleID="249158" VariationID="254150">
+      <GeneList>
+        <Gene Symbol="TRAF3IP1" GeneID="26146" HGNC_ID="HGNC:17861" Source="submitted"/>
+      </GeneList>
+    </SimpleAllele>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="579549">
+        <ClinVarAccession Accession="SCV000299235" Type="SCV" Version="1" SubmitterName="OMIM" OrgID="3"/>
+        <RecordStatus>current</RecordStatus>
+        <ObservedInList><ObservedIn><ObservedData>
+          <Attribute Type="Description">In a girl, born of consanguineous Egyptian parents (family A4336), with Senior-Loken syndrome-9 (SLSN9; 616629), Bizet et al. (2015) identified a homozygous c.51T-G transversion in exon 1 of the TRAF3IP1 gene.</Attribute>
+          <Citation><ID Source="PubMed">26487268</ID></Citation>
+        </ObservedData></ObservedIn></ObservedInList>
+        <SimpleAllele>
+          <GeneList><Gene Symbol="TRAF3IP1"/></GeneList>
+        </SimpleAllele>
+        <TraitSet Type="Disease">
+          <Trait Type="Disease"><Name><ElementValue Type="Preferred">SENIOR-LOKEN SYNDROME 9</ElementValue></Name></Trait>
+        </TraitSet>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationID="100011" VariationName="NM_000249.4(MLH1):c.350C&gt;T (p.Thr117Met)" VariationType="single nucleotide variant" Accession="VCV000100011" Version="3" RecordType="classified">
+  <ClassifiedRecord>
+    <SimpleAllele AlleleID="200011" VariationID="100011">
+      <GeneList><Gene Symbol="MLH1" HGNC_ID="HGNC:7127"/></GeneList>
+    </SimpleAllele>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="900011">
+        <ClinVarAccession Accession="SCV000900011" Type="SCV" Version="3" SubmitterName="OMIM" OrgID="3"/>
+        <RecordStatus>current</RecordStatus>
+        <Classification>
+          <Comment>Müller et al. (2010) reported the β-domain change T117M → loss of function; see also Øster (2012).</Comment>
+          <Citation><ID Source="PubMed">20000002</ID></Citation>
+        </Classification>
+        <ObservedInList><ObservedIn><ObservedData>
+          <Citation><ID Source="PubMed">20000001</ID></Citation>
+          <Citation><ID Source="PubMed">20000002</ID></Citation>
+          <Citation><ID Source="DOI">10.1000/xyz</ID></Citation>
+        </ObservedData></ObservedIn></ObservedInList>
+        <SimpleAllele><GeneList><Gene Symbol="MLH1"/></GeneList></SimpleAllele>
+        <TraitSet Type="Disease">
+          <Trait Type="Disease"><Name><ElementValue Type="Preferred">LYNCH SYNDROME 2</ElementValue></Name></Trait>
+        </TraitSet>
+      </ClinicalAssertion>
+      <ClinicalAssertion ID="900099">
+        <ClinVarAccession Accession="SCV000900099" Type="SCV" Version="1" SubmitterName="OMIM" OrgID="3"/>
+        <RecordStatus>replaced</RecordStatus>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationID="500001" VariationName="GRCh38/hg38 7q11.23(chr7:73000000-73100000)x1" VariationType="copy number loss" Accession="VCV000500001" Version="1" RecordType="classified">
+  <ClassifiedRecord>
+    <SimpleAllele AlleleID="600001" VariationID="500001">
+      <GeneList>
+        <Gene Symbol="ELN" HGNC_ID="HGNC:3327"/>
+        <Gene Symbol="LIMK1" HGNC_ID="HGNC:6613"/>
+      </GeneList>
+    </SimpleAllele>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="900501">
+        <ClinVarAccession Accession="SCV000900501" Type="SCV" Version="1" SubmitterName="OMIM" OrgID="3"/>
+        <RecordStatus>current</RecordStatus>
+        <SimpleAllele><GeneList><Gene Symbol="ELN"/><Gene Symbol="LIMK1"/></GeneList></SimpleAllele>
+        <TraitSet Type="Disease">
+          <Trait Type="Disease"><Name><ElementValue Type="Preferred">WILLIAMS-BEUREN SYNDROME</ElementValue></Name></Trait>
+        </TraitSet>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationName="partial record without a VariationID" Accession="VCV000999999" RecordType="classified">
+  <ClassifiedRecord>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="999999">
+        <ClinVarAccession Accession="SCV000999999" Type="SCV" Version="1" SubmitterName="OMIM" OrgID="3"/>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationID="500002" Accession="VCV000500002" RecordType="classified">
+  <ClassifiedRecord>
+    <ClinicalAssertionList>
+      <ClinicalAssertion ID="900502">
+        <ClinVarAccession Type="SCV" Version="1" SubmitterName="OMIM" OrgID="3"/>
+      </ClinicalAssertion>
+    </ClinicalAssertionList>
+  </ClassifiedRecord>
+</VariationArchive>
+<VariationArchive VariationID="500003" Accession="VCV000500003" RecordType="included">
+  <IncludedRecord/>
+</VariationArchive>
+</ClinVarVariationRelease>

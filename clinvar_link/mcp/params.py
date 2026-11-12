@@ -92,7 +92,8 @@ ResponseModeParam = Annotated[
         description=(
             "Payload verbosity, cheapest first: minimal = ids + classification + stars; compact "
             "(default) adds name, review status, traits; standard adds coordinates, RCVs, "
-            "consequence; full adds all fields. Start compact, widen if needed."
+            "consequence; full adds all fields. Citations and submissions appear from compact up; "
+            "minimal drops submission text. Start compact, widen if needed."
         ),
         examples=["compact"],
     ),
@@ -181,6 +182,20 @@ MinStars = Annotated[
         examples=[2],
         ge=0,
         le=4,
+    ),
+]
+
+SubmitterFilter = Annotated[
+    Literal["OMIM"] | None,
+    Field(
+        description=(
+            "Return this submitter's submissions on the gene instead of per-variant rows: one row "
+            "per SCV with its description (OMIM's per-family text, fenced untrusted_text), "
+            "conditions and cited PMIDs. The gene matches through HGNC previous symbols "
+            "(TRAF3IP1 finds IFT54 records and vice versa); gene_resolution says what matched. "
+            "classification / min_stars / sort are rejected with it."
+        ),
+        examples=["OMIM"],
     ),
 ]
 

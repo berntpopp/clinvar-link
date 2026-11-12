@@ -39,6 +39,9 @@ class _FakeRepo:
     def has_citations(self) -> bool:
         return False
 
+    def has_submissions(self) -> bool:
+        return False
+
     def meta(self) -> dict[str, Any]:
         return {"clinvar_release_date": "2026-01-01", "variant_count": 2, "gene_count": 1}
 

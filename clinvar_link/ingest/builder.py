@@ -26,7 +26,7 @@ import os
 import sqlite3
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -501,6 +501,7 @@ def build_database(
     source_path: Path,
     hgvs_source_path: Path | None = None,
     citations_source_path: Path | None = None,
+    secondary_loader: Callable[[sqlite3.Connection], None] | None = None,
     etag: str | None = None,
     last_modified: str | None = None,
     release_date: str | None = None,
@@ -517,6 +518,8 @@ def build_database(
     streamed afterwards to index every coding/protein HGVS expression of each
     kept variant into ``hgvs_lookup`` (before the deferred indexes are built).
     ``citations_source_path`` (``var_citations.txt``) likewise fills ``variant_citation``.
+    ``secondary_loader`` then fills further tables on the open connection (the VCV XML
+    submissions + HGNC aliases, :func:`clinvar_link.ingest.submissions.make_loader`).
 
     Returns a summary dict: ``variant_count``, ``gene_count``,
     ``clinvar_release_date``, ``db_path``.
@@ -608,6 +611,9 @@ def build_database(
                     emitted,
                     max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES,
                 )
+
+            if secondary_loader is not None:
+                secondary_loader(conn)
 
             gene_count = _write_gene_summaries(conn, accumulators, gene_display)
             sha256 = source_sha256 if source_sha256 is not None else _sha256(source_path)

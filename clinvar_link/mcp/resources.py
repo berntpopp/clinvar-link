@@ -19,6 +19,7 @@ from clinvar_link.models.enums import (
     ID_TYPES,
     MATCH_MODES,
     RESPONSE_MODES,
+    SUBMITTERS,
 )
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
@@ -74,6 +75,7 @@ def get_capabilities_resource() -> dict[str, Any]:
             "classification": list(CLASSIFICATION_VALUES),
             "assembly": list(ASSEMBLY_VALUES),
             "id_type": list(ID_TYPES),
+            "submitter": list(SUBMITTERS),
             "note": (
                 "classification and assembly also accept ClinVar's own published wording "
                 "case-insensitively ('Likely pathogenic' -> likely_pathogenic, 'hg19' -> "
@@ -99,6 +101,8 @@ def get_capabilities_resource() -> dict[str, Any]:
             "gene symbol -> get_gene_clinvar_summary (classification landscape)",
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
             "PubMed id -> get_variants_by_pmid (the variants a paper's submissions report)",
+            "gene symbol + submitter=OMIM -> get_variants_by_gene (OMIM's per-family reports "
+            "with description text and PMIDs; renamed genes resolved via HGNC)",
         ],
         # Response-Envelope Standard v1: the FULL closed, fleet-wide enum — the complete taxonomy
         # a client must be prepared to branch on, not the subset this server happens to emit
@@ -120,8 +124,9 @@ def get_capabilities_resource() -> dict[str, Any]:
         "limitations": [
             "Local SQLite index built from the weekly variant_summary bulk file; "
             "it lags the live ClinVar website by up to a week.",
-            "Per-submitter records and submission description text (submission_summary) "
-            "are not indexed; citations come from var_citations (PMIDs per variant).",
+            "Submission text is indexed only for allow-listed submitters (OMIM), from the "
+            "MONTHLY VCV XML release, so it can lag the weekly variant data by up to a month; "
+            "citations come from var_citations (PMIDs per variant).",
             "Coordinates follow the bulk file (GRCh37 and GRCh38 rows where present).",
             RESEARCH_USE_NOTICE,
         ],

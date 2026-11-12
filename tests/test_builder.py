@@ -40,6 +40,8 @@ EXPECTED_INDEXES = {
     "idx_gene_index",
     "idx_citation_vid",
     "idx_citation_id",
+    "idx_submission_vid",
+    "idx_gene_alias",
 }
 
 
