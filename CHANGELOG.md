@@ -5,6 +5,21 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-12
+
+### Added
+
+- Submission citations (#119): `var_citations.txt` is ingested into a new `variant_citation` table at build time. `get_variant` returns `citations` (PubMed / PMC / Bookshelf ids, first 50) and `citation_count` in every mode except minimal.
+- New tool `get_variants_by_pmid(pmid)` — PMID → the ClinVar variants a paper's submissions report, paginated (an optional `PMID:` prefix is accepted).
+
+### Changed
+
+- Pinned the citation-bearing ClinVar data bundle (see `container-release.json`).
+
+### Fixed
+
+- The advertised HGVS example `NM_007294.4:c.5266dupC` no longer resolved against current ClinVar; the example is now `NM_007294.4:c.5266dup`.
+
 ## [0.5.16] - 2026-11-11
 
 ### Security
