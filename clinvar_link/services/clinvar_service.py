@@ -360,7 +360,7 @@ class ClinVarService:
                 f"id_type='hgvs' requires an HGVS expression (got {text!r})",
                 field="identifier",
                 public_reason=(
-                    "must be an HGVS expression (e.g. NM_007294.4:c.5266dupC) when id_type='hgvs'"
+                    "must be an HGVS expression (e.g. NM_007294.4:c.5266dup) when id_type='hgvs'"
                 ),
             )
 
@@ -872,7 +872,8 @@ class ClinVarService:
         response_mode: str = "compact",
     ) -> dict[str, Any]:
         """List the variants whose ClinVar submissions cite PubMed ``pmid`` (var_citations)."""
-        text = pmid.strip()  # shape is enforced by the PubMedId schema pattern
+        # Shape is enforced by the PubMedId schema pattern; drop its optional 'PMID:' prefix.
+        text = pmid.rsplit(":", 1)[-1].strip()
         if not await asyncio.to_thread(self.repo.has_citations):
             raise ClinVarDataError("this ClinVar index predates the citation table; re-pull it")
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))

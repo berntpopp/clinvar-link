@@ -88,8 +88,18 @@ async def test_variants_by_pmid_unknown_is_not_found(mcp):
 
 
 async def test_variants_by_pmid_rejects_a_non_numeric_pmid(mcp):
-    out = await call_tool(mcp, "get_variants_by_pmid", {"pmid": "PMID:29058690"})
+    out = await call_tool(mcp, "get_variants_by_pmid", {"pmid": "29058690a"})
     assert out["success"] is False and out["error_code"] == "invalid_input"
+
+
+async def test_variants_by_pmid_accepts_the_pmid_prefix(mcp):
+    out = await call_tool(mcp, "get_variants_by_pmid", {"pmid": "PMID: 29058690"})
+    assert out["success"] is True and out["pmid"] == "29058690" and out["count"] == 2
+
+
+async def test_variants_by_pmid_not_found_recovery_names_the_paper(mcp):
+    out = await call_tool(mcp, "get_variants_by_pmid", {"pmid": "1"})
+    assert "PubMed id" in out["recovery"]
 
 
 async def test_index_without_citation_table_is_honest(tmp_path):

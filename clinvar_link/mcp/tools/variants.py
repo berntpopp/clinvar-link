@@ -58,7 +58,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         response_mode: ResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
-        """Resolve a single ClinVar variant by VCV accession, dbSNP rsID, HGVS expression, ClinVar AlleleID, or VariationID. A clean transcript-qualified HGVS resolves even without the (GENE) qualifier (e.g. NM_033380.3:c.1871G>A). Returns the normalized classification, review status, and 0-4 star rating plus a recommended_citation. Use this when you already have a variant identifier; if it fails to resolve, fall back to search_variants."""
+        """Resolve a single ClinVar variant by VCV accession, dbSNP rsID, HGVS expression, ClinVar AlleleID, or VariationID. A clean transcript-qualified HGVS resolves even without the (GENE) qualifier (e.g. NM_033380.3:c.1871G>A). Returns the normalized classification, review status, and 0-4 star rating plus a recommended_citation, and (except in minimal mode) the PubMed / PMC / Bookshelf ids its submissions cite: citations lists at most 50, citation_count is the full total. Use this when you already have a variant identifier; if it fails to resolve, fall back to search_variants."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().get_variant(
