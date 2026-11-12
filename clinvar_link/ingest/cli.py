@@ -96,7 +96,13 @@ def _submission_loader(
         settings.SUBMISSION_SUMMARY_URL, summary_path, cache_path=_cache_path(), force=force
     )
     hgnc = download_source(settings.HGNC_URL, hgnc_path, cache_path=_cache_path(), force=force)
-    return make_loader(settings, summary=summary, hgnc=hgnc, report=report)
+    # A 304 reports path=None when the cached file is gone; the open below then fails loudly.
+    return make_loader(
+        settings,
+        summary={**summary, "path": str(summary_path)},
+        hgnc={**hgnc, "path": str(hgnc_path)},
+        report=report,
+    )
 
 
 def _print_summary(summary: dict[str, Any], *, header: str) -> None:
