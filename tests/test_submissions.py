@@ -10,6 +10,7 @@ from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 from lxml import etree
 
@@ -524,3 +525,62 @@ def test_make_loader_builds_pins_sources_and_fails_on_count_drift(
     assert sources["hgnc"][5] == 4 and len(sources["hgnc"][3]) == 64
     assert sources["hgnc"][4] == "2026-11-12T00:00:00Z"
     assert report["stats"]["submitter:OMIM"] == 5 and report["vcv_xml_bytes"] == len(body)
+
+
+class _DroppingStream(httpx.SyncByteStream):
+    """A body that sends ``data`` then drops the connection, like NCBI did on the runner."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        import httpx
+
+        yield self._data
+        raise httpx.RemoteProtocolError("peer closed connection without sending complete body")
+
+
+@pytest.mark.parametrize("resume_status", [206, 200])
+def test_open_vcv_xml_resumes_a_dropped_stream_with_a_range_request(
+    respx_mock, resume_status: int
+) -> None:
+    import httpx
+
+    from clinvar_link.exceptions import DownloadError
+    from clinvar_link.ingest.submissions import open_vcv_xml
+
+    body, md5 = _gz_payload()
+    cut = len(body) // 3
+    lm = "Thu, 05 Nov 2026 05:07:53 GMT"
+    respx_mock.get(f"{URL}.md5").mock(return_value=httpx.Response(200, text=md5))
+    seen: list[dict] = []
+
+    def serve(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.headers))
+        if "range" not in request.headers:
+            return httpx.Response(
+                200, stream=_DroppingStream(body[:cut]), headers={"Last-Modified": lm}
+            )
+        if resume_status == 200:  # the file changed upstream: If-Range sends it whole
+            return httpx.Response(200, content=body, headers={"Last-Modified": "Fri"})
+        return httpx.Response(
+            206,
+            content=body[cut:],
+            headers={
+                "Last-Modified": lm,
+                "Content-Range": f"bytes {cut}-{len(body) - 1}/{len(body)}",
+            },
+        )
+
+    respx_mock.get(URL).mock(side_effect=serve)
+    if resume_status == 206:
+        with open_vcv_xml(URL, max_bytes=1 << 30, max_seconds=60) as (xml, info):
+            assert len(list(iter_submissions(xml, stats=Counter()))) == 5
+        assert info["md5"] == md5 and info["size"] == len(body)
+        assert seen[1]["range"] == f"bytes={cut}-" and seen[1]["if-range"] == lm
+    else:
+        with (
+            pytest.raises(DownloadError, match="resume"),
+            open_vcv_xml(URL, max_bytes=1 << 30, max_seconds=60) as (xml, _),
+        ):
+            list(iter_submissions(xml, stats=Counter()))
