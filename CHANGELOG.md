@@ -5,6 +5,21 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
+### Added
+
+- OMIM submissions (#122, and the submission-description half of #119). The bundle build streams the monthly ClinVar VCV XML dump (6.1 GB gz) straight from NCBI. The stream never touches disk, NCBI's MD5 is verified, and a dropped connection resumes with `Range` + `If-Range`. The build keeps OMIM's SCVs: description, conditions, PMIDs and OMIM allelic-variant id. The parsed count is checked against `submission_summary.txt.gz`, and the build fails above 5% drift.
+- `get_variants_by_gene(gene_symbol, submitter="OMIM")` lists OMIM's per-family submissions, one row per SCV. Free text is fenced as `untrusted_text`, and `gene_resolution` reports the match. Renamed genes resolve through HGNC previous and alias symbols (TRAF3IP1 ↔ IFT54).
+- `get_variant` gains a `submissions` section.
+- `bundle-metadata.json` `sources` pins the VCV XML (URL, Last-Modified, MD5), `submission_summary` and HGNC (SHA-256).
+- The Data bundle workflow takes `revision=N` and publishes `bundle-<date>-rN` when the bundle format changes but the upstream doesn't.
+
+### Changed
+
+- Pinned `bundle-2026-11-09-r2`, the first bundle carrying the submission tables (see `container-release.json`).
+- New runtime dependency: `lxml`.
+
 ## [0.6.0] - 2026-11-12
 
 ### Added

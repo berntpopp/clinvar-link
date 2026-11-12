@@ -21,7 +21,7 @@ from clinvar_link.runtime_data_identity import (
     write_identity_manifest,
 )
 
-RELEASE_TAG = "bundle-2026-11-09"
+RELEASE_TAG = "bundle-2026-11-09-r2"
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def sealed_root(tmp_path: Path) -> Path:
     root = tmp_path / "463a"
     root.mkdir()
     (root / "clinvar.sqlite").write_bytes(b"sqlite-bytes")
-    (root / "data-identity.json").write_text('{"release_tag":"bundle-2026-11-09"}\n')
+    (root / "data-identity.json").write_text('{"release_tag":"bundle-2026-11-09-r2"}\n')
     write_identity_manifest(
         root, RELEASE_TAG, [root / "clinvar.sqlite", root / "data-identity.json"]
     )
