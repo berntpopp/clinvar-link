@@ -253,6 +253,50 @@ class _HashingReader(io.RawIOBase):
         return n
 
 
+# The parser throttles the read, so one connection stays open for 10-30 min; NCBI drops some
+# (the first runner build lost it at 1.3 of 6.1 GB). Each drop resumes from the byte offset.
+_MAX_RESUMES = 8
+
+
+def _resumable_chunks(client: httpx.Client, url: str, info: dict[str, Any]) -> Iterator[bytes]:
+    """Yield the body of ``url``, resuming dropped connections with ``Range`` + ``If-Range``.
+
+    A resume is accepted only as ``206`` from the same offset: if the file changed upstream
+    ``If-Range`` makes the server send it whole (``200``), which fails the build instead of
+    splicing two releases. The caller's MD5 over every byte is the final integrity check.
+    """
+    offset, resumes = 0, 0
+    while True:
+        headers = dict(_HEADERS)
+        if offset:
+            if not info["last_modified"]:
+                raise DownloadError("VCV XML connection dropped and cannot resume (no validator)")
+            headers.update(Range=f"bytes={offset}-", **{"If-Range": info["last_modified"]})
+        try:
+            with client.stream("GET", url, headers=headers) as response:
+                if offset and (
+                    response.status_code != 206
+                    or not response.headers.get("Content-Range", "").startswith(f"bytes {offset}-")
+                ):
+                    raise DownloadError(
+                        f"VCV XML cannot resume at byte {offset} (HTTP {response.status_code}); "
+                        "the upstream file changed or ignores ranges"
+                    )
+                response.raise_for_status()
+                if not offset:
+                    info["last_modified"] = response.headers.get("Last-Modified")
+                # iter_raw: transport chunks as they arrive (the .gz has no content-encoding), so
+                # a drop never discards bytes still sitting in a re-chunking buffer.
+                for chunk in response.iter_raw():
+                    offset += len(chunk)
+                    yield chunk
+            return
+        except httpx.TransportError:
+            resumes += 1
+            if resumes > _MAX_RESUMES:
+                raise
+
+
 @contextmanager
 def open_vcv_xml(
     url: str, *, max_bytes: int, max_seconds: float
@@ -269,21 +313,18 @@ def open_vcv_xml(
             expected = md5_response.text[:64].split()[0].lower() if md5_response.text else ""
             if not _MD5_RE.fullmatch(expected):
                 raise DownloadError(f"{url}.md5 does not hold an MD5 digest")
-            with client.stream("GET", url, headers=_HEADERS) as response:
-                response.raise_for_status()
-                raw = _HashingReader(
-                    response.iter_bytes(1 << 20), max_bytes=max_bytes, max_seconds=max_seconds
-                )
-                info: dict[str, Any] = {
-                    "url": url,
-                    "last_modified": response.headers.get("Last-Modified"),
-                }
-                with gzip.GzipFile(fileobj=io.BufferedReader(raw, 1 << 20)) as xml:
-                    yield cast(IO[bytes], xml), info
-                    while xml.read(1 << 20):  # to EOF: gzip checks its CRC32 + length trailer
-                        pass
-                while raw.read(1 << 20):
+            info: dict[str, Any] = {"url": url, "last_modified": None}
+            raw = _HashingReader(
+                _resumable_chunks(client, url, info),
+                max_bytes=max_bytes,
+                max_seconds=max_seconds,
+            )
+            with gzip.GzipFile(fileobj=io.BufferedReader(raw, 1 << 20)) as xml:
+                yield cast(IO[bytes], xml), info
+                while xml.read(1 << 20):  # to EOF: gzip checks its CRC32 + length trailer
                     pass
+            while raw.read(1 << 20):
+                pass
     except httpx.HTTPError as exc:
         raise DownloadError(f"VCV XML download failed: {exc}") from exc
     except (EOFError, zlib.error, etree.XMLSyntaxError) as exc:  # truncated / corrupt stream
