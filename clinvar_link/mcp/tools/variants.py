@@ -209,7 +209,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         response_mode: ResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
-        """List the ClinVar variants whose submissions cite a PubMed paper — the way to recover the genotypes a (paywalled) paper reported. Rows are per-variant (name with HGVS, gene, classification, stars), highest review confidence first, paginated with total_count / has_more / next_offset. Re-call get_variant on a row for its full citation list. In minimal/compact mode the citation is hoisted once to _meta.citation_template."""
+        """List the ClinVar variants whose submissions cite a PubMed paper — the way to recover the genotypes a (paywalled) paper reported. Rows are per-variant (name with HGVS, gene, classification, stars), highest review confidence first, paginated with total_count / has_more / next_offset. Re-call get_variant on a row for the PMIDs it cites. In minimal/compact mode the citation is hoisted once to _meta.citation_template."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().get_variants_by_pmid(
