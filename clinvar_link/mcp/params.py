@@ -92,7 +92,8 @@ ResponseModeParam = Annotated[
         description=(
             "Payload verbosity, cheapest first: minimal = ids + classification + stars; compact "
             "(default) adds name, review status, traits; standard adds coordinates, RCVs, "
-            "consequence; full adds all fields. Start compact, widen if needed."
+            "consequence; full adds all fields. Citations and submissions appear from compact up; "
+            "minimal drops submission text. Start compact, widen if needed."
         ),
         examples=["compact"],
     ),
