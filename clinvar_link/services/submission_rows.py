@@ -24,6 +24,7 @@ def submission_row(
         "variation_id": sub["variation_id"],
         "vcv_accession": sub["vcv_accession"],
         "pmids": sub["pmids"],
+        "omim_allelic_variant": sub.get("omim_allelic_variant"),
     }
     fenced: list[UntrustedText] = []
     if mode != "minimal":

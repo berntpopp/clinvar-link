@@ -34,6 +34,7 @@
         <SimpleAllele>
           <GeneList><Gene Symbol="RPGRIP1L"/></GeneList>
           <Name>RPGRIP1L, GLN684TER</Name>
+          <XRefList><XRef DB="OMIM" ID="610937.0009" Type="Allelic variant"/></XRefList>
         </SimpleAllele>
         <TraitSet Type="Disease">
           <Trait Type="Disease"><Name><ElementValue Type="Preferred">JOUBERT SYNDROME 7</ElementValue></Name></Trait>

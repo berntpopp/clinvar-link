@@ -110,7 +110,8 @@ CREATE TABLE submission (
     submitted_genes  TEXT,
     conditions       TEXT,
     description      TEXT,
-    pmids            TEXT
+    pmids            TEXT,
+    omim_allelic_variant TEXT     -- e.g. 610937.0009 (OMIM SCVs only)
 );
 
 -- Gene -> submission: the submitted AND ClinVar's own symbols (they differ after a rename).

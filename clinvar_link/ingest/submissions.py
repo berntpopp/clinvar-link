@@ -88,6 +88,14 @@ def _submission(assertion: Any, record: Any, vcv_genes: list[str]) -> dict[str, 
         ),
         "description": _SEP.join(_unique(iter(descriptions))) or None,
         "pmids": sorted(pmids, key=lambda p: (len(p), p)),
+        # OMIM's own allelic-variant id (610937.0009): the key its stub "see ..." SCVs cite.
+        "omim_allelic_variant": next(
+            (
+                x.get("ID")
+                for x in assertion.iterfind(".//XRef[@DB='OMIM'][@Type='Allelic variant']")
+            ),
+            None,
+        ),
     }
 
 
@@ -148,7 +156,7 @@ def load_submissions(conn: sqlite3.Connection, source: IO[bytes]) -> Counter[str
 
     def flush() -> None:
         conn.executemany(
-            "INSERT OR REPLACE INTO submission VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
+            "INSERT OR REPLACE INTO submission VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
         )
         conn.executemany("INSERT OR IGNORE INTO submission_gene VALUES (?, ?)", genes)
         rows.clear()
@@ -168,6 +176,7 @@ def load_submissions(conn: sqlite3.Connection, source: IO[bytes]) -> Counter[str
                 json.dumps(sub["conditions"]),
                 sub["description"],
                 json.dumps(sub["pmids"]),
+                sub["omim_allelic_variant"],
             )
         )
         genes.extend((symbol.upper(), sub["scv"]) for symbol in sub["genes"])

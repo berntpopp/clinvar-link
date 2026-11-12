@@ -53,6 +53,7 @@ def test_omim_record_fields() -> None:
     assert sub["conditions"] == ["JOUBERT SYNDROME 7"]
     assert sub["description"].startswith("In a patient with Joubert syndrome (JBTS7; 611560)")
     assert sub["pmids"] == ["17558407"]  # the lab SCV's PMID is not attached
+    assert sub["omim_allelic_variant"] == "610937.0009"
 
 
 def test_renamed_gene_keeps_submitted_and_clinvar_symbols() -> None:
@@ -306,6 +307,7 @@ async def test_gene_listing_by_submitter_returns_fenced_descriptions(mcp) -> Non
     assert row["pmids"] == ["17558407"]
     assert row["description"]["kind"] == "untrusted_text"
     assert "Arts et al. (2007)" in row["description"]["text"]
+    assert row["omim_allelic_variant"] == "610937.0009"
     assert row["conditions"][0]["text"] == "JOUBERT SYNDROME 7"
     assert "classification" not in row
     assert out["_meta"]["next_commands"][0] == {
@@ -330,6 +332,17 @@ async def test_renamed_gene_finds_records_under_both_symbols(mcp, query: str) ->
             "mip-t3": "alias_symbol",
         }[query]
     )
+
+
+async def test_known_gene_without_omim_records_is_a_true_zero(mcp) -> None:
+    """BRCA1 is in the index but OMIM filed nothing on it: an empty success, not not_found."""
+    out = await _call(mcp, "get_variants_by_gene", {"gene_symbol": "BRCA1", "submitter": "OMIM"})
+    assert out["success"] is True
+    assert (out["results"], out["total_count"], out["has_more"]) == ([], 0, False)
+    unknown = await _call(
+        mcp, "get_variants_by_gene", {"gene_symbol": "FAKEGENE1", "submitter": "OMIM"}
+    )
+    assert unknown["success"] is False and unknown["error_code"] == "not_found"
 
 
 async def test_ambiguous_alias_is_not_guessed(mcp) -> None:
@@ -361,7 +374,15 @@ async def test_minimal_mode_drops_free_text(mcp) -> None:
         {"gene_symbol": "ELN", "submitter": "OMIM", "response_mode": "minimal"},
     )
     row = out["results"][0]
-    assert set(row) == {"scv", "scv_version", "submitter", "variation_id", "vcv_accession", "pmids"}
+    assert set(row) == {
+        "scv",
+        "scv_version",
+        "submitter",
+        "variation_id",
+        "vcv_accession",
+        "pmids",
+        "omim_allelic_variant",
+    }
 
 
 @pytest.mark.parametrize(

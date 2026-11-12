@@ -227,6 +227,7 @@ _VARIANT_SUBMISSION_FIELDS = frozenset(
         "conditions",
         "description",
         "pmids",
+        "omim_allelic_variant",
     }
 )
 
@@ -919,7 +920,11 @@ class ClinVarService:
         resolution = await asyncio.to_thread(self.repo.resolve_gene, gene_symbol)
         symbols = resolution["matched_symbols"]
         total = await asyncio.to_thread(self.repo.count_submissions_by_gene, symbols, submitter)
-        if total == 0:
+        # A gene the index knows but the submitter never filed on is a TRUE zero (success);
+        # only a symbol unknown under every matched name is not_found.
+        if total == 0 and not any(
+            [await asyncio.to_thread(self.repo.gene_exists, sym) for sym in symbols]
+        ):
             raise DataNotFoundError(
                 f"No {submitter} submissions for gene {gene_symbol!r} "
                 f"(matched symbols: {', '.join(symbols)})"

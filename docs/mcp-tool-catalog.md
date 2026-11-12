@@ -96,9 +96,12 @@ instead (see [data → licence & citation](data.md#licence--citation)).
   `has_pathogenic`.
 - `get_variants_by_gene(gene_symbol, submitter="OMIM")` returns one row per OMIM SCV
   (`scv`, `variation_id`, `vcv_accession`, `variant_name`, `submitted_gene_symbols`,
-  `conditions`, `description`, `pmids`; free text fenced as `untrusted_text`) instead of
-  per-variant rows, plus `gene_resolution` (HGNC id, approved symbol, `resolved_via`,
+  `conditions`, `description`, `pmids`, `omim_allelic_variant` — the id OMIM's stub
+  "see 610937.0011" SCVs cite; free text fenced as `untrusted_text`) instead of per-variant
+  rows, plus `gene_resolution` (HGNC id, approved symbol, `resolved_via`,
   `matched_symbols`). `classification` / `min_stars` / `sort` are rejected with it.
+  A gene in the index with no such submissions is an empty success (`total_count: 0`); a
+  symbol unknown under every matched name is `not_found`.
   `get_variant` carries the same rows (without the variant ids) as `submissions`.
 - `get_variants_by_gene` sorts by `stars_desc` by default; `sort` is allow-listed
   and advertised as `sort_options` in capabilities.
