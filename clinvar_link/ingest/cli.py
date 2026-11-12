@@ -96,14 +96,7 @@ def _submission_loader(
         settings.SUBMISSION_SUMMARY_URL, summary_path, cache_path=_cache_path(), force=force
     )
     hgnc = download_source(settings.HGNC_URL, hgnc_path, cache_path=_cache_path(), force=force)
-    return make_loader(
-        settings,
-        summary_path=summary_path,
-        summary_last_modified=summary.get("last_modified"),
-        hgnc_path=hgnc_path,
-        hgnc_last_modified=hgnc.get("last_modified"),
-        report=report,
-    )
+    return make_loader(settings, summary=summary, hgnc=hgnc, report=report)
 
 
 def _print_summary(summary: dict[str, Any], *, header: str) -> None:

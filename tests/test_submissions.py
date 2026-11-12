@@ -230,6 +230,22 @@ def test_open_vcv_xml_streams_and_verifies_md5(respx_mock, good: bool) -> None:
             list(iter_submissions(xml, stats=stats))
 
 
+def test_open_vcv_xml_maps_a_truncated_stream_to_download_error(respx_mock) -> None:
+    import httpx
+
+    from clinvar_link.exceptions import DownloadError
+    from clinvar_link.ingest.submissions import open_vcv_xml
+
+    body, md5 = _gz_payload()
+    respx_mock.get(f"{URL}.md5").mock(return_value=httpx.Response(200, text=md5))
+    respx_mock.get(URL).mock(return_value=httpx.Response(200, content=body[: len(body) // 2]))
+    with (
+        pytest.raises(DownloadError, match="truncated"),
+        open_vcv_xml(URL, max_bytes=1 << 30, max_seconds=60) as (xml, _),
+    ):
+        list(iter_submissions(xml, stats=Counter()))
+
+
 def test_open_vcv_xml_rejects_oversized_stream(respx_mock) -> None:
     import httpx
 
@@ -469,10 +485,8 @@ def test_make_loader_builds_pins_sources_and_fails_on_count_drift(
     report: dict = {}
     loader = make_loader(
         cfg,
-        summary_path=_summary_gz(tmp_path, expected_omim),
-        summary_last_modified="Sun, 08 Nov",
-        hgnc_path=HGNC,
-        hgnc_last_modified=None,
+        summary={"path": str(_summary_gz(tmp_path, expected_omim)), "last_modified": "Sun"},
+        hgnc={"path": str(HGNC), "retrieved_at": "2026-11-12T00:00:00Z"},
         report=report,
     )
     if not builds:
@@ -487,4 +501,5 @@ def test_make_loader_builds_pins_sources_and_fails_on_count_drift(
     assert sources["vcv_xml"][2] == md5 and sources["vcv_xml"][5] == 5
     assert sources["submission_summary"][5] == 5
     assert sources["hgnc"][5] == 4 and len(sources["hgnc"][3]) == 64
+    assert sources["hgnc"][4] == "2026-11-12T00:00:00Z"
     assert report["stats"]["submitter:OMIM"] == 5 and report["vcv_xml_bytes"] == len(body)

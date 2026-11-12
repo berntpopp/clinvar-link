@@ -18,6 +18,7 @@ import json
 import re
 import sqlite3
 import time
+import zlib
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -276,6 +277,8 @@ def open_vcv_xml(
                     pass
     except httpx.HTTPError as exc:
         raise DownloadError(f"VCV XML download failed: {exc}") from exc
+    except (EOFError, zlib.error, etree.XMLSyntaxError) as exc:  # truncated / corrupt stream
+        raise DownloadError(f"VCV XML stream is truncated or corrupt: {exc}") from exc
     if raw.md5.hexdigest() != expected:
         raise DownloadError(f"VCV XML MD5 {raw.md5.hexdigest()} != published {expected}")
     info.update(md5=expected, size=raw.size)
@@ -310,18 +313,18 @@ def _sha256(path: Path) -> str:
 def make_loader(
     config: Settings,
     *,
-    summary_path: Path,
-    summary_last_modified: str | None,
-    hgnc_path: Path,
-    hgnc_last_modified: str | None,
+    summary: dict[str, Any],
+    hgnc: dict[str, Any],
     report: dict[str, Any],
 ) -> Callable[[sqlite3.Connection], None]:
     """Return the builder hook that fills ``gene_alias``, ``submission*`` and ``data_source``.
 
     The independent submission_summary count is taken up front (fail fast, before the long
     build); the VCV XML is streamed inside the build and its count checked against it.
-    ``report`` receives the parse stats and wall time for the build summary.
+    ``summary`` / ``hgnc`` are the :func:`~clinvar_link.ingest.downloader.download_source`
+    results for those inputs; ``report`` receives the parse stats and wall time.
     """
+    summary_path, hgnc_path = Path(summary["path"]), Path(hgnc["path"])
     expected = count_summary_scvs(summary_path, max_expanded_bytes=config.SOURCE_MAX_EXPANDED_BYTES)
 
     def load(conn: sqlite3.Connection) -> None:
@@ -334,7 +337,7 @@ def make_loader(
         ) as (xml, info):
             stats = load_submissions(conn, xml)
         check_counts(stats, expected)
-        retrieved = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        retrieved = datetime.now(UTC).isoformat().replace("+00:00", "Z")  # stream end
         kept = sum(n for key, n in stats.items() if key.startswith("submitter:"))
         conn.executemany(
             "INSERT INTO data_source VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -343,19 +346,19 @@ def make_loader(
                 (
                     "submission_summary",
                     config.SUBMISSION_SUMMARY_URL,
-                    summary_last_modified,
+                    summary.get("last_modified"),
                     None,
                     _sha256(summary_path),
-                    retrieved,
+                    summary.get("retrieved_at"),
                     sum(expected.values()),
                 ),
                 (
                     "hgnc",
                     config.HGNC_URL,
-                    hgnc_last_modified,
+                    hgnc.get("last_modified"),
                     None,
                     _sha256(hgnc_path),
-                    retrieved,
+                    hgnc.get("retrieved_at"),
                     genes,
                 ),
             ],

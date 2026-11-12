@@ -438,7 +438,7 @@ def test_production_accepts_only_well_formed_revision_tags(tag: str, ok: bool) -
     url = f"https://github.com/berntpopp/clinvar-link/releases/download/{tag}/clinvar.sqlite.zst"
     if ok:
         assert (
-            _production_settings(BUNDLE_RELEASE_TAG=tag, BUNDLE_URL=url).BUNDLE_RELEASE_TAG == tag
+            tag == _production_settings(BUNDLE_RELEASE_TAG=tag, BUNDLE_URL=url).BUNDLE_RELEASE_TAG
         )
     else:
         with pytest.raises(ValidationError, match="release tag"):
