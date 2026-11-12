@@ -184,6 +184,20 @@ MinStars = Annotated[
     ),
 ]
 
+SubmitterFilter = Annotated[
+    Literal["OMIM"] | None,
+    Field(
+        description=(
+            "Return this submitter's submissions on the gene instead of per-variant rows: one row "
+            "per SCV with its description (OMIM's per-family text, fenced untrusted_text), "
+            "conditions and cited PMIDs. The gene matches through HGNC previous symbols "
+            "(TRAF3IP1 finds IFT54 records and vice versa); gene_resolution says what matched. "
+            "classification / min_stars / sort are rejected with it."
+        ),
+        examples=["OMIM"],
+    ),
+]
+
 SortParam = Annotated[
     Literal["stars_desc", "stars_asc", "name", "variation_id"],
     Field(

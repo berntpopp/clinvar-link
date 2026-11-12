@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from clinvar_link.ingest.builder import build_database
 from clinvar_link.ingest.bundle import pack_bundle, pull_latest
 from clinvar_link.ingest.downloader import download_source
 from clinvar_link.ingest.lock import build_lock
+from clinvar_link.ingest.submissions import make_loader
 
 app = typer.Typer(
     add_completion=False,
@@ -80,6 +82,30 @@ def _download_citations(*, force: bool) -> Path:
     return path
 
 
+def _submission_loader(
+    *, force: bool, report: dict[str, Any]
+) -> Callable[[sqlite3.Connection], None]:
+    """Fetch the small submission inputs (count check, HGNC) and return the builder hook.
+
+    A failure fails the build: a bundle that silently lacked submissions would answer every
+    submitter lookup with not_found.
+    """
+    summary_path = settings.DATA_DIR / "submission_summary.txt.gz"
+    hgnc_path = settings.DATA_DIR / "hgnc_complete_set.txt"
+    summary = download_source(
+        settings.SUBMISSION_SUMMARY_URL, summary_path, cache_path=_cache_path(), force=force
+    )
+    hgnc = download_source(settings.HGNC_URL, hgnc_path, cache_path=_cache_path(), force=force)
+    return make_loader(
+        settings,
+        summary_path=summary_path,
+        summary_last_modified=summary.get("last_modified"),
+        hgnc_path=hgnc_path,
+        hgnc_last_modified=hgnc.get("last_modified"),
+        report=report,
+    )
+
+
 def _print_summary(summary: dict[str, Any], *, header: str) -> None:
     """Render a build summary dict as a rich table."""
     table = Table(title=header, show_header=False)
@@ -89,6 +115,7 @@ def _print_summary(summary: dict[str, Any], *, header: str) -> None:
     table.add_row("gene_count", str(summary.get("gene_count")))
     table.add_row("clinvar_release_date", str(summary.get("clinvar_release_date")))
     table.add_row("db_path", str(summary.get("db_path")))
+    table.add_row("submissions", str(summary.get("submissions")))
     console.print(table)
 
 
@@ -132,16 +159,19 @@ def _build_local(*, force: bool) -> dict[str, Any]:
             force=force,
         )
         hgvs_path = _maybe_download_hgvs(force=force)
-        return build_database(
+        report: dict[str, Any] = {}
+        summary = build_database(
             settings,
             source_path=_source_path(),
             hgvs_source_path=hgvs_path,
             citations_source_path=_download_citations(force=force),
+            secondary_loader=_submission_loader(force=force, report=report),
             etag=download.get("etag"),
             last_modified=download.get("last_modified"),
             source_sha256=download.get("sha256"),
             source_retrieved_at=download.get("retrieved_at"),
         )
+        return {**summary, "submissions": report}
 
 
 @app.command()
@@ -180,11 +210,13 @@ def refresh() -> None:
 
         with build_lock(settings.DATA_DIR):
             hgvs_path = _maybe_download_hgvs(force=False)
+            report: dict[str, Any] = {}
             summary = build_database(
                 settings,
                 source_path=_source_path(),
                 hgvs_source_path=hgvs_path,
                 citations_source_path=_download_citations(force=False),
+                secondary_loader=_submission_loader(force=False, report=report),
                 etag=download.get("etag"),
                 last_modified=download.get("last_modified"),
                 source_sha256=download.get("sha256"),
@@ -193,7 +225,7 @@ def refresh() -> None:
     except (DownloadError, ClinVarServerError, OSError, sqlite3.Error) as exc:
         console.print(f"[red]ERROR:[/red] refresh failed: {exc}")
         raise typer.Exit(1) from exc
-    _print_summary(summary, header="Refreshed ClinVar database")
+    _print_summary({**summary, "submissions": report}, header="Refreshed ClinVar database")
 
 
 @app.command()

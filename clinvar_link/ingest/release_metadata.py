@@ -120,14 +120,35 @@ def _write_checksums(out_dir: Path) -> None:
     )
 
 
+def _secondary_sources(db_path: Path) -> dict[str, dict[str, Any]]:
+    """Pins of the secondary inputs (VCV XML md5, HGNC sha256, ...) from ``data_source``."""
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute("SELECT * FROM data_source ORDER BY name").fetchall()
+    except sqlite3.OperationalError:  # an index built before data_source existed
+        return {}
+    finally:
+        connection.close()
+    return {row["name"]: {k: row[k] for k in row.keys() if k != "name"} for row in rows}  # noqa: SIM118
+
+
 def build_release_metadata(
     db_path: Path,
     asset_path: Path,
     out_dir: Path,
     *,
     retrieved_at: datetime,
+    revision: int | None = None,
 ) -> ReleaseMetadata:
-    """Write exact source and artifact provenance using bounded streaming hashes."""
+    """Write exact source and artifact provenance using bounded streaming hashes.
+
+    ``revision`` (>= 2) tags a rebuild of an UNCHANGED upstream whose bundle format changed
+    (new tables) as ``bundle-<date>-r<revision>``: the immutable ``bundle-<date>`` already
+    exists and must never be replaced.
+    """
+    if revision is not None and revision < 2:
+        raise ReleaseIdentityError("bundle revision must be >= 2")
     if not asset_path.is_file():
         raise ReleaseIdentityError(f"bundle asset does not exist: {asset_path}")
     row = _metadata_row(db_path)
@@ -140,7 +161,8 @@ def build_release_metadata(
     source_sha256 = _required_text(row, "source_sha256")
     if _SHA256_RE.fullmatch(source_sha256) is None:
         raise ReleaseIdentityError("ClinVar source SHA-256 is malformed")
-    tag = release_tag_for_date(raw_date)
+    date_tag = release_tag_for_date(raw_date)
+    tag = f"{date_tag}-r{revision}" if revision else date_tag
     out_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "tag": tag,
@@ -154,11 +176,12 @@ def build_release_metadata(
         "source_etag": _optional_text(row, "source_etag"),
         "source_last_modified": _required_text(row, "source_last_modified"),
         "clinvar_release_date_raw": raw_date,
-        "clinvar_release_date": tag.removeprefix("bundle-"),
+        "clinvar_release_date": date_tag.removeprefix("bundle-"),
         "source_retrieved_at": source_retrieved_at,
         "retrieved_at": source_retrieved_at,
         "variant_count": _required_nonnegative_int(row, "variant_count"),
         "gene_count": _required_nonnegative_int(row, "gene_count"),
+        "sources": _secondary_sources(db_path),
     }
     path = out_dir / "bundle-metadata.json"
     path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
@@ -216,6 +239,7 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--db-path", type=Path, required=True)
     build.add_argument("--asset-path", type=Path, required=True)
     build.add_argument("--out-dir", type=Path, required=True)
+    build.add_argument("--revision", type=int)
     state = commands.add_parser("state")
     state.add_argument("--current", type=Path, required=True)
     state.add_argument("--existing", type=Path)
@@ -230,7 +254,11 @@ def main() -> None:
         row = _metadata_row(args.db_path)
         source_time = datetime.fromisoformat(_source_retrieved_at(row).replace("Z", "+00:00"))
         metadata = build_release_metadata(
-            args.db_path, args.asset_path, args.out_dir, retrieved_at=source_time
+            args.db_path,
+            args.asset_path,
+            args.out_dir,
+            retrieved_at=source_time,
+            revision=args.revision,
         )
         print(metadata.tag)
         return

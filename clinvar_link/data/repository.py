@@ -447,6 +447,100 @@ class ClinVarRepository:
         ).fetchone()
         return int(row["n"]) if row is not None else 0
 
+    # -- submissions (VCV XML, #122) -------------------------------------------
+
+    def has_submissions(self) -> bool:
+        """True if this index carries ``submission`` (bundles before v0.7.0 do not)."""
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'submission'"
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _submission(row: sqlite3.Row) -> dict[str, Any]:
+        out = dict(row)
+        for key in ("submitted_genes", "conditions", "pmids"):
+            out[key] = json.loads(out[key] or "[]")
+        return out
+
+    def submissions_for_variant(self, vid: int) -> list[dict[str, Any]]:
+        """Return every indexed (allow-listed) submission on one variant, by SCV."""
+        rows = self._conn.execute(
+            "SELECT * FROM submission WHERE variation_id = ? ORDER BY scv", (vid,)
+        ).fetchall()
+        return [self._submission(r) for r in rows]
+
+    def resolve_gene(self, gene_symbol: str) -> dict[str, Any]:
+        """Resolve a symbol through HGNC: approved, else previous, else a UNIQUE alias.
+
+        Returns ``matched_symbols`` (the input plus the gene's approved and previous symbols,
+        uppercased), and ``hgnc_id`` / ``approved_symbol`` / ``resolved_via`` (None when the
+        symbol is not in HGNC or an alias is ambiguous).
+        """
+        query = gene_symbol.strip().upper()
+        out: dict[str, Any] = {
+            "hgnc_id": None,
+            "approved_symbol": None,
+            "resolved_via": None,
+            "matched_symbols": [query],
+        }
+        try:
+            rows = self._conn.execute(
+                "SELECT DISTINCT hgnc_id, approved_symbol, kind FROM gene_alias "
+                "WHERE symbol_upper = ?",
+                (query,),
+            ).fetchall()
+        except sqlite3.OperationalError:  # an index without gene_alias: exact symbol only
+            return out
+        for kind in ("approved", "previous", "alias"):
+            hits = {(r["hgnc_id"], r["approved_symbol"]) for r in rows if r["kind"] == kind}
+            if len(hits) == 1:
+                ((hgnc_id, approved),) = hits
+                symbols = self._conn.execute(
+                    "SELECT symbol_upper FROM gene_alias WHERE hgnc_id = ? "
+                    "AND kind IN ('approved', 'previous') ORDER BY kind, symbol_upper",
+                    (hgnc_id,),
+                ).fetchall()
+                out.update(
+                    hgnc_id=hgnc_id,
+                    approved_symbol=approved,
+                    resolved_via=f"{kind}_symbol",
+                    matched_symbols=list(dict.fromkeys([query, *(r[0] for r in symbols)])),
+                )
+                break
+            if hits:  # ambiguous at this level: never guess between genes
+                break
+        return out
+
+    def _gene_submission_where(self, symbols: list[str], submitter: str) -> tuple[str, list[Any]]:
+        marks = ", ".join("?" for _ in symbols)
+        return (
+            f"s.submitter = ? AND s.scv IN (SELECT scv FROM submission_gene "  # noqa: S608
+            f"WHERE gene_symbol_upper IN ({marks}))",
+            [submitter, *symbols],
+        )
+
+    def submissions_by_gene(
+        self, symbols: list[str], submitter: str, *, limit: int, offset: int
+    ) -> list[dict[str, Any]]:
+        """Return one submitter's submissions on any of ``symbols`` (VariationID, SCV order)."""
+        where, params = self._gene_submission_where(symbols, submitter)
+        rows = self._conn.execute(
+            f"SELECT s.* FROM submission s WHERE {where} "  # noqa: S608
+            "ORDER BY s.variation_id, s.scv LIMIT ? OFFSET ?",
+            [*params, limit, offset],
+        ).fetchall()
+        return [self._submission(r) for r in rows]
+
+    def count_submissions_by_gene(self, symbols: list[str], submitter: str) -> int:
+        """Return how many of one submitter's submissions are on any of ``symbols``."""
+        where, params = self._gene_submission_where(symbols, submitter)
+        row = self._conn.execute(
+            f"SELECT COUNT(*) AS n FROM submission s WHERE {where}",  # noqa: S608
+            params,
+        ).fetchone()
+        return int(row["n"])
+
     # -- aggregates + provenance -----------------------------------------------
 
     def gene_exists(self, gene_symbol: str) -> bool:

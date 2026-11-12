@@ -99,3 +99,12 @@ def test_unchanged_upstream_skips_the_build_and_the_gate() -> None:
         "state: ${{ steps.existing.outputs.state || steps.release-state.outputs.state }}" in build
     )
     assert build.count("if: steps.existing.outputs.state != 'published_noop'") == 4
+
+
+def test_revision_input_reaches_both_the_noop_check_and_the_release_tag() -> None:
+    """A format rebuild of an unchanged upstream must not no-op against bundle-<date>."""
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "REVISION: ${{ inputs.revision }}" in workflow  # via env, never inlined into a script
+    assert '"$last_modified")${REVISION:+-r$REVISION}"' in workflow
+    assert '${REVISION:+--revision "$REVISION"}' in workflow
+    assert '"$REVISION" =~ ^([2-9]|[1-9][0-9]+)$' in workflow

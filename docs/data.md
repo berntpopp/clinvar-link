@@ -57,8 +57,26 @@ logged as a warning).
 silently lacks it. An index built before v0.6.0 has no such table: `get_variant` then omits
 `citations` and `get_variants_by_pmid` reports an error instead of `not_found`.
 
-`submission_summary.txt.gz` per-submitter detail is optional and **off in v1**
-(`CLINVAR_LINK_ENABLE_SUBMISSION_SUMMARY`).
+**Submissions (OMIM) from the monthly VCV XML (#122).** `submission_summary.txt` has
+`Description = -` for every OMIM SCV, so the per-family text is only in the monthly
+[`ClinVarVCVRelease_00-latest.xml.gz`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/xml/)
+(~6.1 GB gz, `CLINVAR_LINK_VCV_XML_URL`). The build streams it once straight from NCBI —
+gzip and `lxml.etree.iterparse` over the HTTP body, nothing written to disk, each
+`VariationArchive` cleared after use (peak RSS ~75 MB) — and keeps only the SCVs of the
+submitters in `models.enums.SUBMITTERS` (OMIM) in `submission` / `submission_gene`. The
+compressed bytes are verified against NCBI's published `.md5` at the end of the stream; the
+parsed OMIM count is checked against an independent count from `submission_summary.txt.gz`
+(`CLINVAR_LINK_SUBMISSION_SUMMARY_URL`) and the build fails above 5% drift. HGNC's
+`hgnc_complete_set.txt` (`CLINVAR_LINK_HGNC_URL`) fills `gene_alias`, so a renamed gene finds
+submissions filed under its previous symbol. All three pins (URL, Last-Modified, MD5 /
+SHA-256, record count) are in the `data_source` table and in `bundle-metadata.json` `sources`.
+Measured 2026-11-12: 4,708,791 records → 37,918 OMIM SCVs in 8.4 min (local) against 37,948 in
+`submission_summary`. A failure in any of these fails the build. An index built before v0.7.0
+lacks the tables: `get_variant` omits `submissions` and the `submitter` listing errors.
+
+A bundle-format change with an UNCHANGED upstream (new tables) cannot reuse the immutable
+`bundle-<date>` tag: dispatch the Data bundle workflow with `revision=2` to publish
+`bundle-<date>-r2`.
 
 ## Distribution: three ways to get an index
 

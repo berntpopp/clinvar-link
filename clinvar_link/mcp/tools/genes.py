@@ -25,6 +25,7 @@ from clinvar_link.mcp.params import (
     RequestId,
     ResponseModeParam,
     SortParam,
+    SubmitterFilter,
 )
 from clinvar_link.services import ClinVarService
 
@@ -86,12 +87,13 @@ def register_gene_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarSe
         classification: ClassificationFilter = None,
         min_stars: MinStars = None,
         sort: SortParam = "stars_desc",
+        submitter: SubmitterFilter = None,
         limit: Limit = 50,
         offset: Offset = 0,
         response_mode: ResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
-        """List the ClinVar variants for a gene as per-variant rows (each with classification and star rating). Use this after get_gene_clinvar_summary to enumerate individual records; narrow with classification / min_stars and paginate with limit / offset (response carries total_count / has_more / next_offset). classification takes the normalized tokens in its enum — ClinVar's own wording ("Likely pathogenic") is accepted and normalized, and any unrecognized value is REJECTED rather than silently returning zero rows. Default sort is stars_desc (highest review confidence first). In minimal/compact mode the citation is hoisted once to _meta.citation_template instead of repeated per row."""
+        """List the ClinVar variants for a gene as per-variant rows (each with classification and star rating), or with submitter=OMIM every OMIM submission on the gene (description text + PMIDs per family report). Use this after get_gene_clinvar_summary to enumerate individual records; narrow with classification / min_stars and paginate with limit / offset (response carries total_count / has_more / next_offset). classification takes the normalized tokens in its enum — ClinVar's own wording ("Likely pathogenic") is accepted and normalized, and any unrecognized value is REJECTED rather than silently returning zero rows. Default sort is stars_desc (highest review confidence first). In minimal/compact mode the citation is hoisted once to _meta.citation_template instead of repeated per row."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().get_variants_by_gene(
@@ -102,6 +104,7 @@ def register_gene_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVarSe
                 limit=limit,
                 offset=offset,
                 response_mode=response_mode,
+                submitter=submitter,
             )
             symbol = result.get("gene_symbol", gene_symbol)
             results = result.get("results") or []

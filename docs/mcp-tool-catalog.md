@@ -13,7 +13,7 @@ search_variants(query, gene_symbol?, classification?, min_stars?, assembly?,
                 limit=20, offset=0, response_mode="compact", request_id?)
 get_gene_clinvar_summary(gene_symbol, response_mode="compact", request_id?)
 get_variants_by_gene(gene_symbol, classification?, min_stars?, sort="stars_desc",
-                     limit=50, offset=0, response_mode="compact", request_id?)
+                     submitter?, limit=50, offset=0, response_mode="compact", request_id?)
 get_variants_by_pmid(pmid, limit=50, offset=0, response_mode="compact", request_id?)
 get_server_capabilities(request_id?)
 ```
@@ -94,6 +94,12 @@ instead (see [data → licence & citation](data.md#licence--citation)).
   which is reserved for a paginated result set) and counts by classification (including an
   `other_count` bucket), the star distribution, consequence categories, top traits, and
   `has_pathogenic`.
+- `get_variants_by_gene(gene_symbol, submitter="OMIM")` returns one row per OMIM SCV
+  (`scv`, `variation_id`, `vcv_accession`, `variant_name`, `submitted_gene_symbols`,
+  `conditions`, `description`, `pmids`; free text fenced as `untrusted_text`) instead of
+  per-variant rows, plus `gene_resolution` (HGNC id, approved symbol, `resolved_via`,
+  `matched_symbols`). `classification` / `min_stars` / `sort` are rejected with it.
+  `get_variant` carries the same rows (without the variant ids) as `submissions`.
 - `get_variants_by_gene` sorts by `stars_desc` by default; `sort` is allow-listed
   and advertised as `sort_options` in capabilities.
 

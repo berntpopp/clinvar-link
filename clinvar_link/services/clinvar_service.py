@@ -34,6 +34,7 @@ from clinvar_link.models.enums import (
     COUNT_MODES,
     ID_TYPES,
     MATCH_MODES,
+    SUBMITTERS,
     normalize_assembly,
     normalize_classification,
 )
@@ -42,6 +43,7 @@ from clinvar_link.services.citation import (
     gene_citation,
     recommended_citation,
 )
+from clinvar_link.services.submission_rows import submission_row
 
 # List response modes where per-row citations are hoisted to one _meta template
 # and duplicate row fields (cdna_change == name) are dropped to save tokens.
@@ -215,6 +217,19 @@ def _reject_forbidden_codepoints(value: str, *, field: str) -> None:
 # always the full total.
 _MAX_CITATIONS = 50
 
+# get_variant's ``submissions`` rows: the record's own ids are already on the variant.
+_VARIANT_SUBMISSION_FIELDS = frozenset(
+    {
+        "scv",
+        "scv_version",
+        "submitter",
+        "submitted_gene_symbols",
+        "conditions",
+        "description",
+        "pmids",
+    }
+)
+
 # Fields kept in the ``minimal`` variant projection.
 _MINIMAL_FIELDS = (
     "variation_id",
@@ -324,6 +339,13 @@ class ClinVarService:
             )
             projected["citations"] = cites
             projected["citation_count"] = total
+        if response_mode != "minimal" and await asyncio.to_thread(self.repo.has_submissions):
+            subs = await asyncio.to_thread(self.repo.submissions_for_variant, variant.variation_id)
+            rows = [submission_row(sub, release, response_mode) for sub in subs]
+            enforce_untrusted_text_limits([obj for _, fenced in rows for obj in fenced])
+            projected["submissions"] = [
+                {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS} for row, _ in rows
+            ]
         return projected
 
     @staticmethod
@@ -801,8 +823,12 @@ class ClinVarService:
         limit: int = 50,
         offset: int = 0,
         response_mode: str = "compact",
+        submitter: str | None = None,
     ) -> dict[str, Any]:
         """List a gene's variants (projected) with a total for pagination.
+
+        With ``submitter`` the rows are instead that submitter's submissions on the gene,
+        matched through HGNC previous symbols (:meth:`_gene_submissions`).
 
         ``classification`` is normalized-or-rejected BEFORE it reaches SQL (see
         :func:`_ensure_classification`). It used to be interpolated raw into
@@ -813,6 +839,21 @@ class ClinVarService:
         classification = _ensure_classification(classification)
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
+        if submitter is not None:
+            for field, value, default in (
+                ("classification", classification, None),
+                ("min_stars", min_stars, None),
+                ("sort", sort, "stars_desc"),
+            ):
+                if value != default:  # these filter per-variant rows; never silently ignored
+                    raise ToolInputError(
+                        f"{field} does not apply with submitter",
+                        field=field,
+                        public_reason="does not apply with submitter (rows are submissions); omit it",
+                    )
+            return await self._gene_submissions(
+                gene_symbol, submitter, limit=limit, offset=offset, response_mode=response_mode
+            )
         if sort not in ClinVarRepository.SORT_ORDERS:
             raise ToolInputError(
                 f"sort must be one of {sorted(ClinVarRepository.SORT_ORDERS)} (got {sort!r})",
@@ -859,6 +900,46 @@ class ClinVarService:
             "results": results,
             "count": len(results),
             **self._pagination(total, has_more, limit, offset),
+        }
+        self._lean_list(out, results, release, response_mode)
+        return out
+
+    async def _gene_submissions(
+        self, gene_symbol: str, submitter: str, *, limit: int, offset: int, response_mode: str
+    ) -> dict[str, Any]:
+        """One submitter's submissions on a gene, renamed symbols included (#122)."""
+        if submitter not in SUBMITTERS:
+            raise ToolInputError(
+                f"submitter must be one of {list(SUBMITTERS)} (got {submitter!r})",
+                field="submitter",
+                public_reason=f"must be one of: {', '.join(SUBMITTERS)}",
+            )
+        if not await asyncio.to_thread(self.repo.has_submissions):
+            raise ClinVarDataError("this ClinVar index predates the submission table; re-pull it")
+        resolution = await asyncio.to_thread(self.repo.resolve_gene, gene_symbol)
+        symbols = resolution["matched_symbols"]
+        total = await asyncio.to_thread(self.repo.count_submissions_by_gene, symbols, submitter)
+        if total == 0:
+            raise DataNotFoundError(
+                f"No {submitter} submissions for gene {gene_symbol!r} "
+                f"(matched symbols: {', '.join(symbols)})"
+            )
+        subs = await asyncio.to_thread(
+            self.repo.submissions_by_gene, symbols, submitter, limit=limit, offset=offset
+        )
+        release = await self._release_date()
+        rows = [submission_row(sub, release, response_mode) for sub in subs]
+        results = [row for row, _ in rows]
+        enforce_untrusted_text_limits(
+            [obj for _, fenced in rows for obj in fenced], max_objects=_LIST_TOOL_MAX_OBJECTS
+        )
+        out: dict[str, Any] = {
+            "gene_symbol": gene_symbol,
+            "submitter": submitter,
+            "gene_resolution": resolution,
+            "results": results,
+            "count": len(results),
+            **self._pagination(total, (offset + len(results)) < total, limit, offset),
         }
         self._lean_list(out, results, release, response_mode)
         return out

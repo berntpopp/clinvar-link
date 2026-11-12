@@ -1,0 +1,5 @@
+hgnc_id	symbol	name	status	alias_symbol	prev_symbol
+HGNC:17861	IFT54	intraflagellar transport 54	Approved	"MIP-T3|SHARED1"	TRAF3IP1
+HGNC:29168	RPGRIP1L	RPGRIP1 like	Approved	"NPHP8|SHARED1"	
+HGNC:7127	MLH1	mutL homolog 1	Approved		COCA2
+HGNC:3327	ELN	elastin	Approved		

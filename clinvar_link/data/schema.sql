@@ -97,6 +97,48 @@ CREATE TABLE variant_citation (
     citation_id   TEXT
 );
 
+-- Allow-listed submitters' SCVs (OMIM) from the monthly VCV XML dump, with their free-text
+-- description (#122). JSON arrays: submitted_genes, conditions, pmids. A bundle built before
+-- these tables existed lacks them (the server checks).
+CREATE TABLE submission (
+    scv              TEXT PRIMARY KEY,
+    scv_version      INTEGER,
+    variation_id     INTEGER,
+    vcv_accession    TEXT,
+    variation_name   TEXT,
+    submitter        TEXT,
+    submitted_genes  TEXT,
+    conditions       TEXT,
+    description      TEXT,
+    pmids            TEXT
+);
+
+-- Gene -> submission: the submitted AND ClinVar's own symbols (they differ after a rename).
+CREATE TABLE submission_gene (
+    gene_symbol_upper  TEXT,
+    scv                TEXT,
+    PRIMARY KEY (gene_symbol_upper, scv)
+) WITHOUT ROWID;
+
+-- HGNC approved / previous / alias symbols (hgnc_complete_set.txt) for rename resolution.
+CREATE TABLE gene_alias (
+    symbol_upper     TEXT,
+    hgnc_id          TEXT,
+    approved_symbol  TEXT,
+    kind             TEXT    -- approved | previous | alias
+);
+
+-- Provenance of the secondary sources (VCV XML dump, HGNC): url + checksums + counts.
+CREATE TABLE data_source (
+    name           TEXT PRIMARY KEY,
+    url            TEXT,
+    last_modified  TEXT,
+    md5            TEXT,
+    sha256         TEXT,
+    retrieved_at   TEXT,
+    record_count   INTEGER
+);
+
 -- Per-gene aggregate summary (precomputed JSON blob).
 CREATE TABLE gene_summary (
     gene_symbol_upper  TEXT PRIMARY KEY,
