@@ -5,6 +5,10 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- CI: re-pin the reusable container CI/release workflows to genefoundry-router v0.10.17 (`2cd86e3`), picking up the release recovery-path (v0.10.14), validate-config evidence-predicate (v0.10.16), and recovery attestation / GHCR tag-race / partial-rerun fixes (v0.10.17).
+
 ## [0.7.0] - 2026-11-12
 
 ### Added
