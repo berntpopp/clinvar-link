@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, cast
+from typing import Any
 
 import mcp.types
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS
 
 from clinvar_link.mcp.errors import (
     _FALLBACK_TOOL,
@@ -76,32 +78,32 @@ def actionable_output_validation_error(
 
 def install_output_validation_error_handler(mcp_server: Any) -> None:
     """Wrap the MCP call-tool handler so SDK output validation errors are observable."""
-    handler = mcp_server._mcp_server.request_handlers.get(mcp.types.CallToolRequest)
-    if handler is None:
+    lowlevel = mcp_server._mcp_server
+    entry = lowlevel.get_request_handler("tools/call")
+    if entry is None:
         return
 
-    async def wrapped(request: mcp.types.CallToolRequest) -> mcp.types.ServerResult:
-        result = cast(mcp.types.ServerResult, await handler(request))
-        call_result = getattr(result, "root", None)
-        if not isinstance(call_result, mcp.types.CallToolResult):
+    async def wrapped(ctx: Any, params: Any, *, _orig: Any = entry.handler) -> Any:
+        result = await _orig(ctx, params)
+        if not isinstance(result, mcp.types.CallToolResult):
             return result
-        if not call_result.isError or not call_result.content:
+        if not result.is_error or not result.content:
             return result
-        first_content = call_result.content[0]
+        first_content = result.content[0]
         message = getattr(first_content, "text", "")
         if not isinstance(message, str) or not message.startswith(OUTPUT_VALIDATION_PREFIX):
             return result
         payload = actionable_output_validation_error(
-            tool_name=request.params.name,
-            arguments=request.params.arguments or {},
+            tool_name=params.name,
+            arguments=params.arguments or {},
             message=message,
         )
         return _error_result(payload)
 
-    mcp_server._mcp_server.request_handlers[mcp.types.CallToolRequest] = wrapped
+    lowlevel.add_request_handler("tools/call", entry.params_type, wrapped)
 
 
-def _error_result(payload: dict[str, Any]) -> mcp.types.ServerResult:
+def _error_result(payload: dict[str, Any]) -> mcp.types.CallToolResult:
     """A CallToolResult carrying the envelope in BOTH mirrors: TextContent AND structuredContent.
 
     An isError result with ``structuredContent=null`` throws the machine-readable envelope away —
@@ -110,17 +112,15 @@ def _error_result(payload: dict[str, Any]) -> mcp.types.ServerResult:
     client branching on ``structuredContent`` must find the flat envelope there, not only in the
     text mirror. ``isError`` stays true so a client branching on THAT sees the failure too.
     """
-    return mcp.types.ServerResult(
-        mcp.types.CallToolResult(
-            content=[
-                mcp.types.TextContent(
-                    type="text",
-                    text=json.dumps(payload, separators=(",", ":"), sort_keys=True),
-                )
-            ],
-            structuredContent=payload,
-            isError=True,
-        )
+    return mcp.types.CallToolResult(
+        content=[
+            mcp.types.TextContent(
+                type="text",
+                text=json.dumps(payload, separators=(",", ":"), sort_keys=True),
+            )
+        ],
+        structured_content=payload,
+        is_error=True,
     )
 
 
@@ -148,10 +148,6 @@ _PROTOCOL_ERROR_MESSAGES: dict[str, str] = {
 }
 
 
-class ProtocolError(Exception):
-    """A dispatch-level failure re-raised with a FIXED, input-free message."""
-
-
 def _is_structured_envelope(call_result: mcp.types.CallToolResult) -> bool:
     """True if an isError result carries one of OUR JSON envelopes (has error_code).
 
@@ -171,7 +167,7 @@ def _is_structured_envelope(call_result: mcp.types.CallToolResult) -> bool:
     return isinstance(obj, dict) and "error_code" in obj
 
 
-def _fixed_tool_not_found_result() -> mcp.types.ServerResult:
+def _fixed_tool_not_found_result() -> mcp.types.CallToolResult:
     """A fixed, input-free CallToolResult for an unknown/failed tool dispatch."""
     msg = _PROTOCOL_ERROR_MESSAGES["tool"]
     payload: dict[str, Any] = {
@@ -201,18 +197,19 @@ def install_protocol_error_handler(mcp_server: Any) -> None:
     is the OUTERMOST wrapper on the CallToolRequest handler (it catches the
     ``Unknown tool`` error the inner handler raises).
     """
-    handlers = mcp_server._mcp_server.request_handlers
+    lowlevel = mcp_server._mcp_server
 
-    call_tool = handlers.get(mcp.types.CallToolRequest)
+    call_tool = lowlevel.get_request_handler("tools/call")
     if call_tool is not None:
 
         async def wrapped_call_tool(
-            request: mcp.types.CallToolRequest,
+            ctx: Any,
+            params: Any,
             *,
-            _orig: Any = call_tool,
-        ) -> mcp.types.ServerResult:
+            _orig: Any = call_tool.handler,
+        ) -> Any:
             try:
-                result = cast(mcp.types.ServerResult, await _orig(request))
+                result = await _orig(ctx, params)
             except Exception:
                 # A registered tool never raises here (run_mcp_tool returns an
                 # envelope); any exception is a dispatch-level failure whose
@@ -221,36 +218,39 @@ def install_protocol_error_handler(mcp_server: Any) -> None:
             # FastMCP returns an isError CallToolResult with a raw plain-text
             # message ("Unknown tool: '<name>'") for an unknown tool; replace any
             # isError result that is NOT one of our structured envelopes.
-            root = getattr(result, "root", None)
             if (
-                isinstance(root, mcp.types.CallToolResult)
-                and root.isError
-                and not _is_structured_envelope(root)
+                isinstance(result, mcp.types.CallToolResult)
+                and result.is_error
+                and not _is_structured_envelope(result)
             ):
                 return _fixed_tool_not_found_result()
             return result
 
-        handlers[mcp.types.CallToolRequest] = wrapped_call_tool
+        lowlevel.add_request_handler("tools/call", call_tool.params_type, wrapped_call_tool)
 
-    for request_type, kind in (
-        (mcp.types.ReadResourceRequest, "resource"),
-        (mcp.types.GetPromptRequest, "prompt"),
+    for method, kind in (
+        ("resources/read", "resource"),
+        ("prompts/get", "prompt"),
     ):
-        orig = handlers.get(request_type)
-        if orig is None:
+        entry = lowlevel.get_request_handler(method)
+        if entry is None:
             continue
 
         async def wrapped(
-            request: Any,
+            ctx: Any,
+            params: Any,
             *,
-            _orig: Any = orig,
+            _orig: Any = entry.handler,
             _kind: str = kind,
         ) -> Any:
             try:
-                return await _orig(request)
+                return await _orig(ctx, params)
             except Exception:
                 # Re-raise with a FIXED, input-free message so no requested
                 # name/URI (or its code points) reaches the JSON-RPC error frame.
-                raise ProtocolError(_PROTOCOL_ERROR_MESSAGES[_kind]) from None
+                # SDK 2 maps a plain exception to code 0; carry -32602 instead.
+                raise MCPError(
+                    code=INVALID_PARAMS, message=_PROTOCOL_ERROR_MESSAGES[_kind]
+                ) from None
 
-        handlers[request_type] = wrapped
+        lowlevel.add_request_handler(method, entry.params_type, wrapped)

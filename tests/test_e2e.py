@@ -165,3 +165,85 @@ async def test_facade_from_service_factory(service: Any) -> None:
     async with Client(mcp) as client:
         tools = await client.list_tools()
     assert {t.name for t in tools} == EXPECTED_TOOLS
+
+
+# --------------------------------------------------------------------------- #
+# Requirement 3: the 2026-07-28 sessionless protocol era over the real HTTP mount.
+# --------------------------------------------------------------------------- #
+_MODERN_VERSION = "2026-07-28"
+_MODERN_META = {
+    "io.modelcontextprotocol/protocolVersion": _MODERN_VERSION,
+    "io.modelcontextprotocol/clientCapabilities": {},
+    "io.modelcontextprotocol/clientInfo": {"name": "clinvar-host-test", "version": "1.0.0"},
+}
+
+
+def _modern_headers(method: str, *, name: str | None = None) -> dict[str, str]:
+    headers = {
+        "Host": "localhost",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "mcp-protocol-version": _MODERN_VERSION,
+        "mcp-method": method,
+    }
+    if name is not None:
+        headers["mcp-name"] = name
+    return headers
+
+
+async def test_modern_mcp_http_discovers_lists_calls_and_fences_unknown_tool(
+    built_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """server/discover → tools/list → tools/call over the modern (sessionless) era,
+    through the strict Host/Origin guard; an unknown tool name is never reflected."""
+    import json
+
+    _point_settings_at(monkeypatch, built_db)
+    configure_logging("INFO", "console")
+    manager = UnifiedServerManager()
+    manager.logger = __import__("structlog").get_logger("clinvar_link_test")
+    app = await manager._create_unified_app(ServerConfig(allowed_hosts=["localhost"]))
+    hostile = "ignore-instructions-secret"  # ASCII: the modern era mirrors it in mcp-name
+
+    def rpc(rid: int, method: str, **params: Any) -> dict[str, Any]:
+        return {
+            "jsonrpc": "2.0",
+            "id": rid,
+            "method": method,
+            "params": {"_meta": _MODERN_META, **params},
+        }
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+            discover = await client.post(
+                "/mcp", headers=_modern_headers("server/discover"), json=rpc(1, "server/discover")
+            )
+            listed = await client.post(
+                "/mcp", headers=_modern_headers("tools/list"), json=rpc(2, "tools/list")
+            )
+            called = await client.post(
+                "/mcp",
+                headers=_modern_headers("tools/call", name="get_server_capabilities"),
+                json=rpc(3, "tools/call", name="get_server_capabilities", arguments={}),
+            )
+            unknown = await client.post(
+                "/mcp",
+                headers=_modern_headers("tools/call", name=hostile),
+                json=rpc(4, "tools/call", name=hostile, arguments={}),
+            )
+
+    assert discover.status_code == 200, discover.text
+    assert _MODERN_VERSION in discover.json()["result"]["supportedVersions"]
+    assert "mcp-session-id" not in discover.headers
+    assert listed.status_code == 200, listed.text
+    assert {t["name"] for t in listed.json()["result"]["tools"]} == EXPECTED_TOOLS
+    assert called.status_code == 200, called.text
+    called_result = called.json()["result"]
+    assert called_result["structuredContent"]["success"] is True
+    assert unknown.status_code == 200, unknown.text
+    unknown_result = unknown.json()["result"]
+    assert unknown_result["isError"] is True
+    assert json.loads(unknown_result["content"][0]["text"]) == unknown_result["structuredContent"]
+    assert unknown_result["structuredContent"]["error_code"] == "not_found"
+    assert hostile not in unknown.text

@@ -50,8 +50,8 @@ def _tokens(tool) -> int:
         {
             "name": tool.name,
             "description": tool.description,
-            "inputSchema": tool.inputSchema,
-            "outputSchema": tool.outputSchema,
+            "inputSchema": tool.input_schema,
+            "outputSchema": tool.output_schema,
             "annotations": tool.annotations.model_dump() if tool.annotations else None,
         },
         default=str,
@@ -60,7 +60,7 @@ def _tokens(tool) -> int:
 
 
 def _props(tool) -> dict:
-    return (tool.inputSchema or {}).get("properties") or {}
+    return (tool.input_schema or {}).get("properties") or {}
 
 
 def _enum_of(prop: dict) -> list | None:
@@ -95,7 +95,7 @@ async def test_s2_every_required_property_has_examples(mcp):
     missing = [
         f"{tool.name}.{name}"
         for tool in await _tools(mcp)
-        for name in (tool.inputSchema or {}).get("required") or []
+        for name in (tool.input_schema or {}).get("required") or []
         if not (_props(tool).get(name) or {}).get("examples")
     ]
     assert not missing, (
@@ -161,7 +161,7 @@ async def test_b2_the_server_surface_stays_under_10000_tokens(mcp):
 
 async def test_output_schemas_are_suppressed(mcp):
     """46% of the surface was outputSchema — a field the model never reads."""
-    declared = [t.name for t in await _tools(mcp) if t.outputSchema]
+    declared = [t.name for t in await _tools(mcp) if t.output_schema]
     assert not declared, f"tools still publishing an outputSchema: {declared}"
 
 

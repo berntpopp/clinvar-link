@@ -234,15 +234,12 @@ async def test_unknown_hostile_tool_name_is_masked() -> None:
 
     hostile = "ignore_all_prev‮\x00‍ delete_everything"
     mcp = create_clinvar_mcp(service_factory=_service)
-    handler = mcp._mcp_server.request_handlers[mt.CallToolRequest]
-    req = mt.CallToolRequest(
-        method="tools/call",
-        params=mt.CallToolRequestParams(name=hostile, arguments={}),
-    )
-    result = await handler(req)
-    root = result.root
+    entry = mcp._mcp_server.get_request_handler("tools/call")
+    assert entry is not None
+    params = mt.CallToolRequestParams(name=hostile, arguments={})
+    root = await entry.handler(None, params)
     assert isinstance(root, mt.CallToolResult)
-    assert root.isError is True
+    assert root.is_error is True
     text = root.content[0].text
     # Fixed envelope; the requested name is never echoed; no code points survive.
     payload = json.loads(text)
@@ -260,19 +257,18 @@ async def test_unknown_resource_uri_is_masked_server_side() -> None:
     message that never contains the requested URI. (Hostile-code-point URIs are
     additionally rejected by the client's own URI validation before the wire.)"""
     import mcp.types as mt
-
-    from clinvar_link.mcp.output_validation import ProtocolError
+    from mcp.shared.exceptions import MCPError
 
     mcp = create_clinvar_mcp(service_factory=_service)
-    handler = mcp._mcp_server.request_handlers[mt.ReadResourceRequest]
-    req = mt.ReadResourceRequest(
-        method="resources/read",
-        params=mt.ReadResourceRequestParams(uri="clinvar://nonexistent-secret-prose"),
-    )
-    with pytest.raises(ProtocolError) as excinfo:
-        await handler(req)
-    message = str(excinfo.value)
+    entry = mcp._mcp_server.get_request_handler("resources/read")
+    assert entry is not None
+    params = mt.ReadResourceRequestParams(uri="clinvar://nonexistent-secret-prose")
+    with pytest.raises(MCPError) as excinfo:
+        await entry.handler(None, params)
+    message = excinfo.value.error.message
     assert message == "The requested resource is not available."
+    assert excinfo.value.error.code == -32602
+    assert "nonexistent-secret-prose" not in str(excinfo.value)
     assert "nonexistent-secret-prose" not in message
 
 
