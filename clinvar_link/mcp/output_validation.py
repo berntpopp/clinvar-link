@@ -14,7 +14,7 @@ from typing import Any
 
 import mcp.types
 from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS
+from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND
 
 from clinvar_link.mcp.errors import (
     _FALLBACK_TOOL,
@@ -198,6 +198,18 @@ def install_protocol_error_handler(mcp_server: Any) -> None:
     ``Unknown tool`` error the inner handler raises).
     """
     lowlevel = mcp_server._mcp_server
+
+    # SDK 2 echoes an unknown JSON-RPC method name verbatim in the METHOD_NOT_FOUND
+    # error ``data`` (both eras); strip it so caller input never reaches the frame.
+    async def _strip_method_not_found_data(ctx: Any, call_next: Any) -> Any:
+        try:
+            return await call_next(ctx)
+        except MCPError as exc:
+            if exc.error.code == METHOD_NOT_FOUND and exc.error.data is not None:
+                raise MCPError(code=METHOD_NOT_FOUND, message="Method not found") from None
+            raise
+
+    lowlevel.middleware.insert(0, _strip_method_not_found_data)
 
     call_tool = lowlevel.get_request_handler("tools/call")
     if call_tool is not None:

@@ -5,6 +5,15 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-18
+
+### Security
+
+- An unknown JSON-RPC method name is no longer echoed in the METHOD_NOT_FOUND error `data`
+  (MCP SDK 2 reflects it verbatim in both protocol eras); the not-found guard re-raises a
+  fixed `-32601` without data, and the log scrub covers the SDK 2 runner/dispatcher lines
+  (`mcp.server.runner`) that echo a caller-supplied method.
+
 ## [0.8.0] - 2026-11-18
 
 ### Changed
