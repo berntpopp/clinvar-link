@@ -247,3 +247,67 @@ async def test_modern_mcp_http_discovers_lists_calls_and_fences_unknown_tool(
     assert json.loads(unknown_result["content"][0]["text"]) == unknown_result["structuredContent"]
     assert unknown_result["structuredContent"]["error_code"] == "not_found"
     assert hostile not in unknown.text
+
+
+_EVIL_METHOD = "evil__IGNORE_ALL_PREVIOUS__method"
+
+
+def _assert_fixed_method_not_found(response: httpx.Response) -> None:
+    assert _EVIL_METHOD not in response.text
+    assert "IGNORE_ALL_PREVIOUS" not in response.text
+    error = response.json()["error"]
+    assert error["code"] == -32601
+    assert error.get("data") is None
+
+
+async def test_unknown_jsonrpc_method_is_not_reflected_in_either_era(
+    built_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SDK 2 echoes an unknown method in METHOD_NOT_FOUND ``data``; the guard strips it."""
+    _point_settings_at(monkeypatch, built_db)
+    configure_logging("INFO", "console")
+    manager = UnifiedServerManager()
+    manager.logger = __import__("structlog").get_logger("clinvar_link_test")
+    app = await manager._create_unified_app(ServerConfig(allowed_hosts=["localhost"]))
+    legacy_headers = {
+        "Host": "localhost",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+    }
+    init_body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "hostile", "version": "0"},
+        },
+    }
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+            init = await client.post("/mcp", headers=legacy_headers, json=init_body)
+            assert init.status_code == 200, init.text
+            if session := init.headers.get("mcp-session-id"):
+                legacy_headers["mcp-session-id"] = session
+            legacy_headers["mcp-protocol-version"] = "2025-06-18"
+            legacy = await client.post(
+                "/mcp",
+                headers=legacy_headers,
+                json={"jsonrpc": "2.0", "id": 2, "method": _EVIL_METHOD, "params": {}},
+            )
+            modern = await client.post(
+                "/mcp",
+                headers=_modern_headers(_EVIL_METHOD),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": _EVIL_METHOD,
+                    "params": {"_meta": _MODERN_META},
+                },
+            )
+
+    _assert_fixed_method_not_found(legacy)
+    _assert_fixed_method_not_found(modern)
