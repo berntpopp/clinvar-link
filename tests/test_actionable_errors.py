@@ -157,13 +157,13 @@ async def test_an_unknown_tool_error_still_carries_the_structured_envelope(mcp):
 
 def test_the_protocol_backstop_builds_both_mirrors():
     """The fixed not-found result must populate structuredContent, not only the text mirror."""
-    call_result = _fixed_tool_not_found_result().root
-    assert call_result.isError is True
-    assert call_result.structuredContent is not None
-    assert call_result.structuredContent["error_code"] == "not_found"
+    call_result = _fixed_tool_not_found_result()
+    assert call_result.is_error is True
+    assert call_result.structured_content is not None
+    assert call_result.structured_content["error_code"] == "not_found"
     # the requested name is still never echoed
-    assert "_meta" in call_result.structuredContent
-    assert "tool" not in call_result.structuredContent["_meta"]
+    assert "_meta" in call_result.structured_content
+    assert "tool" not in call_result.structured_content["_meta"]
 
 
 # --------------------------------------------------------------- 4. gene scoping

@@ -5,6 +5,18 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-18
+
+### Changed
+
+- Upgrade FastMCP 3.4 → 4.2.2 and MCP SDK 1.x → 2.x; supports the 2026-07-28 sessionless protocol era alongside the legacy handshake.
+- Not-found reflection guard (Layer 3) ported to the SDK 2 request-handler registry (`get_request_handler` / `add_request_handler`); unknown resource/prompt errors keep their fixed, input-free messages and now raise `MCPError` with code -32602 (SDK 2 would otherwise serialize a plain exception as code 0).
+- Tool annotations and protocol models use the SDK 2 snake_case fields.
+
+### Added
+
+- Test driving `server/discover` → `tools/list` → `tools/call` over the modern protocol era through the real HTTP mount and Host/Origin guard.
+
 ## [0.7.1] - 2026-11-13
 
 ### Changed

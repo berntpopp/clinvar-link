@@ -18,7 +18,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 from pydantic import ValidationError as PydanticValidationError
 
 from clinvar_link.config import settings
