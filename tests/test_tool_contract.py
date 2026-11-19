@@ -16,6 +16,7 @@ facade, never hardcoded, so a new tool is gated the day it ships:
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from fastmcp import Client
@@ -210,3 +211,54 @@ async def test_the_unknown_argument_error_names_the_parameters(mcp):
     body = res.structured_content or {}
     message = f"{body.get('message')} {body.get('recovery_action')}"
     assert any(param in message for param in ("gene_symbol", "classification", "sort")), message
+
+
+# --------------------------------------------------------------------------- D1 description lead
+
+# ponytail: copied from genefoundry-router scripts/surface.py (lead_states_return, v0.13.1);
+# re-vendor it if this repo ever vendors surface.py.
+_LEAD_VERBS = (  # noqa: SIM905 - kept byte-close to the router source
+    "get fetch retrieve list look lookup search find resolve report read predict annotate "
+    "compute calculate count summarize summarise map translate convert describe show check "
+    "validate classify score rank query browse discover explain compare diff normalize normalise "
+    "expand evaluate assess enumerate identify locate export download match suggest recommend "
+    "inspect generate render estimate"
+).split()
+_VERB_LEAD = re.compile(
+    rf"^(?:use this (?:tool )?to )?(?:{'|'.join(_LEAD_VERBS)})(?:s|es|ies)?\b", re.IGNORECASE
+)
+_RETURNS = re.compile(
+    r"(?<!not )(?<!n't )(?<!n\u2019t )(?<!never )\breturn(?:s|ed|ing)?\b(?!\s*[~<\d])|→|->",
+    re.IGNORECASE,
+)
+_FIELD_LIST = re.compile(r"\w+\W+\w+[^:]*:\s+[^.;:]+,")
+_SENTENCE_END = re.compile(r"(?<!e\.g\.)(?<!i\.e\.)(?<=[.!?])\s+")
+
+
+def _lead_states_return(description: str | None) -> bool:
+    text = " ".join((description or "").split())
+    lead = _SENTENCE_END.split(text, maxsplit=1)[0][:300]
+    return bool(_VERB_LEAD.match(lead) or _RETURNS.search(lead) or _FIELD_LIST.search(lead))
+
+
+async def test_d1_every_description_leads_with_what_it_returns(mcp):
+    bad = [t.name for t in await _tools(mcp) if not _lead_states_return(t.description)]
+    assert not bad, f"descriptions whose first sentence does not say what returns: {bad}"
+
+
+async def test_get_variant_returns_the_fields_its_lead_names(mcp):
+    """Contract truth for the pinned front door: the lead names these fields."""
+    async with Client(mcp) as client:
+        res = await client.call_tool("get_variant", {"identifier": "VCV000100001"})
+    body = res.structured_content or {}
+    for field in ("classification", "review_status", "star_rating", "recommended_citation"):
+        assert body.get(field) not in (None, ""), field
+
+
+async def test_search_variants_rows_carry_the_fields_its_lead_names(mcp):
+    async with Client(mcp) as client:
+        res = await client.call_tool("search_variants", {"query": "BRCA1"})
+    rows = (res.structured_content or {})["results"]
+    assert rows
+    for field in ("vcv_accession", "gene_symbol", "classification", "star_rating"):
+        assert all(field in row for row in rows), field
