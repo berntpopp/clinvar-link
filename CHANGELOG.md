@@ -5,6 +5,17 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-19
+
+### Fixed
+
+- One SQLite connection per worker thread: the shared connection leaked rows between
+  concurrent lookups (InterfaceError / IndexError / another variant's data) (#141).
+- Gene-unqualified HGVS lookup is index-served (range on `idx_hgvs_norm`); a miss no longer
+  scans `hgvs_lookup` (#141).
+- `gene_symbol` search filter uses `gene_index` instead of a full `UPPER(gene_symbol)` scan;
+  every search/count call has a 20 s deadline that returns `invalid_input` on `query` (#141).
+
 ## [0.8.3] - 2026-11-19
 
 - Raise default API memory limit to 2g (SQLite page cache for the 5.3 GB bundle).

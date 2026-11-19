@@ -275,3 +275,42 @@ def test_gene_stripped_hgvs_key_is_indexed(repo):
         assert hit is not None, f"missing gene-stripped key: {key}"
     # And it resolves to the right variant.
     assert repo.get_by_hgvs("NM_007294.4:c.5266dupC")["variation_id"] == 100001
+
+
+def test_parallel_lookups_never_cross_rows(repo):
+    """#141: concurrent ``asyncio.to_thread`` lookups each get their OWN row back.
+
+    One shared sqlite3 connection across worker threads leaked rows between queries
+    (InterfaceError / IndexError / another variant's data).
+    """
+    import asyncio
+
+    ids = list(range(100001, 100021))
+    expected = {vid: repo.get_by_variation_id(vid) for vid in ids}
+
+    async def run() -> list[tuple[int, object]]:
+        keys = [ids[i % len(ids)] for i in range(50)] * 20
+        results = await asyncio.gather(
+            *(asyncio.to_thread(repo.get_by_variation_id, vid) for vid in keys)
+        )
+        return list(zip(keys, results, strict=True))
+
+    for key, got in asyncio.run(run()):
+        assert got == expected[key]
+
+
+@pytest.mark.parametrize("query", ["BRCA1", ""])
+def test_search_deadline_raises_actionable_input_error(repo, monkeypatch, query):
+    """#141: a search past its deadline fails fast and names ``query``, never a LIKE fallback."""
+    from clinvar_link.data import repository
+    from clinvar_link.exceptions import ToolInputError
+
+    monkeypatch.setattr(repository, "SEARCH_DEADLINE_S", -1.0)
+    monkeypatch.setattr(repository, "_PROGRESS_OPS", 1)
+    with pytest.raises(ToolInputError) as err:
+        repo.search(query, gene_symbol="BRCA1")
+    assert err.value.field == "query"
+    with pytest.raises(ToolInputError):
+        repo.count_search(query)
+    monkeypatch.undo()
+    assert repo.search("BRCA1")  # the handler is cleared afterwards
