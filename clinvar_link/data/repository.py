@@ -12,13 +12,17 @@ pathological input.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import sqlite3
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate
 
-from clinvar_link.exceptions import ClinVarDataError
+from clinvar_link.exceptions import ClinVarDataError, ToolInputError
 
 _FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
@@ -32,6 +36,39 @@ def _like_escape(value: str) -> str:
 _JSON_LIST_FIELDS = ("molecular_consequence", "traits", "rcv_accessions")
 # GRCh38 sorts first, GRCh37 next, then anything else.
 _ASSEMBLY_ORDER = {"GRCh38": 0, "GRCh37": 1}
+# Wall-clock cap per search/count call, so a pathological scan fails fast instead of
+# running into the router's 120 s cap (#141). A search tool call makes at most four.
+SEARCH_DEADLINE_S = 20.0
+_PROGRESS_OPS = 10_000  # SQLite VM steps between deadline checks
+
+
+def _bounded[**P, R](
+    fn: Callable[Concatenate[ClinVarRepository, P], R],
+) -> Callable[Concatenate[ClinVarRepository, P], R]:
+    """Abort the wrapped query after ``SEARCH_DEADLINE_S`` with an actionable input error."""
+
+    @functools.wraps(fn)
+    def wrapper(self: ClinVarRepository, *args: P.args, **kwargs: P.kwargs) -> R:
+        conn = self._conn
+        end = time.monotonic() + SEARCH_DEADLINE_S
+        conn.set_progress_handler(lambda: time.monotonic() > end, _PROGRESS_OPS)
+        try:
+            return fn(self, *args, **kwargs)
+        except sqlite3.OperationalError as exc:
+            if str(exc) != "interrupted":
+                raise
+            raise ToolInputError(
+                "search exceeded its time limit",
+                field="query",
+                public_reason=(
+                    "matches too broadly to search in time; add more specific terms "
+                    "or a gene_symbol / classification filter"
+                ),
+            ) from exc
+        finally:
+            conn.set_progress_handler(None, 0)
+
+    return wrapper
 
 
 class ClinVarRepository:
@@ -46,23 +83,36 @@ class ClinVarRepository:
     }
 
     def __init__(self, db_path: Path | str) -> None:
-        """Open a read-only connection to the ClinVar database."""
+        """Open a read-only connection to the ClinVar database (one per thread, #141)."""
         self._path = Path(db_path)
         if not self._path.exists():
             raise ClinVarDataError(
                 f"ClinVar database not found at {self._path}. "
                 "Build it with the clinvar-link ingest CLI."
             )
+        self._local = threading.local()
+        self._all_conns: list[sqlite3.Connection] = []
+        self._all_conns_lock = threading.Lock()
+        self._open()  # fail at startup, not on the first query
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """This thread's own connection: a sqlite3 connection is never shared across threads."""
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        return conn if conn is not None else self._open()
+
+    def _open(self) -> sqlite3.Connection:
         try:
-            self._conn = sqlite3.connect(
-                f"file:{self._path}?mode=ro",
-                uri=True,
-                check_same_thread=False,
-            )
+            # check_same_thread=False only so close() can release every thread's connection.
+            conn = sqlite3.connect(f"file:{self._path}?mode=ro", uri=True, check_same_thread=False)
         except sqlite3.Error as exc:  # pragma: no cover - rare OS-level failure
             raise ClinVarDataError(f"Cannot open ClinVar database at {self._path}: {exc}.") from exc
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA query_only=ON")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only=ON")
+        with self._all_conns_lock:
+            self._all_conns.append(conn)
+        self._local.conn = conn
+        return conn
 
     # -- row decoding ----------------------------------------------------------
 
@@ -157,12 +207,14 @@ class ClinVarRepository:
         if not sep or "(" in head:
             return None
         pattern = f"{_like_escape(head)}(%):{_like_escape(tail)}"
+        # The range bound lets idx_hgvs_norm serve the ``head(`` prefix (keys are lowercased
+        # at build time), so a miss no longer scans the whole table (#141). ')' sorts after '('.
         row = self._conn.execute(
             "SELECT v.* FROM hgvs_lookup h JOIN variant v "
             "ON v.variation_id = h.variation_id "
-            "WHERE h.hgvs_norm LIKE ? ESCAPE '\\' "
+            "WHERE h.hgvs_norm >= ? AND h.hgvs_norm < ? AND h.hgvs_norm LIKE ? ESCAPE '\\' "
             "ORDER BY h.variation_id LIMIT 1",
-            (pattern,),
+            (f"{head}(", f"{head})", pattern),
         ).fetchone()
         return self._row_to_variant(row) if row is not None else None
 
@@ -179,6 +231,7 @@ class ClinVarRepository:
         joiner = " OR " if operator.upper() == "OR" else " AND "
         return joiner.join(quoted)
 
+    @_bounded
     def search(
         self,
         query: str,
@@ -219,8 +272,10 @@ class ClinVarRepository:
             try:
                 rows = self._conn.execute(sql, (match, *filter_params, limit, offset)).fetchall()
                 return [self._row_to_variant(r) for r in rows]
-            except sqlite3.Error:
-                pass  # fall through to LIKE
+            except sqlite3.Error as exc:
+                if str(exc) == "interrupted":  # deadline hit: never fall back to a slower scan
+                    raise
+                # otherwise fall through to LIKE
 
         return self._search_like(
             query,
@@ -252,6 +307,7 @@ class ClinVarRepository:
         rows = self._conn.execute(sql, (pattern, pattern, *filter_params, limit, offset)).fetchall()
         return [self._row_to_variant(r) for r in rows]
 
+    @_bounded
     def count_search(
         self,
         query: str,
@@ -291,8 +347,9 @@ class ClinVarRepository:
             try:
                 row = self._conn.execute(sql, tuple(params)).fetchone()
                 return _capped(int(row["n"]) if row is not None else 0)
-            except sqlite3.Error:
-                pass
+            except sqlite3.Error as exc:
+                if str(exc) == "interrupted":  # deadline hit: never fall back to a slower scan
+                    raise
         cleaned = (query or "").replace("%", "").replace("_", "").strip().upper()
         pattern = f"%{cleaned}%"
         base = (
@@ -326,7 +383,11 @@ class ClinVarRepository:
         clauses: list[str] = []
         params: list[Any] = []
         if gene_symbol:
-            clauses.append("UPPER(v.gene_symbol) = ?")
+            # gene_index (indexed) holds exactly (UPPER(gene_symbol), variation_id) per variant;
+            # UPPER(v.gene_symbol) alone forced a full-table scan (#141).
+            clauses.append(
+                "v.variation_id IN (SELECT variation_id FROM gene_index WHERE gene_symbol_upper = ?)"
+            )
             params.append(gene_symbol.upper())
         if classification:
             clauses.append("v.classification = ?")
@@ -572,5 +633,8 @@ class ClinVarRepository:
         return dict(row) if row is not None else None
 
     def close(self) -> None:
-        """Release the underlying database connection."""
-        self._conn.close()
+        """Release every thread's database connection."""
+        with self._all_conns_lock:
+            for conn in self._all_conns:
+                conn.close()
+            self._all_conns.clear()
