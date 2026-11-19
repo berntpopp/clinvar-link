@@ -121,7 +121,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${CLINVAR_API_MEMORY_LIMIT:-1g}
+          # ~400 MB process + SQLite page cache over the 5.3 GB bundle; 1g thrashed the cache.
+          memory: ${CLINVAR_API_MEMORY_LIMIT:-2g}
           cpus: ${CLINVAR_API_CPU_LIMIT:-1.0}
           pids: 256
         reservations:
