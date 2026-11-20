@@ -363,3 +363,9 @@ async def test_get_variant_points_a_somatic_variant_at_its_somatic_detail(mcp) -
     }
     plain = await call_tool(mcp, "get_variant", {"identifier": "17677"})
     assert all(c["tool"] != TOOL for c in plain["_meta"]["next_commands"])
+
+
+async def test_loose_text_identifier_recovery_names_the_fallback_tool(mcp) -> None:
+    env = await call_tool(mcp, "get_variant", {"identifier": "BRAF V600E"})
+    assert env["fallback_tool"] == "search_variants"
+    assert "search_variants" in env["recovery"]

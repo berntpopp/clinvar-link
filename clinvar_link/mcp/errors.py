@@ -293,10 +293,15 @@ def _recovery_text(
     is_gene = tool_name in _GENE_TOOLS
     if error_code == "invalid_input" and isinstance(exc, ToolInputError) and exc.field:
         field = _safe_field_name((exc.field,))
+        switch = (
+            f" If you only have loose text, call {fallback_tool} with fallback_args instead."
+            if fallback_tool == "search_variants" and tool_name != fallback_tool
+            else ""
+        )
         return (
             f"Fix the '{field}' argument and call the same tool again; every other argument was "
             "accepted. Do not retry unchanged. field_errors names the parameter and its accepted "
-            "values."
+            f"values.{switch}"
         )
     if error_code == "not_found":
         if tool_name == "get_variants_by_pmid":
