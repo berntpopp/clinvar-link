@@ -21,6 +21,7 @@ from clinvar_link.models.enums import (
     RESPONSE_MODES,
     SUBMITTERS,
 )
+from clinvar_link.services.somatic import ONCOGENICITY, TIERS
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
 
@@ -77,6 +78,8 @@ def get_capabilities_resource() -> dict[str, Any]:
             "assembly": list(ASSEMBLY_VALUES),
             "id_type": list(ID_TYPES),
             "submitter": list(SUBMITTERS),
+            "tier": list(TIERS),
+            "oncogenicity": list(ONCOGENICITY),
             "note": (
                 "classification and assembly also accept ClinVar's own published wording "
                 "case-insensitively ('Likely pathogenic' -> likely_pathogenic, 'hg19' -> "

@@ -116,3 +116,9 @@ def test_version_resource_shape():
     assert isinstance(v["server_version"], str) and v["server_version"]
     assert "mcp_protocol_version" in v
     assert "clinvar_release_date" in v  # may be None until the date cache primes
+
+
+def test_capabilities_lists_the_somatic_filter_vocabularies():
+    vocab = get_capabilities_resource()["filter_vocabularies"]
+    assert vocab["tier"] == ["tier_i", "tier_ii", "tier_iii", "tier_iv"]
+    assert "oncogenic" in vocab["oncogenicity"]
