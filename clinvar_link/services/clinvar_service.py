@@ -267,6 +267,22 @@ _STANDARD_EXTRA_FIELDS = (
 )
 
 
+def _dedupe_descriptions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Send each distinct description once; a repeat points at the SCV that carries it.
+
+    OMIM files one allelic-variant text per condition (BRAF V600E: the same 30 KB five times).
+    """
+    first: dict[str, str] = {}
+    for row in rows:
+        desc = row.get("description")
+        if not desc:
+            continue
+        if (scv := first.setdefault(desc["raw_sha256"], row["scv"])) != row["scv"]:
+            row["description"] = None
+            row["description_same_as"] = scv
+    return rows
+
+
 class ClinVarService:
     """Async, projection-aware facade over :class:`ClinVarRepository`."""
 
@@ -351,9 +367,12 @@ class ClinVarService:
             subs = await asyncio.to_thread(self.repo.submissions_for_variant, variant.variation_id)
             rows = [submission_row(sub, release, response_mode) for sub in subs]
             enforce_untrusted_text_limits([obj for _, fenced in rows for obj in fenced])
-            projected["submissions"] = [
-                {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS} for row, _ in rows
-            ]
+            projected["submissions"] = _dedupe_descriptions(
+                [
+                    {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS}
+                    for row, _ in rows
+                ]
+            )
         # Kept apart from the germline classification; an index predating them omits the keys.
         if await asyncio.to_thread(self.repo.has_somatic):
             projected.update(await self._somatic_blocks(variant.variation_id, response_mode))

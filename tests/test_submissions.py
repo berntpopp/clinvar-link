@@ -584,3 +584,21 @@ def test_open_vcv_xml_resumes_a_dropped_stream_with_a_range_request(
             open_vcv_xml(URL, max_bytes=1 << 30, max_seconds=60) as (xml, _),
         ):
             list(iter_submissions(xml, stats=Counter()))
+
+
+async def test_get_variant_sends_a_repeated_description_once(mcp, monkeypatch) -> None:
+    # OMIM files one allelic-variant text per condition: BRAF V600E carries the same 30 KB five times.
+    from clinvar_link.data.repository import ClinVarRepository
+
+    real = ClinVarRepository.submissions_for_variant
+
+    def doubled(self, vid: int) -> list[dict]:
+        subs = real(self, vid)
+        return [*subs, {**subs[0], "scv": "SCV000900099"}] if subs else subs
+
+    monkeypatch.setattr(ClinVarRepository, "submissions_for_variant", doubled)
+    out = await _call(mcp, "get_variant", {"identifier": "VCV000100011"})
+    first, again = out["submissions"]
+    assert "Müller" in first["description"]["text"]
+    assert again["description"] is None
+    assert again["description_same_as"] == first["scv"]
