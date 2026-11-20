@@ -252,7 +252,7 @@ async def test_search_pagination_is_honest(mcp) -> None:
     [
         ({"gene_symbol": "NOTAGENE1"}, "gene_symbol"),
         ({"tumour_type": "__no_such_tumour__"}, "tumour_type"),
-        ({"tier": "Tier I"}, "tier"),
+        ({"tier": "Tier V"}, "tier"),
         ({"oncogenicity": "pathogenic"}, "oncogenicity"),
     ],
 )
@@ -309,3 +309,19 @@ async def test_search_by_tumour_type_shows_only_that_tumour_s_assertions(mcp) ->
     names = {t["name"]["text"] for a in block["assertions"] for t in a["tumour_types"]}
     assert names == {"Melanoma"}
     assert block["other_assertions"] >= 1  # the colorectal SCV, counted not sent
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{"tier": "Tier I"}, {"tier": "Tier 1"}, {"tier": "Tier I - Strong"}, {"tier": "TIER_I"}],
+)
+async def test_tier_accepts_clinvar_s_own_wording(mcp, args: dict[str, Any]) -> None:
+    env = await call_tool(mcp, TOOL, args)
+    assert [r["vcv_accession"] for r in env["results"]] == ["VCV000013961"]
+
+
+async def test_oncogenicity_accepts_clinvar_s_wording_and_explains_pathogenic(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"oncogenicity": "Likely oncogenic"})
+    assert [r["vcv_accession"] for r in env["results"]] == ["VCV000024842"]
+    err = await call_tool(mcp, TOOL, {"oncogenicity": "pathogenic"})
+    assert "germline" in err["message"]

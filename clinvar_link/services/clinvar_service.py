@@ -49,6 +49,7 @@ from clinvar_link.services.somatic import (
     TIERS,
     somatic_blocks,
     somatic_row,
+    somatic_token,
 )
 from clinvar_link.services.submission_rows import submission_row
 
@@ -434,6 +435,23 @@ class ClinVarService:
                     public_reason="has no ClinVar variants in the local index; check the HGNC "
                     "symbol",
                 )
+        tier_token = somatic_token(tier, TIERS)
+        if tier is not None and tier_token is None:
+            raise ToolInputError(
+                f"unknown tier {tier!r}",
+                field="tier",
+                public_reason="must be one of: " + ", ".join(TIERS) + " (ClinVar's wording "
+                "such as 'Tier I - Strong' or 'Tier 1' is accepted)",
+            )
+        onc_token = somatic_token(oncogenicity, ONCOGENICITY)
+        if oncogenicity is not None and onc_token is None:
+            raise ToolInputError(
+                f"unknown oncogenicity {oncogenicity!r}",
+                field="oncogenicity",
+                public_reason="must be one of: " + ", ".join(ONCOGENICITY) + " (oncogenicity "
+                "is the somatic scale; germline pathogenic/benign is get_variant's "
+                "classification)",
+            )
         tumour = (tumour_type or "").strip() or None
         if tumour is not None:
             _reject_forbidden_codepoints(tumour, field="tumour_type")
@@ -450,8 +468,8 @@ class ClinVarService:
         rows, total = await asyncio.to_thread(
             lambda: self.repo.search_somatic(
                 gene=gene,
-                impact=TIERS[tier] if tier else None,
-                oncogenicity=ONCOGENICITY[oncogenicity] if oncogenicity else None,
+                impact=TIERS[tier_token] if tier_token else None,
+                oncogenicity=ONCOGENICITY[onc_token] if onc_token else None,
                 tumour=tumour,
                 limit=limit,
                 offset=offset,

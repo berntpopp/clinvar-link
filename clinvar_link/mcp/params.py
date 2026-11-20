@@ -27,6 +27,7 @@ from clinvar_link.models.enums import (
     ASSEMBLY_VALUES,
     CLASSIFICATION_VALUES,
 )
+from clinvar_link.services.somatic import ONCOGENICITY, TIERS
 
 # NB: the accepted tokens are NOT re-listed here — the `enum` in the schema carries them, and
 # duplicating them cost ~25 tokens on every request for information the model already has
@@ -281,29 +282,28 @@ SomaticGeneFilter = Annotated[
 ]
 
 TierFilter = Annotated[
-    Literal["tier_i", "tier_ii", "tier_iii", "tier_iv"] | None,
+    str | None,
     Field(
         description=(
             "Filter by the aggregate AMP/ASCO/CAP somatic clinical-impact tier: tier_i strong, "
-            "tier_ii potential, tier_iii unknown, tier_iv benign/likely benign."
+            "tier_ii potential, tier_iii unknown, tier_iv benign/likely benign. ClinVar's wording "
+            "('Tier I - Strong', 'Tier 1') is accepted; anything else is invalid_input."
         ),
         examples=["tier_i"],
+        json_schema_extra={"enum": [*TIERS, None]},
     ),
 ]
 
 OncogenicityFilter = Annotated[
-    Literal[
-        "oncogenic",
-        "likely_oncogenic",
-        "uncertain_significance",
-        "likely_benign",
-        "benign",
-        "conflicting",
-    ]
-    | None,
+    str | None,
     Field(
-        description="Filter by the aggregate ClinGen/CGC/VICC oncogenicity classification.",
+        description=(
+            "Filter by the aggregate ClinGen/CGC/VICC oncogenicity classification (a somatic "
+            "scale, not germline pathogenicity). ClinVar's wording ('Likely oncogenic') is "
+            "accepted; anything else is invalid_input."
+        ),
         examples=["oncogenic"],
+        json_schema_extra={"enum": [*ONCOGENICITY, None]},
     ),
 ]
 

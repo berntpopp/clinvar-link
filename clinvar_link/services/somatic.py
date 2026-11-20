@@ -10,6 +10,7 @@ Response-Envelope v1.1 ``untrusted_text``.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from clinvar_link.mcp.untrusted_content import UntrustedText, fence_untrusted_text
@@ -26,6 +27,22 @@ ONCOGENICITY = {
     "benign": "Benign",
     "conflicting": "Conflicting classifications of oncogenicity",
 }
+_ROMAN = {"1": "i", "2": "ii", "3": "iii", "4": "iv"}
+
+
+def somatic_token(value: str | None, vocab: dict[str, str]) -> str | None:
+    """Map a filter value or ClinVar's own wording onto its token; None when unrecognised.
+
+    'Tier I - Strong', 'Tier 1', 'TIER_I' -> tier_i; 'Likely oncogenic' -> likely_oncogenic.
+    """
+    if value is None:
+        return None
+    key = value.split(" - ")[0].strip().lower().replace(" ", "_")
+    key = re.sub(r"_([1-4])$", lambda m: "_" + _ROMAN[m[1]], key)
+    by_text = {text.lower().replace(" ", "_"): token for token, text in vocab.items()}
+    return key if key in vocab else by_text.get(key)
+
+
 _BLOCKS = (("somatic_clinical_impact", "clinical_impact"), ("oncogenicity", "oncogenicity"))
 _ASSERTION_FIELDS = (
     "scv",
