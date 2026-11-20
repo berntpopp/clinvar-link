@@ -5,6 +5,18 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-20
+
+### Added
+
+- ClinVar somatic classifications (#143). `variant_summary` columns 35-40 (somatic clinical-impact tier and oncogenicity, each with review status and date) are ingested into `somatic_classification`; the VCV XML pass keeps every current somatic SCV (tumour type via ClinVar's MedGen mapping, drugs, assertion type, significance) in `somatic_assertion`.
+- `get_variant` returns `somatic_clinical_impact` and `oncogenicity` as their own blocks beside the germline `classification`, never merged into it; `standard` / `full` add per-SCV assertions. BRAF V600E (VCV000013961): germline "Conflicting", Tier I - Strong, Oncogenic.
+- New tool `search_somatic_classifications(gene_symbol, tier, oncogenicity, tumour_type)`.
+
+### Changed
+
+- Pinned `bundle-2026-11-16`, the first bundle carrying the somatic tables (see `container-release.json`). Older bundles still load: the somatic blocks are omitted and the new tool reports `internal`.
+
 ## [0.8.4] - 2026-11-19
 
 ### Fixed
