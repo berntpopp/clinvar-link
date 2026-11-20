@@ -77,6 +77,9 @@ def test_capabilities_lists_core_tools():
         "get_gene_clinvar_summary",
         "get_variants_by_gene",
     } <= set(cap["tools"])
+    # Every data tool is a core workflow tool (search_somatic_classifications was missing).
+    core = cap["llm_driver_contract"]["core_workflow_tools"]
+    assert set(core) == set(cap["tools"]) - {"get_server_capabilities"}
 
 
 def test_license_has_attribution():

@@ -127,8 +127,9 @@ def get_capabilities_resource() -> dict[str, Any]:
         "limitations": [
             "Local SQLite index built from the weekly variant_summary bulk file; "
             "it lags the live ClinVar website by up to a week.",
-            "Submission text is indexed only for allow-listed submitters (OMIM), from the "
-            "MONTHLY VCV XML release, so it can lag the weekly variant data by up to a month; "
+            "Submission text (OMIM descriptions; every submitter's somatic tumour type and "
+            "therapy) comes from the MONTHLY VCV XML release, so it can lag the weekly variant "
+            "data by up to a month; "
             "citations come from var_citations (PMIDs per variant).",
             "Coordinates follow the bulk file (GRCh37 and GRCh38 rows where present).",
             RESEARCH_USE_NOTICE,
@@ -142,6 +143,7 @@ def get_capabilities_resource() -> dict[str, Any]:
                 "get_gene_clinvar_summary",
                 "get_variants_by_gene",
                 "get_variants_by_pmid",
+                "search_somatic_classifications",
             ],
         },
         "resources": {
