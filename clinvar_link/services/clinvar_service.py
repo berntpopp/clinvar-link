@@ -1266,8 +1266,11 @@ class ClinVarService:
         """
         record_id_base = payload.get("vcv_accession") or str(payload.get("variation_id") or "")
 
+        out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
+        # "other" (drug response, risk factor, ...) means nothing without ClinVar's own words.
+        if payload.get("classification") == "other" and payload.get("clinical_significance"):
+            out["clinical_significance"] = payload["clinical_significance"]
         if mode == "minimal":
-            out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
             if not keep_traits_in_minimal:
                 return out, []
             return ClinVarService._with_capped_traits(out, payload, record_id_base)
@@ -1276,7 +1279,6 @@ class ClinVarService:
             fenced = ClinVarService._fence_traits(payload, record_id_base)
             return ClinVarService._trim_null_keys(payload), fenced
 
-        out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
         for key in _COMPACT_EXTRA_FIELDS:
             if key in payload:
                 out[key] = payload[key]

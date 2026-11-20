@@ -287,3 +287,17 @@ async def test_search_reads_one_letter_protein_shorthand(service, query):
     out = await service.search_variants(query)
     assert out["match_mode"] == "and"
     assert [row["vcv_accession"] for row in out["results"]] == ["VCV000100002"]
+
+
+@pytest.mark.parametrize("mode", ["minimal", "compact", "standard"])
+def test_other_classification_carries_clinvar_s_own_wording(mode):
+    """EGFR L858R is 'drug response' in ClinVar; 'other' alone hides what it is."""
+    from clinvar_link.services.clinvar_service import ClinVarService
+
+    payload = {"variation_id": 16609, "classification": "other"}
+    out, _ = ClinVarService._project({**payload, "clinical_significance": "drug response"}, mode)
+    assert out["clinical_significance"] == "drug response"
+    plain, _ = ClinVarService._project(
+        {**payload, "classification": "pathogenic", "clinical_significance": "Pathogenic"}, mode
+    )
+    assert "clinical_significance" not in plain
