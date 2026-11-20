@@ -237,6 +237,13 @@ async def test_search_pagination_is_honest(mcp) -> None:
         True,
         1,
     )
+    # The next page is the first suggested command, filters kept.
+    assert env["_meta"]["next_commands"][0] == {
+        "tool": TOOL,
+        "arguments": {"limit": 1, "offset": 1, "response_mode": "compact"},
+    }
+    last = await call_tool(mcp, TOOL, {"limit": 1, "offset": 1})
+    assert last["_meta"]["next_commands"][0]["tool"] == "get_variant"
 
 
 @pytest.mark.parametrize(
