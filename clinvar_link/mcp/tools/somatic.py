@@ -71,7 +71,7 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 page |= {"offset": result["next_offset"], "response_mode": response_mode}
                 args = {k: v for k, v in page.items() if v is not None}
                 next_commands.append({"tool": "search_somatic_classifications", "arguments": args})
-            if results:
+            if results and identifier is None:
                 next_commands.append(
                     {
                         "tool": "search_somatic_classifications",

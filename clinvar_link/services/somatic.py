@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from clinvar_link.ingest.parsing import map_classification
 from clinvar_link.mcp.untrusted_content import UntrustedText, fence_untrusted_text
 from clinvar_link.models.variant_models import iso_date
 from clinvar_link.services.citation import recommended_citation
@@ -134,7 +135,10 @@ def somatic_row(
     }
     if mode != "minimal":
         row["name"] = rec["name"]
-        row["germline_classification"] = rec["clinical_significance"]
+        # get_variant's classification vocabulary; ClinVar's wording when that is "other".
+        raw = rec["clinical_significance"]
+        germline = map_classification(raw) if raw else None
+        row["germline_classification"] = raw if germline in (None, "other") else germline
     blocks, fenced = somatic_blocks(rec, assertions, mode, tumour)
     row.update(blocks)
     row["recommended_citation"] = recommended_citation(

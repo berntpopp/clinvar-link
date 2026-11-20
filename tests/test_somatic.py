@@ -199,7 +199,7 @@ async def test_search_lists_every_somatic_classification_by_tier(mcp) -> None:
     assert [r["vcv_accession"] for r in env["results"]] == ["VCV000013961", "VCV000024842"]
     assert env["total_count"] == 2 and env["has_more"] is False
     braf = env["results"][0]
-    assert braf["germline_classification"] == "Conflicting classifications of pathogenicity"
+    assert braf["germline_classification"] == "conflicting"  # get_variant's own vocabulary
     assert braf["somatic_clinical_impact"]["classification"] == "Tier I - Strong"
     assert braf["oncogenicity"]["classification"] == "Oncogenic"
     assert "citation_template" in env["_meta"]
@@ -370,3 +370,8 @@ async def test_loose_text_identifier_recovery_names_the_fallback_tool(mcp) -> No
     env = await call_tool(mcp, "get_variant", {"identifier": "BRAF V600E"})
     assert env["fallback_tool"] == "search_variants"
     assert "search_variants" in env["recovery"]
+
+
+async def test_identifier_search_does_not_suggest_itself(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"identifier": "VCV000013961", "response_mode": "standard"})
+    assert all(c["tool"] != TOOL for c in env["_meta"]["next_commands"])
