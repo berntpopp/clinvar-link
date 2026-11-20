@@ -100,6 +100,18 @@ ResponseModeParam = Annotated[
     ),
 ]
 
+SomaticResponseModeParam = Annotated[
+    Literal["minimal", "compact", "standard", "full"],
+    Field(
+        description=(
+            "Payload verbosity: minimal = ids + the two somatic aggregates; compact (default) adds "
+            "the variant name and germline_classification; standard/full add per-submission "
+            "assertions (submitter, assertion type, tumour types, drugs)."
+        ),
+        examples=["compact"],
+    ),
+]
+
 GeneSymbol = Annotated[
     str,
     Field(

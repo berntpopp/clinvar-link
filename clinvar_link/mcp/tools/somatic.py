@@ -15,8 +15,8 @@ from clinvar_link.mcp.params import (
     Offset,
     OncogenicityFilter,
     RequestId,
-    ResponseModeParam,
     SomaticGeneFilter,
+    SomaticResponseModeParam,
     TierFilter,
     TumourTypeFilter,
 )
@@ -42,7 +42,7 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         tumour_type: TumourTypeFilter = None,
         limit: Limit = 20,
         offset: Offset = 0,
-        response_mode: ResponseModeParam = "compact",
+        response_mode: SomaticResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
         """List ClinVar variants that carry a SOMATIC classification: the AMP/ASCO/CAP clinical-impact tier (somatic_clinical_impact) and the ClinGen/CGC/VICC oncogenicity call (oncogenicity), each with review status and date, beside the separate germline_classification (never merged). Tier I first, paginated with total_count / has_more / next_offset. standard/full add per-submission tumour type, therapy and assertion type. Use this for oncology questions (actionable tier, oncogenic call); coverage is ClinVar's somatic submissions only, so an empty page is not evidence a variant lacks clinical impact."""
