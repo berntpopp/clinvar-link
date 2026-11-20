@@ -88,9 +88,8 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         return await run_mcp_tool(
             "search_somatic_classifications",
             _call,
+            # No gene_symbol: its fallback is the germline gene summary, wrong for a bad tier.
             context=McpErrorContext(
-                tool_name="search_somatic_classifications",
-                gene_symbol=gene_symbol,
-                request_id=request_id,
+                tool_name="search_somatic_classifications", request_id=request_id
             ),
         )

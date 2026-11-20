@@ -375,3 +375,8 @@ async def test_loose_text_identifier_recovery_names_the_fallback_tool(mcp) -> No
 async def test_identifier_search_does_not_suggest_itself(mcp) -> None:
     env = await call_tool(mcp, TOOL, {"identifier": "VCV000013961", "response_mode": "standard"})
     assert all(c["tool"] != TOOL for c in env["_meta"]["next_commands"])
+
+
+async def test_a_bad_tier_does_not_point_at_the_germline_gene_summary(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"gene_symbol": "BRAF", "tier": "Tier V"})
+    assert env["fallback_tool"] != "get_gene_clinvar_summary"
