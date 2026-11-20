@@ -301,3 +301,10 @@ def test_other_classification_carries_clinvar_s_own_wording(mode):
         {**payload, "classification": "pathogenic", "clinical_significance": "Pathogenic"}, mode
     )
     assert "clinical_significance" not in plain
+
+
+def test_a_shorthand_shaped_gene_symbol_is_removed_before_expansion():
+    """C1S looks like Cys1Ser; as the inferred gene it must leave the query, not be rewritten."""
+    from clinvar_link.services.clinvar_service import ClinVarService
+
+    assert ClinVarService._residual_text("C1S c.100A>G V600E", "C1S") == "c 100A G Val600Glu"

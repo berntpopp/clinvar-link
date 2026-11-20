@@ -857,8 +857,9 @@ class ClinVarService:
     @staticmethod
     def _residual_text(query: str, inferred: str | None) -> str:
         """The query text minus the symbol that became the gene filter."""
-        tokens = [_expand_protein(t) for t in _TOKEN_RE.findall(query or "")]
-        return " ".join(token for token in tokens if token.upper() != inferred)
+        tokens = _TOKEN_RE.findall(query or "")
+        # Drop the gene first: C1S / C4A are genes shaped like protein shorthand.
+        return " ".join(_expand_protein(t) for t in tokens if t.upper() != inferred)
 
     async def _search_rows(
         self,
