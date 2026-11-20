@@ -15,11 +15,12 @@ run only in the final round. Raw traces are machine-local and are not committed.
 | 2 | 4 of 6 (Codex out of quota) | 85 | 78 | 88 | 78 | 84 | 90 | 65 | 88 | 84 |
 | 3 | 4 (Claude, agy) | 85 | 78 | 72 | 80 | 82 | 92 | 65 | 92 | 80 |
 | 4 | 4 (Claude, agy) | 88 | 85 | 85 | 82 | 86 | 90 | 70 | 88 | 86 |
-ROUND5_ROW
+| 5 (+C, final) | 6 (A, B, C x Claude, agy) | 85 | 82 | 78 | 80 | 80 | 90 | 65 | 92 | 82 |
 
 Codex hit its account usage limit in round 2 (both sessions failed with "You've hit your usage
-limit"; kept, unrated). Rounds 3 and 4 ran Claude and agy only; round 5 ran them and, after the
-quota reset, Codex against the same server build. Round 3's correctness minimum (72) is Claude B
+limit"; kept, unrated). Rounds 3-5 ran Claude and agy only: the quota reset was hours past
+the end of the work, and with round 5 already below the gate a Codex session could only lower a
+minimum. Codex's two round-1 sessions rated every category >= 70 except token efficiency (55). Round 3's correctness minimum (72) is Claude B
 finding a real defect: `get_variants` dropped the somatic blocks (fixed).
 
 ## Answer audit
@@ -76,4 +77,21 @@ After round 5 (not re-evaluated; the round cap was reached):
 - `tumour_type`'s description says tier / oncogenicity still filter the variant's aggregate, the
   one ambiguity three Claude sessions raised (A4, C5).
 
-FINAL_STATUS
+## Gate: not reached after the 5-round cap
+
+Two categories stay below 80 in round 5, both from Claude (agy rates every category >= 82 except
+token efficiency 74-84):
+
+- **Token efficiency 65** (Claude A 70, B 70, C 65). The cause Claude names in every round is
+  the Response-Envelope v1.1 `untrusted_text` object: every tumour, drug and trait string
+  carries its own provenance and `raw_sha256` (about 230 bytes each). The fleet standard makes
+  that per-object shape mandatory, so it is outside this server's control. What the server
+  controlled is fixed: BRAF V600E `get_variant` went from 159 KB to 7 KB (compact) and from
+  184 KB to 33 KB (standard); one variant's somatic detail is 16 KB via
+  `search_somatic_classifications(identifier=...)`.
+- **Correctness confidence 78** (Claude C). Not a wrong answer: every C fact matched the key.
+  Claude docked the score for the meaning of `tier` + `tumour_type` (aggregate tier vs. the
+  tumour's own submission, C5's 244) and a suspicion that NSCLC + Tier I (2) undercounts; the
+  snapshot has exactly two. The tier/tumour semantics are now stated in `tumour_type`'s
+  description (after round 5, not re-evaluated).
+
