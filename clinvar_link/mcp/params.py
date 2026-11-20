@@ -311,9 +311,11 @@ TumourTypeFilter = Annotated[
     str | None,
     Field(
         description=(
-            "Keep variants with at least one somatic submission naming this tumour type "
-            "(case-insensitive substring of ClinVar's MedGen name, e.g. 'melanoma'). A value no "
-            "submission names is rejected with invalid_input, never an empty page."
+            "Keep variants with at least one somatic submission naming this tumour type: a "
+            "case-insensitive substring of ClinVar's MedGen name ('melanoma') or an exact MedGen "
+            "id ('C0025202'); standard/full then show only that tumour's assertions "
+            "(other_assertions counts the rest). A value no submission names is rejected with "
+            "invalid_input, never an empty page."
         ),
         examples=["melanoma"],
         min_length=2,

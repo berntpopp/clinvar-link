@@ -218,6 +218,7 @@ async def test_search_lists_every_somatic_classification_by_tier(mcp) -> None:
         ({"oncogenicity": "oncogenic", "tier": "tier_i"}, ["VCV000013961"]),
         ({"tumour_type": "melanoma"}, ["VCV000013961"]),
         ({"tumour_type": "colorectal"}, ["VCV000013961", "VCV000024842"]),
+        ({"tumour_type": "c0025202"}, ["VCV000013961"]),  # a MedGen id matches exactly
         ({"gene_symbol": "BRCA1"}, []),  # a known gene with no somatic call: honest zero
         ({"tier": "tier_iv"}, []),
     ],
@@ -300,3 +301,11 @@ def test_build_fails_when_the_vcv_xml_yields_no_somatic_scv(respx_mock, tmp_path
 async def test_germline_last_evaluated_is_iso_like_the_somatic_dates(mcp) -> None:
     env = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
     assert env["last_evaluated"] == "2025-01-23"
+
+
+async def test_search_by_tumour_type_shows_only_that_tumour_s_assertions(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"tumour_type": "melanoma", "response_mode": "standard"})
+    block = env["results"][0]["somatic_clinical_impact"]
+    names = {t["name"]["text"] for a in block["assertions"] for t in a["tumour_types"]}
+    assert names == {"Melanoma"}
+    assert block["other_assertions"] >= 1  # the colorectal SCV, counted not sent

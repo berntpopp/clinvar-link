@@ -441,8 +441,9 @@ class ClinVarService:
                 raise ToolInputError(
                     f"unknown tumour type {tumour!r}",
                     field="tumour_type",
-                    public_reason="names no tumour type in ClinVar's somatic submissions; try a "
-                    "broader term such as 'melanoma', 'lung' or 'glioma'",
+                    public_reason="names no tumour type in ClinVar's somatic submissions (it "
+                    "matches a substring of the MedGen name, or a MedGen id such as C0025202); "
+                    "try one broader word such as 'lung', 'melanoma' or 'glioma'",
                 )
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
@@ -462,7 +463,7 @@ class ClinVarService:
             assertions = await asyncio.to_thread(self.repo.somatic_assertions, vids)
         release = await self._release_date()
         shaped = [
-            somatic_row(r, assertions.get(r["variation_id"], []), release, response_mode)
+            somatic_row(r, assertions.get(r["variation_id"], []), release, response_mode, tumour)
             for r in rows
         ]
         enforce_untrusted_text_limits(
