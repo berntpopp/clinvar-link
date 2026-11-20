@@ -279,3 +279,11 @@ async def test_full_mode_trims_null_and_na(service):
     for coord in out["coordinates"]:
         assert coord.get("reference_allele") != "na"
         assert coord.get("alternate_allele") != "na"
+
+
+@pytest.mark.parametrize("query", ["BRCA1 C61G", "BRCA1 p.C61G", "BRCA1 Cys61Gly"])
+async def test_search_reads_one_letter_protein_shorthand(service, query):
+    """Oncology writes BRAF V600E / KRAS G12C; ClinVar names say p.Val600Glu (three-letter)."""
+    out = await service.search_variants(query)
+    assert out["match_mode"] == "and"
+    assert [row["vcv_accession"] for row in out["results"]] == ["VCV000100002"]

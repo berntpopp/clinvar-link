@@ -77,6 +77,11 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 # A gene symbol as a human writes one: BRCA1, TP53, COL4A5. Used to promote a symbol written in
 # free-text search into the gene filter (never a bare number).
 _GENE_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,14}$")
+# One-letter protein shorthand as oncology writes it (V600E, G12C); ClinVar names spell the
+# three-letter form (p.Val600Glu), so a search token is rewritten before it reaches the index.
+_AA3_NAMES = "AlaCysAspGluPheGlyHisIleLysLeuMetAsnProGlnArgSerThrValTrpTyr"
+_AA3 = {aa: _AA3_NAMES[3 * i : 3 * i + 3] for i, aa in enumerate("ACDEFGHIKLMNPQRSTVWY")}
+_PROTEIN_SHORT_RE = re.compile(r"^([ACDEFGHIKLMNPQRSTVWY])(\d+)([ACDEFGHIKLMNPQRSTVWY])$")
 # Common English words that are ALSO HGNC gene symbols. A bare LOWERCASE occurrence of one of
 # these in prose ("the rest of the exon", "set of variants") is far more likely the English word
 # than the gene, so it is not promoted unless written as an explicit uppercase symbol. This buys
@@ -269,6 +274,13 @@ _STANDARD_EXTRA_FIELDS = (
 
 # get_variant keeps this many characters of an OMIM description below ``full`` (95% fit whole).
 _DESCRIPTION_CAP = 2000
+
+
+def _expand_protein(token: str) -> str:
+    """V600E -> Val600Glu; any other token unchanged."""
+    if m := _PROTEIN_SHORT_RE.match(token):
+        return f"{_AA3[m[1]]}{m[2]}{_AA3[m[3]]}"
+    return token
 
 
 def _lean_descriptions(rows: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
@@ -793,9 +805,7 @@ class ClinVarService:
     @staticmethod
     def _residual_text(query: str, inferred: str | None) -> str:
         """The query text minus the symbol that became the gene filter."""
-        if not inferred:
-            return query or ""
-        tokens = _TOKEN_RE.findall(query or "")
+        tokens = [_expand_protein(t) for t in _TOKEN_RE.findall(query or "")]
         return " ".join(token for token in tokens if token.upper() != inferred)
 
     async def _search_rows(
