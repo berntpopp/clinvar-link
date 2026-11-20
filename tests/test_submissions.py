@@ -602,3 +602,20 @@ async def test_get_variant_sends_a_repeated_description_once(mcp, monkeypatch) -
     assert "Müller" in first["description"]["text"]
     assert again["description"] is None
     assert again["description_same_as"] == first["scv"]
+
+
+async def test_get_variant_caps_a_long_description_below_full(mcp, monkeypatch) -> None:
+    from clinvar_link.data.repository import ClinVarRepository
+
+    real = ClinVarRepository.submissions_for_variant
+    long = "x" * 5000
+    monkeypatch.setattr(
+        ClinVarRepository,
+        "submissions_for_variant",
+        lambda self, vid: [{**s, "description": long} for s in real(self, vid)],
+    )
+    args = {"identifier": "VCV000100011"}
+    (sub,) = (await _call(mcp, "get_variant", args))["submissions"]
+    assert len(sub["description"]["text"]) == 2000 and sub["description_truncated"] is True
+    (sub,) = (await _call(mcp, "get_variant", {**args, "response_mode": "full"}))["submissions"]
+    assert sub["description"]["text"] == long and "description_truncated" not in sub

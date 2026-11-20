@@ -267,10 +267,15 @@ _STANDARD_EXTRA_FIELDS = (
 )
 
 
-def _dedupe_descriptions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Send each distinct description once; a repeat points at the SCV that carries it.
+# get_variant keeps this many characters of an OMIM description below ``full`` (95% fit whole).
+_DESCRIPTION_CAP = 2000
 
-    OMIM files one allelic-variant text per condition (BRAF V600E: the same 30 KB five times).
+
+def _lean_descriptions(rows: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    """Send each distinct description once, capped below ``full``.
+
+    A repeat points at the SCV that carries it: OMIM files one allelic-variant text per
+    condition (BRAF V600E: the same 30 KB five times). A capped text sets description_truncated.
     """
     first: dict[str, str] = {}
     for row in rows:
@@ -280,6 +285,9 @@ def _dedupe_descriptions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if (scv := first.setdefault(desc["raw_sha256"], row["scv"])) != row["scv"]:
             row["description"] = None
             row["description_same_as"] = scv
+        elif mode != "full" and len(desc["text"]) > _DESCRIPTION_CAP:
+            row["description"] = {**desc, "text": desc["text"][:_DESCRIPTION_CAP]}
+            row["description_truncated"] = True
     return rows
 
 
@@ -367,11 +375,12 @@ class ClinVarService:
             subs = await asyncio.to_thread(self.repo.submissions_for_variant, variant.variation_id)
             rows = [submission_row(sub, release, response_mode) for sub in subs]
             enforce_untrusted_text_limits([obj for _, fenced in rows for obj in fenced])
-            projected["submissions"] = _dedupe_descriptions(
+            projected["submissions"] = _lean_descriptions(
                 [
                     {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS}
                     for row, _ in rows
-                ]
+                ],
+                response_mode,
             )
         # Kept apart from the germline classification; an index predating them omits the keys.
         if await asyncio.to_thread(self.repo.has_somatic):
