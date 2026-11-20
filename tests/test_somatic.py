@@ -143,12 +143,12 @@ async def test_braf_v600e_shows_tier_i_and_oncogenic_beside_germline_conflicting
     assert env["somatic_clinical_impact"] == {
         "classification": "Tier I - Strong",
         "review_status": "criteria provided, multiple submitters",
-        "last_evaluated": "Nov 05, 2025",
+        "last_evaluated": "2025-11-05",
     }
     assert env["oncogenicity"] == {
         "classification": "Oncogenic",
         "review_status": "criteria provided, single submitter",
-        "last_evaluated": "Mar 04, 2025",
+        "last_evaluated": "2025-03-04",
     }
 
 
@@ -295,3 +295,8 @@ def test_build_fails_when_the_vcv_xml_yields_no_somatic_scv(respx_mock, tmp_path
     with pytest.raises(ClinVarDataError, match="no somatic SCV"):
         build_database(cfg, source_path=TSV, secondary_loader=loader)
     assert not cfg.db_path.exists()
+
+
+async def test_germline_last_evaluated_is_iso_like_the_somatic_dates(mcp) -> None:
+    env = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
+    assert env["last_evaluated"] == "2025-01-23"

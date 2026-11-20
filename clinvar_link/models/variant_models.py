@@ -1,6 +1,17 @@
 """Pydantic models for ClinVar variant entities."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from datetime import datetime
+from typing import Annotated
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def iso_date(value: str | None) -> str | None:
+    """ClinVar's TSV date ("Mar 11, 2026") as ISO 8601, like the VCV XML's; else unchanged."""
+    try:
+        return datetime.strptime(value, "%b %d, %Y").date().isoformat() if value else value
+    except ValueError:
+        return value
 
 
 class Coordinate(BaseModel):
@@ -61,7 +72,9 @@ class ClinVarVariant(BaseModel):
         default_factory=list, description="Associated RCV accessions."
     )
     number_submitters: int | None = Field(None, description="Number of submitters.")
-    last_evaluated: str | None = Field(None, description="Date the variant was last evaluated.")
+    last_evaluated: Annotated[str | None, BeforeValidator(iso_date)] = Field(
+        None, description="Date the variant was last evaluated (ISO 8601)."
+    )
     origin: str | None = Field(None, description="Allele origin (e.g., 'germline').")
     canonical_assembly: str | None = Field(
         None, description="Preferred assembly for canonical coordinates."

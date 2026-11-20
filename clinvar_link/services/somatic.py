@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from clinvar_link.mcp.untrusted_content import UntrustedText, fence_untrusted_text
+from clinvar_link.models.variant_models import iso_date
 from clinvar_link.services.citation import recommended_citation
 
 # Filter token -> ClinVar's own text ("Tier I" is matched as a prefix of "Tier I - Strong").
@@ -76,7 +77,7 @@ def somatic_blocks(
         block: dict[str, Any] = {
             "classification": flat.get(prefix),
             "review_status": flat.get(f"{prefix}_review_status"),
-            "last_evaluated": flat.get(f"{prefix}_last_evaluated"),
+            "last_evaluated": iso_date(flat.get(f"{prefix}_last_evaluated")),
         }
         if mode in DETAIL_MODES:
             shaped = [_assertion(a) for a in mine]
