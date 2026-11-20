@@ -18,9 +18,10 @@ run only in the final round. Raw traces are machine-local and are not committed.
 | 5 (+C, final) | 6 (A, B, C x Claude, agy) | 85 | 82 | 78 | 80 | 80 | 90 | 65 | 92 | 82 |
 
 Codex hit its account usage limit in round 2 (both sessions failed with "You've hit your usage
-limit"; kept, unrated). Rounds 3-5 ran Claude and agy only: the quota reset was hours past
-the end of the work, and with round 5 already below the gate a Codex session could only lower a
-minimum. Codex's two round-1 sessions rated every category >= 70 except token efficiency (55). Round 3's correctness minimum (72) is Claude B
+limit"; kept, unrated). Rounds 3-5 ran Claude and agy only. Codex is missing from them
+because its account usage limit did not reset until 21:18, hours after the work ended; the owner
+chose to record it as missing rather than wait. Round 5's minimums are therefore over Claude and
+agy only and may be higher than a three-agent round would give. Codex's two round-1 sessions rated every category >= 70 except token efficiency (55). Round 3's correctness minimum (72) is Claude B
 finding a real defect: `get_variants` dropped the somatic blocks (fixed).
 
 ## Answer audit
