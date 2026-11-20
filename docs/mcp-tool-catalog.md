@@ -15,6 +15,8 @@ get_gene_clinvar_summary(gene_symbol, response_mode="compact", request_id?)
 get_variants_by_gene(gene_symbol, classification?, min_stars?, sort="stars_desc",
                      submitter?, limit=50, offset=0, response_mode="compact", request_id?)
 get_variants_by_pmid(pmid, limit=50, offset=0, response_mode="compact", request_id?)
+search_somatic_classifications(gene_symbol?, tier?, oncogenicity?, tumour_type?,
+                               limit=20, offset=0, response_mode="compact", request_id?)
 get_server_capabilities(request_id?)
 ```
 
@@ -42,6 +44,20 @@ Every filter with a closed vocabulary declares it as an **`enum` in the input sc
 and `classification` additionally accepts ClinVar's own published wording
 ("Likely pathogenic" → `likely_pathogenic`). No tool publishes an `outputSchema`
 (Tool-Surface-Budget Standard v1) — `structuredContent` is unaffected.
+
+### Somatic classifications
+
+ClinVar keeps three separate aggregates per variant (Landrum et al., NAR 2025, PMID 39578691).
+`classification` / `clinical_significance` is the **germline** one. `get_variant` adds the two
+somatic ones as their own blocks, `somatic_clinical_impact` (AMP/ASCO/CAP 2017 tier, e.g.
+`Tier I - Strong`) and `oncogenicity` (ClinGen/CGC/VICC 2022, e.g. `Oncogenic`), each
+`{classification, review_status, last_evaluated}` or `null` when ClinVar has none; they are never
+merged into the germline call. `response_mode=standard|full` adds per-SCV `assertions`
+(submitter, assertion type, significance, fenced `drugs` and `tumour_types` with MedGen id) from
+the monthly VCV XML. `search_somatic_classifications` lists them, Tier I first: `tier`
+(`tier_i`…`tier_iv`) and `oncogenicity` filter the aggregate, `tumour_type` keeps variants with at
+least one somatic submission naming it. An index built before v0.9.0 omits the blocks and the
+search tool reports `internal` (re-pull the bundle).
 
 ## Response contract
 

@@ -44,7 +44,7 @@ from clinvar_link.logging_config import configure_logging
 from clinvar_link.mcp.facade import create_clinvar_mcp
 from clinvar_link.server_manager import UnifiedServerManager
 
-# The seven tools that make up the ClinVar Link surface (both transports).
+# The eight tools that make up the ClinVar Link surface (both transports).
 EXPECTED_TOOLS = {
     "get_server_capabilities",
     "get_variant",
@@ -53,6 +53,7 @@ EXPECTED_TOOLS = {
     "get_gene_clinvar_summary",
     "get_variants_by_gene",
     "get_variants_by_pmid",
+    "search_somatic_classifications",
 }
 
 

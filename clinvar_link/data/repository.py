@@ -36,6 +36,11 @@ def _like_escape(value: str) -> str:
 _JSON_LIST_FIELDS = ("molecular_consequence", "traits", "rcv_accessions")
 # GRCh38 sorts first, GRCh37 next, then anything else.
 _ASSEMBLY_ORDER = {"GRCh38": 0, "GRCh37": 1}
+# One somatic SCV names the tumour type: substring of any decoded tumour name (not of the JSON).
+_TUMOUR_MATCH = (
+    "EXISTS (SELECT 1 FROM json_each(tumour_types) "
+    "WHERE json_extract(value, '$.name') LIKE ? ESCAPE '\\')"
+)
 # Wall-clock cap per search/count call, so a pathological scan fails fast instead of
 # running into the router's 120 s cap (#141). A search tool call makes at most four.
 SEARCH_DEADLINE_S = 20.0
@@ -601,6 +606,99 @@ class ClinVarRepository:
             params,
         ).fetchone()
         return int(row["n"])
+
+    # -- somatic classifications (variant_summary cols 35-40 + VCV XML SCVs) ----
+
+    def has_somatic(self) -> bool:
+        """True if this index carries the somatic tables (bundles before v0.9.0 do not)."""
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'somatic_assertion'"
+        ).fetchone()
+        return row is not None
+
+    def somatic_assertions(self, vids: list[int]) -> dict[int, list[dict[str, Any]]]:
+        """Return the somatic SCVs of each variant (JSON columns decoded), keyed by VariationID."""
+        marks = ", ".join("?" for _ in vids)
+        rows = self._conn.execute(
+            f"SELECT * FROM somatic_assertion WHERE variation_id IN ({marks}) "  # noqa: S608
+            "ORDER BY classification, scv",
+            vids,
+        ).fetchall()
+        out: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            rec = dict(row)
+            rec["drugs"], rec["tumour_types"] = (
+                json.loads(rec["drugs"] or "[]"),
+                json.loads(rec["tumour_types"] or "[]"),
+            )
+            out.setdefault(rec["variation_id"], []).append(rec)
+        return out
+
+    def somatic_classification(self, vid: int) -> dict[str, Any] | None:
+        """Return the flat somatic aggregates of one variant, or None when it has none."""
+        row = self._conn.execute(
+            "SELECT * FROM somatic_classification WHERE variation_id = ?", (vid,)
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def tumour_type_known(self, text: str) -> bool:
+        """True if any somatic SCV names a tumour type containing ``text`` (case-insensitive)."""
+        row = self._conn.execute(
+            f"SELECT 1 FROM somatic_assertion WHERE {_TUMOUR_MATCH} LIMIT 1",  # noqa: S608
+            (f"%{_like_escape(text)}%",),
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _somatic_where(
+        gene: str | None, impact: str | None, oncogenicity: str | None, tumour: str | None
+    ) -> tuple[str, list[Any]]:
+        clauses, params = ["1 = 1"], []
+        if gene:
+            clauses.append("UPPER(v.gene_symbol) = ?")
+            params.append(gene.upper())
+        if impact:
+            clauses.append("s.clinical_impact LIKE ?")
+            params.append(f"{impact} %")
+        if oncogenicity:
+            clauses.append("s.oncogenicity = ?")
+            params.append(oncogenicity)
+        if tumour:
+            clauses.append(
+                "s.variation_id IN (SELECT variation_id FROM somatic_assertion "  # noqa: S608
+                f"WHERE {_TUMOUR_MATCH})"
+            )
+            params.append(f"%{_like_escape(tumour)}%")
+        return " AND ".join(clauses), params
+
+    def search_somatic(
+        self,
+        *,
+        gene: str | None,
+        impact: str | None,
+        oncogenicity: str | None,
+        tumour: str | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return (one page of somatic classification rows joined to their variant, total).
+
+        ``impact`` is a tier prefix ("Tier I"): "Tier I - Strong" sorts before "Tier II - ...",
+        so the plain text order is tier order; variants without a tier come last.
+        """
+        where, params = self._somatic_where(gene, impact, oncogenicity, tumour)
+        base = (
+            "FROM somatic_classification s JOIN variant v ON v.variation_id = s.variation_id "
+            f"WHERE {where}"
+        )
+        total = self._conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
+        rows = self._conn.execute(
+            f"SELECT s.*, v.vcv_accession, v.gene_symbol, v.name, "
+            f"v.clinical_significance {base} ORDER BY s.clinical_impact IS NULL, "
+            "s.clinical_impact, v.gene_symbol, s.variation_id LIMIT ? OFFSET ?",
+            [*params, limit, offset],
+        ).fetchall()
+        return [dict(r) for r in rows], int(total)
 
     # -- aggregates + provenance -----------------------------------------------
 

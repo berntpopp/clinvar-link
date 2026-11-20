@@ -43,6 +43,13 @@ from clinvar_link.services.citation import (
     gene_citation,
     recommended_citation,
 )
+from clinvar_link.services.somatic import (
+    DETAIL_MODES,
+    ONCOGENICITY,
+    TIERS,
+    somatic_blocks,
+    somatic_row,
+)
 from clinvar_link.services.submission_rows import submission_row
 
 # List response modes where per-row citations are hoisted to one _meta template
@@ -347,7 +354,88 @@ class ClinVarService:
             projected["submissions"] = [
                 {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS} for row, _ in rows
             ]
+        # Kept apart from the germline classification; an index predating them omits the keys.
+        if await asyncio.to_thread(self.repo.has_somatic):
+            projected.update(await self._somatic_blocks(variant.variation_id, response_mode))
         return projected
+
+    async def _somatic_blocks(self, vid: int, mode: str) -> dict[str, Any]:
+        flat = await asyncio.to_thread(self.repo.somatic_classification, vid)
+        assertions = (
+            (await asyncio.to_thread(self.repo.somatic_assertions, [vid])).get(vid, [])
+            if mode in DETAIL_MODES
+            else []
+        )
+        blocks, fenced = somatic_blocks(flat, assertions, mode)
+        enforce_untrusted_text_limits(fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
+        return blocks
+
+    async def search_somatic_classifications(
+        self,
+        *,
+        gene_symbol: str | None = None,
+        tier: str | None = None,
+        oncogenicity: str | None = None,
+        tumour_type: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+        response_mode: str = "compact",
+    ) -> dict[str, Any]:
+        """List variants with a ClinVar somatic clinical-impact tier and/or oncogenicity call."""
+        if not await asyncio.to_thread(self.repo.has_somatic):
+            raise ClinVarDataError("this ClinVar index predates the somatic tables; re-pull it")
+        gene = (gene_symbol or "").strip() or None
+        if gene is not None:
+            _reject_forbidden_codepoints(gene, field="gene_symbol")
+            if not await asyncio.to_thread(self.repo.gene_exists, gene):
+                raise ToolInputError(
+                    f"unknown gene {gene!r}",
+                    field="gene_symbol",
+                    public_reason="has no ClinVar variants in the local index; check the HGNC "
+                    "symbol",
+                )
+        tumour = (tumour_type or "").strip() or None
+        if tumour is not None:
+            _reject_forbidden_codepoints(tumour, field="tumour_type")
+            if not await asyncio.to_thread(self.repo.tumour_type_known, tumour):
+                raise ToolInputError(
+                    f"unknown tumour type {tumour!r}",
+                    field="tumour_type",
+                    public_reason="names no tumour type in ClinVar's somatic submissions; try a "
+                    "broader term such as 'melanoma', 'lung' or 'glioma'",
+                )
+        limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
+        offset = max(0, offset)
+        rows, total = await asyncio.to_thread(
+            lambda: self.repo.search_somatic(
+                gene=gene,
+                impact=TIERS[tier] if tier else None,
+                oncogenicity=ONCOGENICITY[oncogenicity] if oncogenicity else None,
+                tumour=tumour,
+                limit=limit,
+                offset=offset,
+            )
+        )
+        assertions: dict[int, list[dict[str, Any]]] = {}
+        if rows and response_mode in DETAIL_MODES:
+            vids = [r["variation_id"] for r in rows]
+            assertions = await asyncio.to_thread(self.repo.somatic_assertions, vids)
+        release = await self._release_date()
+        shaped = [
+            somatic_row(r, assertions.get(r["variation_id"], []), release, response_mode)
+            for r in rows
+        ]
+        enforce_untrusted_text_limits(
+            [obj for _, fenced in shaped for obj in fenced], max_objects=_LIST_TOOL_MAX_OBJECTS
+        )
+        results = [row for row, _ in shaped]
+        out: dict[str, Any] = {
+            "results": results,
+            "count": len(results),
+            **self._pagination(total, (offset + len(results)) < total, limit, offset),
+        }
+        self._lean_list(out, results, release, response_mode)
+        return out
 
     @staticmethod
     def _validate_shape(text: str, id_type: str) -> None:

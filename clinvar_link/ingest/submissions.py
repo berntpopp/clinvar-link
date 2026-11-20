@@ -99,14 +99,72 @@ def _submission(assertion: Any, record: Any, vcv_genes: list[str]) -> dict[str, 
     }
 
 
+def _is_current_scv(assertion: Any) -> bool:
+    acc = assertion.find("ClinVarAccession")
+    return (
+        acc is not None
+        and (acc.get("Accession") or "").startswith("SCV")
+        and (assertion.findtext("RecordStatus") or "current").strip() == "current"
+    )
+
+
+def _somatic_assertions(record: Any, vid: int, assertions: list[Any]) -> Iterator[dict[str, Any]]:
+    """Yield the current somatic SCVs (clinical-impact tier / oncogenicity) of one record.
+
+    The tumour type is ClinVar's own MedGen name for the SCV's trait (``TraitMapping``, keyed
+    by the assertion ID), falling back to the submitted preferred name; a trait submitted only
+    as an XRef (MONDO / MedGen) has no other name.
+    """
+    mapped: dict[str, list[dict[str, Any]]] | None = None
+    for assertion in assertions:
+        impact = assertion.find("Classification/SomaticClinicalImpact")
+        call = (
+            impact
+            if impact is not None
+            else assertion.find("Classification/OncogenicityClassification")
+        )
+        if call is None or not _is_current_scv(assertion):
+            continue
+        if mapped is None:
+            mapped = {}
+            for mapping in record.iterfind("ClassifiedRecord/TraitMappingList/TraitMapping"):
+                if (medgen := mapping.find("MedGen")) is not None:
+                    mapped.setdefault(mapping.get("ClinicalAssertionID"), []).append(
+                        {"name": medgen.get("Name"), "medgen_id": medgen.get("CUI")}
+                    )
+        tumours = mapped.get(assertion.get("ID") or "") or [
+            {"name": _text(value), "medgen_id": None}
+            for value in assertion.iterfind("TraitSet/Trait/Name/ElementValue[@Type='Preferred']")
+        ]
+        drugs = (call.get("DrugForTherapeuticAssertion") or "").split(";")
+        yield {
+            "scv": assertion.find("ClinVarAccession").get("Accession"),
+            "variation_id": vid,
+            "submitter": assertion.find("ClinVarAccession").get("SubmitterName"),
+            "kind": "clinical_impact" if impact is not None else "oncogenicity",
+            "classification": _text(call) or None,
+            "assertion_type": call.get("ClinicalImpactAssertionType"),
+            "significance": call.get("ClinicalImpactClinicalSignificance"),
+            "drugs": _unique(d.strip() for d in drugs),
+            "tumour_types": list({t["name"]: t for t in tumours if t["name"]}.values()),
+            "review_status": assertion.findtext("Classification/ReviewStatus"),
+            "last_evaluated": assertion.find("Classification").get("DateLastEvaluated"),
+        }
+
+
 def iter_submissions(
-    source: IO[bytes], *, allowlist: tuple[str, ...] = SUBMITTER_ALLOWLIST, stats: Counter[str]
+    source: IO[bytes],
+    *,
+    allowlist: tuple[str, ...] = SUBMITTER_ALLOWLIST,
+    stats: Counter[str],
+    on_somatic: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield one dict per current SCV of an allow-listed submitter in a VCV XML stream.
 
     ``source`` is the DECOMPRESSED XML byte stream. A record or assertion missing its
     identifiers is skipped and counted in ``stats["skipped"]``; a stream that is not
-    well-formed (e.g. truncated) raises :class:`lxml.etree.XMLSyntaxError`.
+    well-formed (e.g. truncated) raises :class:`lxml.etree.XMLSyntaxError`. ``on_somatic``,
+    when given, receives every current somatic SCV (any submitter) in the same pass.
     """
     wanted = frozenset(allowlist)
     for _, record in etree.iterparse(
@@ -115,9 +173,14 @@ def iter_submissions(
         stats["records"] += 1
         try:
             vid_text = record.get("VariationID") or ""
+            every = record.findall("ClassifiedRecord/ClinicalAssertionList/ClinicalAssertion")
+            if on_somatic is not None and vid_text.isdigit():
+                for somatic in _somatic_assertions(record, int(vid_text), every):
+                    stats["somatic"] += 1
+                    on_somatic(somatic)
             assertions = [
                 a
-                for a in record.iterfind("ClassifiedRecord/ClinicalAssertionList/ClinicalAssertion")
+                for a in every
                 if (acc := a.find("ClinVarAccession")) is not None
                 and acc.get("SubmitterName") in wanted
             ]
@@ -145,24 +208,33 @@ def iter_submissions(
 
 
 def load_submissions(conn: sqlite3.Connection, source: IO[bytes]) -> Counter[str]:
-    """Insert the allow-listed submissions from ``source`` into ``submission`` tables.
+    """Insert the allow-listed submissions + every somatic SCV from ``source``.
 
     Returns the stats counter: per-submitter kept counts plus ``records`` / ``skipped`` /
-    ``not_current``.
+    ``not_current`` / ``somatic``.
     """
     stats: Counter[str] = Counter()
     rows: list[tuple[Any, ...]] = []
     genes: list[tuple[str, str]] = []
+    somatic: list[tuple[Any, ...]] = []
 
     def flush() -> None:
         conn.executemany(
             "INSERT OR REPLACE INTO submission VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
         )
         conn.executemany("INSERT OR IGNORE INTO submission_gene VALUES (?, ?)", genes)
+        conn.executemany(
+            "INSERT OR REPLACE INTO somatic_assertion VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            somatic,
+        )
         rows.clear()
         genes.clear()
+        somatic.clear()
 
-    for sub in iter_submissions(source, stats=stats):
+    def add_somatic(row: dict[str, Any]) -> None:
+        somatic.append(tuple(json.dumps(v) if isinstance(v, list) else v for v in row.values()))
+
+    for sub in iter_submissions(source, stats=stats, on_somatic=add_somatic):
         stats[f"submitter:{sub['submitter']}"] += 1
         rows.append(
             (
@@ -180,7 +252,7 @@ def load_submissions(conn: sqlite3.Connection, source: IO[bytes]) -> Counter[str
             )
         )
         genes.extend((symbol.upper(), sub["scv"]) for symbol in sub["genes"])
-        if len(rows) >= _INSERT_BATCH:
+        if len(rows) >= _INSERT_BATCH or len(somatic) >= _INSERT_BATCH:
             flush()
     flush()
     return stats
@@ -387,6 +459,12 @@ def make_loader(
         ) as (xml, info):
             stats = load_submissions(conn, xml)
         check_counts(stats, expected)
+        flat = conn.execute("SELECT COUNT(*) FROM somatic_classification").fetchone()[0]
+        if flat and not stats["somatic"]:  # the XML schema moved under us: fail, never ship blank
+            raise ClinVarDataError(
+                f"variant_summary has {flat} somatic classifications but the VCV XML yielded "
+                "no somatic SCV"
+            )
         retrieved = datetime.now(UTC).isoformat().replace("+00:00", "Z")  # stream end
         kept = sum(n for key, n in stats.items() if key.startswith("submitter:"))
         conn.executemany(

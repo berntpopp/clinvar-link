@@ -116,9 +116,10 @@ docker/                     # Dockerfile, compose, entrypoint, README
   `{age_days, past_ttl}` (vs `REFRESH_TTL_DAYS`) from the cached release date;
   merged into `_meta` (every response) and capabilities (`data_freshness`).
 - **Tools:** every tool declares `annotations=READ_ONLY_OPEN_WORLD` and carries
-  `_meta.next_commands`. Keep the six-tool surface (`get_variant`,
+  `_meta.next_commands`. Keep the tool surface (`get_variant`,
   `get_variants` batch, `search_variants`, `get_gene_clinvar_summary`,
-  `get_variants_by_gene`, `get_server_capabilities`) in lockstep between
+  `get_variants_by_gene`, `get_variants_by_pmid`, `search_somatic_classifications`,
+  `get_server_capabilities`) in lockstep between
   `mcp/tools/` (registered), `mcp/facade.py`, and `mcp/resources._TOOLS`.
 - **Citation contract:** every variant/gene result carries a
   `recommended_citation` and the ClinVar release date in `_meta`. Builders are in

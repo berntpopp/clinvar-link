@@ -599,3 +599,26 @@ def parse_variant_row(row: dict[str, str], star_map: dict[str, int]) -> dict[str
         "last_evaluated": _get_col(row, "LastEvaluated"),
         "origin": _get_col(row, "Origin"),
     }
+
+
+# variant_summary columns 35-40 (since 2024): ClinVar's two SOMATIC aggregates, kept apart from
+# the germline ClinicalSignificance. "-" = none; the placeholder marks a variant whose call sits
+# on the haplotype / genotype record that includes it, not on the variant itself.
+_SOMATIC_COLUMNS = {
+    "clinical_impact": "SomaticClinicalImpact",
+    "clinical_impact_review_status": "ReviewStatusClinicalImpact",
+    "clinical_impact_last_evaluated": "SomaticClinicalImpactLastEvaluated",
+    "oncogenicity": "Oncogenicity",
+    "oncogenicity_review_status": "ReviewStatusOncogenicity",
+    "oncogenicity_last_evaluated": "OncogenicityLastEvaluated",
+}
+_SOMATIC_NONE = frozenset({"", "-", "no classification for the single variant"})
+
+
+def parse_somatic_columns(row: dict[str, str]) -> dict[str, str | None] | None:
+    """Return the somatic clinical-impact + oncogenicity aggregates of one row, or None."""
+    out = {key: (row.get(col) or "").strip() or None for key, col in _SOMATIC_COLUMNS.items()}
+    out = {key: None if value in _SOMATIC_NONE else value for key, value in out.items()}
+    if out["clinical_impact"] is None and out["oncogenicity"] is None:
+        return None
+    return out

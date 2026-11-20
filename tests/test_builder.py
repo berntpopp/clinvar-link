@@ -41,6 +41,7 @@ EXPECTED_INDEXES = {
     "idx_citation_vid",
     "idx_citation_id",
     "idx_submission_vid",
+    "idx_somatic_assertion_vid",
     "idx_gene_alias",
 }
 

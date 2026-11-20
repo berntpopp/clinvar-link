@@ -68,12 +68,13 @@ Both paths and the container's first-boot `bootstrap` are described in
 
 | Tool | Purpose |
 |------|---------|
-| `get_variant` | Resolve one variant by VCV / VariationID / rsID / HGVS / AlleleID → classification, star rating, both-assembly coordinates, traits, RCV accessions, cited PMIDs, OMIM submission text. |
+| `get_variant` | Resolve one variant by VCV / VariationID / rsID / HGVS / AlleleID → classification, star rating, both-assembly coordinates, traits, RCV accessions, cited PMIDs, OMIM submission text, separate somatic clinical-impact + oncogenicity blocks. |
 | `get_variants` | Batch form of `get_variant`: many identifiers (mixable shapes) in one call, each row echoing its `identifier` and `found` flag. |
 | `search_variants` | Free-text search over names / genes / identifiers, filtered by gene, classification, minimum stars or assembly. |
 | `get_gene_clinvar_summary` | Per-gene aggregate: counts by classification, star distribution, consequence categories, top traits, `has_pathogenic`. |
 | `get_variants_by_gene` | Per-variant rows for a gene, filterable and sortable (default `stars_desc`), paginated; `submitter=OMIM` lists OMIM's per-family submissions (description, PMIDs), renamed genes resolved via HGNC. |
 | `get_variants_by_pmid` | The variants whose ClinVar submissions cite a PubMed id (PMID → variants), paginated. |
+| `search_somatic_classifications` | Variants with a ClinVar **somatic** call — AMP/ASCO/CAP clinical-impact tier and oncogenicity, kept apart from the germline classification — filtered by gene, tier, oncogenicity or tumour type; per-submission tumour type and therapy from `standard`. |
 | `get_server_capabilities` | Discovery surface: tool list, response modes, workflows, live ClinVar release date, error codes, limitations. |
 
 Leaf names are **unprefixed** per Tool-Naming Standard v1 — namespacing is the
