@@ -602,6 +602,8 @@ async def test_get_variant_sends_a_repeated_description_once(mcp, monkeypatch) -
     assert "Müller" in first["description"]["text"]
     assert again["description"] is None
     assert again["description_same_as"] == first["scv"]
+    assert first["pmids"] and again["pmids"] is None
+    assert again["pmids_same_as"] == first["scv"]
 
 
 async def test_get_variant_caps_a_long_description_below_full(mcp, monkeypatch) -> None:

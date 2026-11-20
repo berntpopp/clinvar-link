@@ -285,13 +285,18 @@ def _expand_protein(token: str) -> str:
 
 
 def _lean_descriptions(rows: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
-    """Send each distinct description once, capped below ``full``.
+    """Send each distinct description and PMID list once, a description capped below ``full``.
 
-    A repeat points at the SCV that carries it: OMIM files one allelic-variant text per
-    condition (BRAF V600E: the same 30 KB five times). A capped text sets description_truncated.
+    A repeat points at the SCV that carries it (description_same_as / pmids_same_as): OMIM files
+    one allelic-variant text per condition (BRAF V600E: the same 30 KB and 41 PMIDs five times).
+    A capped text sets description_truncated.
     """
-    first: dict[str, str] = {}
+    first: dict[Any, str] = {}
     for row in rows:
+        pmids = tuple(row.get("pmids") or ())
+        if pmids and (scv := first.setdefault(pmids, row["scv"])) != row["scv"]:
+            row["pmids"] = None
+            row["pmids_same_as"] = scv
         desc = row.get("description")
         if not desc:
             continue
