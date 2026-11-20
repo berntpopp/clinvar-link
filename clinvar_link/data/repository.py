@@ -37,9 +37,11 @@ _JSON_LIST_FIELDS = ("molecular_consequence", "traits", "rcv_accessions")
 # GRCh38 sorts first, GRCh37 next, then anything else.
 _ASSEMBLY_ORDER = {"GRCh38": 0, "GRCh37": 1}
 # One somatic SCV names the tumour type: substring of any decoded tumour name (not of the JSON).
+# A tumour type matches as a substring of the MedGen name or exactly as the MedGen id (C0025202).
 _TUMOUR_MATCH = (
     "EXISTS (SELECT 1 FROM json_each(tumour_types) "
-    "WHERE json_extract(value, '$.name') LIKE ? ESCAPE '\\')"
+    "WHERE json_extract(value, '$.name') LIKE ? ESCAPE '\\' "
+    "OR json_extract(value, '$.medgen_id') = ?)"
 )
 # Wall-clock cap per search/count call, so a pathological scan fails fast instead of
 # running into the router's 120 s cap (#141). A search tool call makes at most four.
@@ -645,15 +647,23 @@ class ClinVarRepository:
         """True if any somatic SCV names a tumour type containing ``text`` (case-insensitive)."""
         row = self._conn.execute(
             f"SELECT 1 FROM somatic_assertion WHERE {_TUMOUR_MATCH} LIMIT 1",  # noqa: S608
-            (f"%{_like_escape(text)}%",),
+            (f"%{_like_escape(text)}%", text.upper()),
         ).fetchone()
         return row is not None
 
     @staticmethod
     def _somatic_where(
-        gene: str | None, impact: str | None, oncogenicity: str | None, tumour: str | None
+        gene: str | None,
+        impact: str | None,
+        oncogenicity: str | None,
+        tumour: str | None,
+        vid: int | None = None,
     ) -> tuple[str, list[Any]]:
-        clauses, params = ["1 = 1"], []
+        clauses: list[str] = ["1 = 1"]
+        params: list[Any] = []
+        if vid is not None:
+            clauses.append("s.variation_id = ?")
+            params.append(vid)
         if gene:
             clauses.append("UPPER(v.gene_symbol) = ?")
             params.append(gene.upper())
@@ -668,7 +678,7 @@ class ClinVarRepository:
                 "s.variation_id IN (SELECT variation_id FROM somatic_assertion "  # noqa: S608
                 f"WHERE {_TUMOUR_MATCH})"
             )
-            params.append(f"%{_like_escape(tumour)}%")
+            params += [f"%{_like_escape(tumour)}%", tumour.upper()]
         return " AND ".join(clauses), params
 
     def search_somatic(
@@ -680,13 +690,14 @@ class ClinVarRepository:
         tumour: str | None,
         limit: int,
         offset: int,
+        vid: int | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Return (one page of somatic classification rows joined to their variant, total).
 
         ``impact`` is a tier prefix ("Tier I"): "Tier I - Strong" sorts before "Tier II - ...",
         so the plain text order is tier order; variants without a tier come last.
         """
-        where, params = self._somatic_where(gene, impact, oncogenicity, tumour)
+        where, params = self._somatic_where(gene, impact, oncogenicity, tumour, vid)
         base = (
             "FROM somatic_classification s JOIN variant v ON v.variation_id = s.variation_id "
             f"WHERE {where}"

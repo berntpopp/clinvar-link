@@ -21,6 +21,7 @@ from clinvar_link.models.enums import (
     RESPONSE_MODES,
     SUBMITTERS,
 )
+from clinvar_link.services.somatic import ONCOGENICITY, TIERS
 
 RESEARCH_USE_NOTICE = "Research use only; not for clinical decision support."
 
@@ -77,10 +78,12 @@ def get_capabilities_resource() -> dict[str, Any]:
             "assembly": list(ASSEMBLY_VALUES),
             "id_type": list(ID_TYPES),
             "submitter": list(SUBMITTERS),
+            "tier": list(TIERS),
+            "oncogenicity": list(ONCOGENICITY),
             "note": (
-                "classification and assembly also accept ClinVar's own published wording "
-                "case-insensitively ('Likely pathogenic' -> likely_pathogenic, 'hg19' -> "
-                "GRCh37). Any other value is REJECTED with invalid_input naming the parameter "
+                "classification, assembly, tier and oncogenicity also accept ClinVar's own "
+                "published wording case-insensitively ('Likely pathogenic' -> likely_pathogenic, "
+                "'hg19' -> GRCh37, 'Tier I - Strong' -> tier_i). Any other value is REJECTED with invalid_input naming the parameter "
                 "— an unrecognized filter value never returns an empty success."
             ),
         },
@@ -103,7 +106,8 @@ def get_capabilities_resource() -> dict[str, Any]:
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
             "PubMed id -> get_variants_by_pmid (the variants a paper's submissions report)",
             "oncology: gene / tier / oncogenicity / tumour type -> search_somatic_classifications "
-            "-> get_variant(response_mode=standard) for tumour type + therapy per submission",
+            "-> search_somatic_classifications(identifier=VCV, response_mode=standard) for one "
+            "variant's tumour type + therapy per submission",
             "gene symbol + submitter=OMIM -> get_variants_by_gene (OMIM's per-family reports "
             "with description text and PMIDs; renamed genes resolved via HGNC)",
         ],
@@ -127,8 +131,9 @@ def get_capabilities_resource() -> dict[str, Any]:
         "limitations": [
             "Local SQLite index built from the weekly variant_summary bulk file; "
             "it lags the live ClinVar website by up to a week.",
-            "Submission text is indexed only for allow-listed submitters (OMIM), from the "
-            "MONTHLY VCV XML release, so it can lag the weekly variant data by up to a month; "
+            "Submission text (OMIM descriptions; every submitter's somatic tumour type and "
+            "therapy) comes from the MONTHLY VCV XML release, so it can lag the weekly variant "
+            "data by up to a month; "
             "citations come from var_citations (PMIDs per variant).",
             "Coordinates follow the bulk file (GRCh37 and GRCh38 rows where present).",
             RESEARCH_USE_NOTICE,
@@ -142,6 +147,7 @@ def get_capabilities_resource() -> dict[str, Any]:
                 "get_gene_clinvar_summary",
                 "get_variants_by_gene",
                 "get_variants_by_pmid",
+                "search_somatic_classifications",
             ],
         },
         "resources": {

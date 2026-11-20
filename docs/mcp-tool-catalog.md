@@ -56,8 +56,19 @@ merged into the germline call. `response_mode=standard|full` adds per-SCV `asser
 (submitter, assertion type, significance, fenced `drugs` and `tumour_types` with MedGen id) from
 the monthly VCV XML. `search_somatic_classifications` lists them, Tier I first: `tier`
 (`tier_i`…`tier_iv`) and `oncogenicity` filter the aggregate, `tumour_type` keeps variants with at
-least one somatic submission naming it. An index built before v0.9.0 omits the blocks and the
-search tool reports `internal` (re-pull the bundle).
+least one somatic submission naming it (a MedGen-name substring or an exact MedGen id such as
+`C0025202`); with it, `standard` / `full` send only that tumour's assertions and count the rest in
+`other_assertions`. `identifier` (as `get_variant` takes it) narrows to one variant: its somatic
+detail without `get_variant`'s germline payload, and the call `get_variant` suggests first for a
+variant with a somatic call. When `has_more`, `_meta.next_commands[0]` is the next page. Dates
+(`last_evaluated`, germline and somatic) are ISO 8601. An index built before v0.9.0 omits the
+blocks and the search tool reports `internal` (re-pull the bundle).
+
+`get_variant`'s OMIM `submissions` send each distinct `description` once (a repeat carries
+`description_same_as: <SCV>`; a repeated PMID list likewise `pmids_same_as`) and cap it at 500 characters in `compact`, 2,000 in `standard`
+(`description_truncated: true`). A normalized `classification` of `other` (drug response, risk
+factor, ...) carries ClinVar's own `clinical_significance` in every mode. `search_variants`
+reads one-letter protein shorthand (`BRAF V600E` as `p.Val600Glu`).
 
 ## Response contract
 

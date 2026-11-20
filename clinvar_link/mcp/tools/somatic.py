@@ -15,12 +15,14 @@ from clinvar_link.mcp.params import (
     Offset,
     OncogenicityFilter,
     RequestId,
-    ResponseModeParam,
     SomaticGeneFilter,
+    SomaticIdentifier,
+    SomaticResponseModeParam,
     TierFilter,
     TumourTypeFilter,
 )
 from clinvar_link.services import ClinVarService
+from clinvar_link.services.somatic import ONCOGENICITY, TIERS, somatic_token
 
 type ToolReturn = dict[str, Any] | ToolResult
 
@@ -40,9 +42,10 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         tier: TierFilter = None,
         oncogenicity: OncogenicityFilter = None,
         tumour_type: TumourTypeFilter = None,
+        identifier: SomaticIdentifier = None,
         limit: Limit = 20,
         offset: Offset = 0,
-        response_mode: ResponseModeParam = "compact",
+        response_mode: SomaticResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
         """List ClinVar variants that carry a SOMATIC classification: the AMP/ASCO/CAP clinical-impact tier (somatic_clinical_impact) and the ClinGen/CGC/VICC oncogenicity call (oncogenicity), each with review status and date, beside the separate germline_classification (never merged). Tier I first, paginated with total_count / has_more / next_offset. standard/full add per-submission tumour type, therapy and assertion type. Use this for oncology questions (actionable tier, oncogenic call); coverage is ClinVar's somatic submissions only, so an empty page is not evidence a variant lacks clinical impact."""
@@ -53,16 +56,25 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 tier=tier,
                 oncogenicity=oncogenicity,
                 tumour_type=tumour_type,
+                identifier=identifier,
                 limit=limit,
                 offset=offset,
                 response_mode=response_mode,
             )
             results = result.get("results") or []
             next_commands: list[dict[str, Any]] = []
-            if results:
+            if result.get("has_more"):
+                page: dict[str, Any] = {"gene_symbol": gene_symbol}
+                page |= {"tier": somatic_token(tier, TIERS)}
+                page |= {"oncogenicity": somatic_token(oncogenicity, ONCOGENICITY)}
+                page |= {"tumour_type": tumour_type, "limit": limit}
+                page |= {"offset": result["next_offset"], "response_mode": response_mode}
+                args = {k: v for k, v in page.items() if v is not None}
+                next_commands.append({"tool": "search_somatic_classifications", "arguments": args})
+            if results and identifier is None:
                 next_commands.append(
                     {
-                        "tool": "get_variant",
+                        "tool": "search_somatic_classifications",
                         "arguments": {
                             "identifier": results[0]["vcv_accession"],
                             "response_mode": "standard",
@@ -76,9 +88,8 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         return await run_mcp_tool(
             "search_somatic_classifications",
             _call,
+            # No gene_symbol: its fallback is the germline gene summary, wrong for a bad tier.
             context=McpErrorContext(
-                tool_name="search_somatic_classifications",
-                gene_symbol=gene_symbol,
-                request_id=request_id,
+                tool_name="search_somatic_classifications", request_id=request_id
             ),
         )

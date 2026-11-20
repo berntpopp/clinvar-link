@@ -143,12 +143,12 @@ async def test_braf_v600e_shows_tier_i_and_oncogenic_beside_germline_conflicting
     assert env["somatic_clinical_impact"] == {
         "classification": "Tier I - Strong",
         "review_status": "criteria provided, multiple submitters",
-        "last_evaluated": "Nov 05, 2025",
+        "last_evaluated": "2025-11-05",
     }
     assert env["oncogenicity"] == {
         "classification": "Oncogenic",
         "review_status": "criteria provided, single submitter",
-        "last_evaluated": "Mar 04, 2025",
+        "last_evaluated": "2025-03-04",
     }
 
 
@@ -199,12 +199,12 @@ async def test_search_lists_every_somatic_classification_by_tier(mcp) -> None:
     assert [r["vcv_accession"] for r in env["results"]] == ["VCV000013961", "VCV000024842"]
     assert env["total_count"] == 2 and env["has_more"] is False
     braf = env["results"][0]
-    assert braf["germline_classification"] == "Conflicting classifications of pathogenicity"
+    assert braf["germline_classification"] == "conflicting"  # get_variant's own vocabulary
     assert braf["somatic_clinical_impact"]["classification"] == "Tier I - Strong"
     assert braf["oncogenicity"]["classification"] == "Oncogenic"
     assert "citation_template" in env["_meta"]
     assert env["_meta"]["next_commands"][0] == {
-        "tool": "get_variant",
+        "tool": TOOL,
         "arguments": {"identifier": "VCV000013961", "response_mode": "standard"},
     }
 
@@ -218,6 +218,7 @@ async def test_search_lists_every_somatic_classification_by_tier(mcp) -> None:
         ({"oncogenicity": "oncogenic", "tier": "tier_i"}, ["VCV000013961"]),
         ({"tumour_type": "melanoma"}, ["VCV000013961"]),
         ({"tumour_type": "colorectal"}, ["VCV000013961", "VCV000024842"]),
+        ({"tumour_type": "c0025202"}, ["VCV000013961"]),  # a MedGen id matches exactly
         ({"gene_symbol": "BRCA1"}, []),  # a known gene with no somatic call: honest zero
         ({"tier": "tier_iv"}, []),
     ],
@@ -237,6 +238,13 @@ async def test_search_pagination_is_honest(mcp) -> None:
         True,
         1,
     )
+    # The next page is the first suggested command, filters kept.
+    assert env["_meta"]["next_commands"][0] == {
+        "tool": TOOL,
+        "arguments": {"limit": 1, "offset": 1, "response_mode": "compact"},
+    }
+    last = await call_tool(mcp, TOOL, {"limit": 1, "offset": 1})
+    assert last["_meta"]["next_commands"][0]["arguments"]["identifier"] == "VCV000024842"
 
 
 @pytest.mark.parametrize(
@@ -244,7 +252,7 @@ async def test_search_pagination_is_honest(mcp) -> None:
     [
         ({"gene_symbol": "NOTAGENE1"}, "gene_symbol"),
         ({"tumour_type": "__no_such_tumour__"}, "tumour_type"),
-        ({"tier": "Tier I"}, "tier"),
+        ({"tier": "Tier V"}, "tier"),
         ({"oncogenicity": "pathogenic"}, "oncogenicity"),
     ],
 )
@@ -288,3 +296,87 @@ def test_build_fails_when_the_vcv_xml_yields_no_somatic_scv(respx_mock, tmp_path
     with pytest.raises(ClinVarDataError, match="no somatic SCV"):
         build_database(cfg, source_path=TSV, secondary_loader=loader)
     assert not cfg.db_path.exists()
+
+
+async def test_germline_last_evaluated_is_iso_like_the_somatic_dates(mcp) -> None:
+    env = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
+    assert env["last_evaluated"] == "2025-01-23"
+
+
+async def test_search_by_tumour_type_shows_only_that_tumour_s_assertions(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"tumour_type": "melanoma", "response_mode": "standard"})
+    block = env["results"][0]["somatic_clinical_impact"]
+    names = {t["name"]["text"] for a in block["assertions"] for t in a["tumour_types"]}
+    assert names == {"Melanoma"}
+    assert block["other_assertions"] >= 1  # the colorectal SCV, counted not sent
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{"tier": "Tier I"}, {"tier": "Tier 1"}, {"tier": "Tier I - Strong"}, {"tier": "TIER_I"}],
+)
+async def test_tier_accepts_clinvar_s_own_wording(mcp, args: dict[str, Any]) -> None:
+    env = await call_tool(mcp, TOOL, args)
+    assert [r["vcv_accession"] for r in env["results"]] == ["VCV000013961"]
+
+
+async def test_oncogenicity_accepts_clinvar_s_wording_and_explains_pathogenic(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"oncogenicity": "Likely oncogenic"})
+    assert [r["vcv_accession"] for r in env["results"]] == ["VCV000024842"]
+    err = await call_tool(mcp, TOOL, {"oncogenicity": "pathogenic"})
+    assert "germline" in err["message"]
+
+
+async def test_a_tumour_phrase_miss_says_whether_one_word_of_it_matches(mcp) -> None:
+    part = await call_tool(mcp, TOOL, {"tumour_type": "metastatic melanoma"})
+    none = await call_tool(mcp, TOOL, {"tumour_type": "zzqqxx qqzzyy"})
+    assert part["error_code"] == none["error_code"] == "invalid_input"
+    assert "one word of it" in part["message"] and "one word of it" not in none["message"]
+    assert "'melanoma'" in part["message"]  # the matching word, a substring of a known name
+
+
+async def test_batch_get_variants_carries_the_somatic_blocks_too(mcp) -> None:
+    env = await call_tool(mcp, "get_variants", {"identifiers": ["VCV000013961", "17677"]})
+    braf, germline_only = env["results"]
+    assert braf["somatic_clinical_impact"]["classification"] == "Tier I - Strong"
+    assert braf["oncogenicity"]["classification"] == "Oncogenic"
+    assert germline_only["somatic_clinical_impact"] is None
+    assert germline_only["oncogenicity"] is None
+
+
+async def test_search_by_identifier_gives_one_variant_s_somatic_detail(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"identifier": "VCV000013961", "response_mode": "standard"})
+    (row,) = env["results"]
+    assert row["vcv_accession"] == "VCV000013961"
+    assert row["somatic_clinical_impact"]["assertions"]
+    assert "submissions" not in row and "traits" not in row  # no germline payload
+    germline_only = await call_tool(mcp, TOOL, {"identifier": "17677"})
+    assert germline_only["success"] is True and germline_only["total_count"] == 0
+    bad = await call_tool(mcp, TOOL, {"identifier": "BRAF V600E"})
+    assert bad["error_code"] == "invalid_input"
+
+
+async def test_get_variant_points_a_somatic_variant_at_its_somatic_detail(mcp) -> None:
+    env = await call_tool(mcp, "get_variant", {"identifier": "VCV000013961"})
+    assert env["_meta"]["next_commands"][0] == {
+        "tool": TOOL,
+        "arguments": {"identifier": "VCV000013961", "response_mode": "standard"},
+    }
+    plain = await call_tool(mcp, "get_variant", {"identifier": "17677"})
+    assert all(c["tool"] != TOOL for c in plain["_meta"]["next_commands"])
+
+
+async def test_loose_text_identifier_recovery_names_the_fallback_tool(mcp) -> None:
+    env = await call_tool(mcp, "get_variant", {"identifier": "BRAF V600E"})
+    assert env["fallback_tool"] == "search_variants"
+    assert "search_variants" in env["recovery"]
+
+
+async def test_identifier_search_does_not_suggest_itself(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"identifier": "VCV000013961", "response_mode": "standard"})
+    assert all(c["tool"] != TOOL for c in env["_meta"]["next_commands"])
+
+
+async def test_a_bad_tier_does_not_point_at_the_germline_gene_summary(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"gene_symbol": "BRAF", "tier": "Tier V"})
+    assert env["fallback_tool"] != "get_gene_clinvar_summary"

@@ -58,7 +58,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         response_mode: ResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
-        """Resolve a single ClinVar variant by VCV accession, dbSNP rsID, HGVS expression, ClinVar AlleleID, or VariationID; returns its normalized classification, review status and 0-4 star rating plus a recommended_citation. A clean transcript-qualified HGVS resolves even without the (GENE) qualifier (e.g. NM_033380.3:c.1871G>A). Except in minimal mode it also returns the PubMed / PMC / Bookshelf ids its submissions cite: citations lists at most 50, citation_count is the full total; submissions holds OMIM's own SCV text (description, conditions, PMIDs). classification is the GERMLINE aggregate; somatic_clinical_impact (AMP tier) and oncogenicity are separate blocks (null when ClinVar has none). Use this when you already have a variant identifier; if it fails to resolve, fall back to search_variants."""
+        """Resolve a single ClinVar variant by VCV accession, dbSNP rsID, HGVS expression, ClinVar AlleleID, or VariationID; returns its normalized classification, review status and 0-4 star rating plus a recommended_citation. A clean transcript-qualified HGVS resolves even without the (GENE) qualifier (e.g. NM_033380.3:c.1871G>A). minimal keeps up to 5 trait names; every other mode also returns the PubMed / PMC / Bookshelf ids its submissions cite: citations lists at most 50, citation_count is the full total; submissions holds OMIM's own SCV text (description, conditions, PMIDs); a description is capped at 500 characters in compact, 2,000 in standard (description_truncated) and a repeated description or PMID list is sent once (description_same_as, pmids_same_as). classification is the GERMLINE aggregate; somatic_clinical_impact (AMP tier) and oncogenicity are separate blocks (null when ClinVar has none); search_somatic_classifications(identifier=...) gives their per-submission tumour types and drugs without the germline payload. Use this when you already have a variant identifier; if it fails to resolve, fall back to search_variants."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().get_variant(
@@ -66,6 +66,11 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
             )
             gene_symbol = result.get("gene_symbol")
             next_commands: list[dict[str, Any]] = []
+            if result.get("somatic_clinical_impact") or result.get("oncogenicity"):
+                somatic = {"identifier": result["vcv_accession"], "response_mode": "standard"}
+                next_commands.append(
+                    {"tool": "search_somatic_classifications", "arguments": somatic}
+                )
             if gene_symbol:
                 next_commands.append(
                     {
@@ -150,7 +155,7 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         response_mode: ResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
-        """Free-text search across ClinVar variant names, genes, and traits; returns matching variants (vcv_accession, gene, classification, star rating) as a paginated list. Use this to locate a record when you only have a gene symbol plus a change or other loose text, then re-call get_variant with the returned vcv_accession. A gene symbol written in the query is applied as a filter automatically, so results never wander into an unrelated gene, and _meta.search declares what was inferred and whether the match degraded. Pagination: total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row)."""
+        """Free-text search across ClinVar variant names, genes, and traits; returns matching variants (vcv_accession, gene, classification, star rating) as a paginated list. Use this to locate a record when you only have a gene symbol plus a change (BRAF V600E reads as p.Val600Glu) or other loose text, then re-call get_variant with the returned vcv_accession. A gene symbol written in the query is applied as a filter automatically, so results never wander into an unrelated gene, and _meta.search declares what was inferred and whether the match degraded. Pagination: total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row)."""
 
         async def _call() -> dict[str, Any]:
             result = await service_factory().search_variants(

@@ -279,3 +279,32 @@ async def test_full_mode_trims_null_and_na(service):
     for coord in out["coordinates"]:
         assert coord.get("reference_allele") != "na"
         assert coord.get("alternate_allele") != "na"
+
+
+@pytest.mark.parametrize("query", ["BRCA1 C61G", "BRCA1 p.C61G", "BRCA1 Cys61Gly"])
+async def test_search_reads_one_letter_protein_shorthand(service, query):
+    """Oncology writes BRAF V600E / KRAS G12C; ClinVar names say p.Val600Glu (three-letter)."""
+    out = await service.search_variants(query)
+    assert out["match_mode"] == "and"
+    assert [row["vcv_accession"] for row in out["results"]] == ["VCV000100002"]
+
+
+@pytest.mark.parametrize("mode", ["minimal", "compact", "standard"])
+def test_other_classification_carries_clinvar_s_own_wording(mode):
+    """EGFR L858R is 'drug response' in ClinVar; 'other' alone hides what it is."""
+    from clinvar_link.services.clinvar_service import ClinVarService
+
+    payload = {"variation_id": 16609, "classification": "other"}
+    out, _ = ClinVarService._project({**payload, "clinical_significance": "drug response"}, mode)
+    assert out["clinical_significance"] == "drug response"
+    plain, _ = ClinVarService._project(
+        {**payload, "classification": "pathogenic", "clinical_significance": "Pathogenic"}, mode
+    )
+    assert "clinical_significance" not in plain
+
+
+def test_a_shorthand_shaped_gene_symbol_is_removed_before_expansion():
+    """C1S looks like Cys1Ser; as the inferred gene it must leave the query, not be rewritten."""
+    from clinvar_link.services.clinvar_service import ClinVarService
+
+    assert ClinVarService._residual_text("C1S c.100A>G V600E", "C1S") == "c 100A G Val600Glu"

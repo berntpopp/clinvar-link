@@ -27,6 +27,7 @@ from clinvar_link.models.enums import (
     ASSEMBLY_VALUES,
     CLASSIFICATION_VALUES,
 )
+from clinvar_link.services.somatic import ONCOGENICITY, TIERS
 
 # NB: the accepted tokens are NOT re-listed here — the `enum` in the schema carries them, and
 # duplicating them cost ~25 tokens on every request for information the model already has
@@ -94,6 +95,31 @@ ResponseModeParam = Annotated[
             "(default) adds name, review status, traits; standard adds coordinates, RCVs, "
             "consequence; full adds all fields. Citations and submissions appear from compact up; "
             "minimal drops submission text. Start compact, widen if needed."
+        ),
+        examples=["compact"],
+    ),
+]
+
+SomaticIdentifier = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Narrow to one variant (VCV, VariationID, rsID or HGVS, as get_variant takes): its "
+            "somatic detail without the germline payload. No somatic call is an empty page."
+        ),
+        examples=["VCV000013961"],
+        min_length=1,
+        max_length=256,
+    ),
+]
+
+SomaticResponseModeParam = Annotated[
+    Literal["minimal", "compact", "standard", "full"],
+    Field(
+        description=(
+            "Payload verbosity: minimal = ids + the two somatic aggregates; compact (default) adds "
+            "the variant name and germline_classification; standard/full add per-submission "
+            "assertions (submitter, assertion type, tumour types, drugs)."
         ),
         examples=["compact"],
     ),
@@ -281,29 +307,28 @@ SomaticGeneFilter = Annotated[
 ]
 
 TierFilter = Annotated[
-    Literal["tier_i", "tier_ii", "tier_iii", "tier_iv"] | None,
+    str | None,
     Field(
         description=(
             "Filter by the aggregate AMP/ASCO/CAP somatic clinical-impact tier: tier_i strong, "
-            "tier_ii potential, tier_iii unknown, tier_iv benign/likely benign."
+            "tier_ii potential, tier_iii unknown, tier_iv benign/likely benign. ClinVar's wording "
+            "('Tier I - Strong', 'Tier 1') is accepted; anything else is invalid_input."
         ),
         examples=["tier_i"],
+        json_schema_extra={"enum": [*TIERS, None]},
     ),
 ]
 
 OncogenicityFilter = Annotated[
-    Literal[
-        "oncogenic",
-        "likely_oncogenic",
-        "uncertain_significance",
-        "likely_benign",
-        "benign",
-        "conflicting",
-    ]
-    | None,
+    str | None,
     Field(
-        description="Filter by the aggregate ClinGen/CGC/VICC oncogenicity classification.",
+        description=(
+            "Filter by the aggregate ClinGen/CGC/VICC oncogenicity classification (a somatic "
+            "scale, not germline pathogenicity). ClinVar's wording ('Likely oncogenic') is "
+            "accepted; anything else is invalid_input."
+        ),
         examples=["oncogenic"],
+        json_schema_extra={"enum": [*ONCOGENICITY, None]},
     ),
 ]
 
@@ -311,8 +336,11 @@ TumourTypeFilter = Annotated[
     str | None,
     Field(
         description=(
-            "Keep variants with at least one somatic submission naming this tumour type "
-            "(case-insensitive substring of ClinVar's MedGen name, e.g. 'melanoma'). A value no "
+            "Keep variants with at least one somatic submission naming this tumour type: a "
+            "case-insensitive substring of ClinVar's MedGen name ('melanoma') or an exact MedGen "
+            "id ('C0025202'); standard/full then show only that tumour's assertions "
+            "(other_assertions counts the rest). tier / oncogenicity still filter the variant's "
+            "aggregate, so that tumour's own submission may carry a lower tier. A value no "
             "submission names is rejected with invalid_input, never an empty page."
         ),
         examples=["melanoma"],

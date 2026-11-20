@@ -49,6 +49,7 @@ from clinvar_link.services.somatic import (
     TIERS,
     somatic_blocks,
     somatic_row,
+    somatic_token,
 )
 from clinvar_link.services.submission_rows import submission_row
 
@@ -77,6 +78,11 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 # A gene symbol as a human writes one: BRCA1, TP53, COL4A5. Used to promote a symbol written in
 # free-text search into the gene filter (never a bare number).
 _GENE_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{1,14}$")
+# One-letter protein shorthand as oncology writes it (V600E, G12C); ClinVar names spell the
+# three-letter form (p.Val600Glu), so a search token is rewritten before it reaches the index.
+_AA3_NAMES = "AlaCysAspGluPheGlyHisIleLysLeuMetAsnProGlnArgSerThrValTrpTyr"
+_AA3 = {aa: _AA3_NAMES[3 * i : 3 * i + 3] for i, aa in enumerate("ACDEFGHIKLMNPQRSTVWY")}
+_PROTEIN_SHORT_RE = re.compile(r"^([ACDEFGHIKLMNPQRSTVWY])(\d+)([ACDEFGHIKLMNPQRSTVWY])$")
 # Common English words that are ALSO HGNC gene symbols. A bare LOWERCASE occurrence of one of
 # these in prose ("the rest of the exon", "set of variants") is far more likely the English word
 # than the gene, so it is not promoted unless written as an explicit uppercase symbol. This buys
@@ -267,6 +273,43 @@ _STANDARD_EXTRA_FIELDS = (
 )
 
 
+# get_variant keeps this many characters of an OMIM description below ``full`` (standard: 95%
+# fit whole; compact is the lean default).
+_DESCRIPTION_CAP = {"compact": 500, "standard": 2000}
+
+
+def _expand_protein(token: str) -> str:
+    """V600E -> Val600Glu; any other token unchanged."""
+    if m := _PROTEIN_SHORT_RE.match(token):
+        return f"{_AA3[m[1]]}{m[2]}{_AA3[m[3]]}"
+    return token
+
+
+def _lean_descriptions(rows: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    """Send each distinct description and PMID list once, a description capped below ``full``.
+
+    A repeat points at the SCV that carries it (description_same_as / pmids_same_as): OMIM files
+    one allelic-variant text per condition (BRAF V600E: the same 30 KB and 41 PMIDs five times).
+    A capped text sets description_truncated.
+    """
+    first: dict[Any, str] = {}
+    for row in rows:
+        pmids = tuple(row.get("pmids") or ())
+        if pmids and (scv := first.setdefault(pmids, row["scv"])) != row["scv"]:
+            row["pmids"] = None
+            row["pmids_same_as"] = scv
+        desc = row.get("description")
+        if not desc:
+            continue
+        if (scv := first.setdefault(desc["raw_sha256"], row["scv"])) != row["scv"]:
+            row["description"] = None
+            row["description_same_as"] = scv
+        elif (cap := _DESCRIPTION_CAP.get(mode)) and len(desc["text"]) > cap:
+            row["description"] = {**desc, "text": desc["text"][:cap]}
+            row["description_truncated"] = True
+    return rows
+
+
 class ClinVarService:
     """Async, projection-aware facade over :class:`ClinVarRepository`."""
 
@@ -351,9 +394,13 @@ class ClinVarService:
             subs = await asyncio.to_thread(self.repo.submissions_for_variant, variant.variation_id)
             rows = [submission_row(sub, release, response_mode) for sub in subs]
             enforce_untrusted_text_limits([obj for _, fenced in rows for obj in fenced])
-            projected["submissions"] = [
-                {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS} for row, _ in rows
-            ]
+            projected["submissions"] = _lean_descriptions(
+                [
+                    {k: v for k, v in row.items() if k in _VARIANT_SUBMISSION_FIELDS}
+                    for row, _ in rows
+                ],
+                response_mode,
+            )
         # Kept apart from the germline classification; an index predating them omits the keys.
         if await asyncio.to_thread(self.repo.has_somatic):
             projected.update(await self._somatic_blocks(variant.variation_id, response_mode))
@@ -377,11 +424,16 @@ class ClinVarService:
         tier: str | None = None,
         oncogenicity: str | None = None,
         tumour_type: str | None = None,
+        identifier: str | None = None,
         limit: int = 20,
         offset: int = 0,
         response_mode: str = "compact",
     ) -> dict[str, Any]:
-        """List variants with a ClinVar somatic clinical-impact tier and/or oncogenicity call."""
+        """List variants with a ClinVar somatic clinical-impact tier and/or oncogenicity call.
+
+        ``identifier`` narrows to one variant: its somatic detail without get_variant's germline
+        payload (traits, citations, OMIM text). A variant without a somatic call is an empty page.
+        """
         if not await asyncio.to_thread(self.repo.has_somatic):
             raise ClinVarDataError("this ClinVar index predates the somatic tables; re-pull it")
         gene = (gene_symbol or "").strip() or None
@@ -394,23 +446,60 @@ class ClinVarService:
                     public_reason="has no ClinVar variants in the local index; check the HGNC "
                     "symbol",
                 )
+        tier_token = somatic_token(tier, TIERS)
+        if tier is not None and tier_token is None:
+            raise ToolInputError(
+                f"unknown tier {tier!r}",
+                field="tier",
+                public_reason="must be one of: " + ", ".join(TIERS) + " (ClinVar's wording "
+                "such as 'Tier I - Strong' or 'Tier 1' is accepted)",
+            )
+        onc_token = somatic_token(oncogenicity, ONCOGENICITY)
+        if oncogenicity is not None and onc_token is None:
+            raise ToolInputError(
+                f"unknown oncogenicity {oncogenicity!r}",
+                field="oncogenicity",
+                public_reason="must be one of: " + ", ".join(ONCOGENICITY) + " (oncogenicity "
+                "is the somatic scale; germline pathogenic/benign is get_variant's "
+                "classification)",
+            )
         tumour = (tumour_type or "").strip() or None
         if tumour is not None:
             _reject_forbidden_codepoints(tumour, field="tumour_type")
             if not await asyncio.to_thread(self.repo.tumour_type_known, tumour):
+                words = [w for w in _TOKEN_RE.findall(tumour) if len(w) > 2]
+                # Echo-safe: only an alphanumeric word that is itself part of a known tumour name.
+                hits = await asyncio.to_thread(
+                    lambda: [w.lower() for w in words if self.repo.tumour_type_known(w)]
+                )
                 raise ToolInputError(
                     f"unknown tumour type {tumour!r}",
                     field="tumour_type",
-                    public_reason="names no tumour type in ClinVar's somatic submissions; try a "
-                    "broader term such as 'melanoma', 'lung' or 'glioma'",
+                    public_reason="names no tumour type in ClinVar's somatic submissions (it "
+                    "matches a substring of the MedGen name, or a MedGen id such as C0025202); "
+                    + (
+                        f"the whole phrase is not a name, but one word of it is: retry with "
+                        f"'{hits[0]}' alone, a broader query than the phrase"
+                        if hits
+                        else "no word of it is in a name either; try e.g. 'lung', 'melanoma' or "
+                        "'glioma'"
+                    ),
                 )
+        vid = None
+        if identifier is not None:
+            _reject_forbidden_codepoints(identifier, field="identifier")
+            found = await self._resolve(identifier.strip(), "auto")
+            if found is None:
+                raise DataNotFoundError(f"No ClinVar variant for {identifier!r}")
+            vid = found["variation_id"]
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
         rows, total = await asyncio.to_thread(
             lambda: self.repo.search_somatic(
+                vid=vid,
                 gene=gene,
-                impact=TIERS[tier] if tier else None,
-                oncogenicity=ONCOGENICITY[oncogenicity] if oncogenicity else None,
+                impact=TIERS[tier_token] if tier_token else None,
+                oncogenicity=ONCOGENICITY[onc_token] if onc_token else None,
                 tumour=tumour,
                 limit=limit,
                 offset=offset,
@@ -422,7 +511,7 @@ class ClinVarService:
             assertions = await asyncio.to_thread(self.repo.somatic_assertions, vids)
         release = await self._release_date()
         shaped = [
-            somatic_row(r, assertions.get(r["variation_id"], []), release, response_mode)
+            somatic_row(r, assertions.get(r["variation_id"], []), release, response_mode, tumour)
             for r in rows
         ]
         enforce_untrusted_text_limits(
@@ -569,6 +658,7 @@ class ClinVarService:
         _ensure_id_type(id_type)
         capped = list(identifiers)[: settings.MAX_PAGE_SIZE]
         release = await self._release_date()
+        has_somatic = await asyncio.to_thread(self.repo.has_somatic)
         results: list[dict[str, Any]] = []
         all_fenced: list[UntrustedText] = []
         found_count = 0
@@ -606,6 +696,8 @@ class ClinVarService:
             )
             projected, fenced = self._project(variant.model_dump(), response_mode)
             all_fenced.extend(fenced)
+            if has_somatic:  # the same separate blocks get_variant returns
+                projected.update(await self._somatic_blocks(variant.variation_id, response_mode))
             projected["identifier"] = ident
             projected["found"] = True
             results.append(projected)
@@ -765,10 +857,9 @@ class ClinVarService:
     @staticmethod
     def _residual_text(query: str, inferred: str | None) -> str:
         """The query text minus the symbol that became the gene filter."""
-        if not inferred:
-            return query or ""
         tokens = _TOKEN_RE.findall(query or "")
-        return " ".join(token for token in tokens if token.upper() != inferred)
+        # Drop the gene first: C1S / C4A are genes shaped like protein shorthand.
+        return " ".join(_expand_protein(t) for t in tokens if t.upper() != inferred)
 
     async def _search_rows(
         self,
@@ -1227,8 +1318,11 @@ class ClinVarService:
         """
         record_id_base = payload.get("vcv_accession") or str(payload.get("variation_id") or "")
 
+        out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
+        # "other" (drug response, risk factor, ...) means nothing without ClinVar's own words.
+        if payload.get("classification") == "other" and payload.get("clinical_significance"):
+            out["clinical_significance"] = payload["clinical_significance"]
         if mode == "minimal":
-            out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
             if not keep_traits_in_minimal:
                 return out, []
             return ClinVarService._with_capped_traits(out, payload, record_id_base)
@@ -1237,7 +1331,6 @@ class ClinVarService:
             fenced = ClinVarService._fence_traits(payload, record_id_base)
             return ClinVarService._trim_null_keys(payload), fenced
 
-        out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
         for key in _COMPACT_EXTRA_FIELDS:
             if key in payload:
                 out[key] = payload[key]

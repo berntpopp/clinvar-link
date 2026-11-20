@@ -10,9 +10,12 @@ Response-Envelope v1.1 ``untrusted_text``.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+from clinvar_link.ingest.parsing import map_classification
 from clinvar_link.mcp.untrusted_content import UntrustedText, fence_untrusted_text
+from clinvar_link.models.variant_models import iso_date
 from clinvar_link.services.citation import recommended_citation
 
 # Filter token -> ClinVar's own text ("Tier I" is matched as a prefix of "Tier I - Strong").
@@ -25,6 +28,22 @@ ONCOGENICITY = {
     "benign": "Benign",
     "conflicting": "Conflicting classifications of oncogenicity",
 }
+_ROMAN = {"1": "i", "2": "ii", "3": "iii", "4": "iv"}
+
+
+def somatic_token(value: str | None, vocab: dict[str, str]) -> str | None:
+    """Map a filter value or ClinVar's own wording onto its token; None when unrecognised.
+
+    'Tier I - Strong', 'Tier 1', 'TIER_I' -> tier_i; 'Likely oncogenic' -> likely_oncogenic.
+    """
+    if value is None:
+        return None
+    key = value.split(" - ")[0].strip().lower().replace(" ", "_")
+    key = re.sub(r"_([1-4])$", lambda m: "_" + _ROMAN[m[1]], key)
+    by_text = {text.lower().replace(" ", "_"): token for token, text in vocab.items()}
+    return key if key in vocab else by_text.get(key)
+
+
 _BLOCKS = (("somatic_clinical_impact", "clinical_impact"), ("oncogenicity", "oncogenicity"))
 _ASSERTION_FIELDS = (
     "scv",
@@ -57,13 +76,25 @@ def _assertion(rec: dict[str, Any]) -> tuple[dict[str, Any], list[UntrustedText]
     return out, [obj for obj, _ in tumours] + drugs
 
 
+def _names_tumour(rec: dict[str, Any], tumour: str) -> bool:
+    """The repository's tumour match: MedGen-name substring or exact MedGen id."""
+    return any(
+        tumour.casefold() in t["name"].casefold() or t.get("medgen_id") == tumour.upper()
+        for t in rec["tumour_types"]
+    )
+
+
 def somatic_blocks(
-    flat: dict[str, Any] | None, assertions: list[dict[str, Any]], mode: str
+    flat: dict[str, Any] | None,
+    assertions: list[dict[str, Any]],
+    mode: str,
+    tumour: str | None = None,
 ) -> tuple[dict[str, Any], list[UntrustedText]]:
     """Return ``{somatic_clinical_impact, oncogenicity}`` (each None when ClinVar has none).
 
     Every mode carries the aggregate call, review status and date; ``standard`` / ``full`` add the
-    per-SCV ``assertions`` (tumour type, therapy, assertion type) from the VCV XML.
+    per-SCV ``assertions`` (tumour type, therapy, assertion type) from the VCV XML. With a
+    ``tumour`` filter only that tumour's assertions are sent; ``other_assertions`` counts the rest.
     """
     flat = flat or {}
     out: dict[str, Any] = {}
@@ -76,10 +107,13 @@ def somatic_blocks(
         block: dict[str, Any] = {
             "classification": flat.get(prefix),
             "review_status": flat.get(f"{prefix}_review_status"),
-            "last_evaluated": flat.get(f"{prefix}_last_evaluated"),
+            "last_evaluated": iso_date(flat.get(f"{prefix}_last_evaluated")),
         }
         if mode in DETAIL_MODES:
-            shaped = [_assertion(a) for a in mine]
+            shown = [a for a in mine if _names_tumour(a, tumour)] if tumour else mine
+            if tumour:
+                block["other_assertions"] = len(mine) - len(shown)
+            shaped = [_assertion(a) for a in shown]
             block["assertions"] = [row for row, _ in shaped]
             fenced.extend(obj for _, objs in shaped for obj in objs)
         out[key] = block
@@ -87,7 +121,11 @@ def somatic_blocks(
 
 
 def somatic_row(
-    rec: dict[str, Any], assertions: list[dict[str, Any]], release: str | None, mode: str
+    rec: dict[str, Any],
+    assertions: list[dict[str, Any]],
+    release: str | None,
+    mode: str,
+    tumour: str | None = None,
 ) -> tuple[dict[str, Any], list[UntrustedText]]:
     """One ``search_somatic_classifications`` row: the variant, its germline call, both blocks."""
     row: dict[str, Any] = {
@@ -97,8 +135,11 @@ def somatic_row(
     }
     if mode != "minimal":
         row["name"] = rec["name"]
-        row["germline_classification"] = rec["clinical_significance"]
-    blocks, fenced = somatic_blocks(rec, assertions, mode)
+        # get_variant's classification vocabulary; ClinVar's wording when that is "other".
+        raw = rec["clinical_significance"]
+        germline = map_classification(raw) if raw else None
+        row["germline_classification"] = raw if germline in (None, "other") else germline
+    blocks, fenced = somatic_blocks(rec, assertions, mode, tumour)
     row.update(blocks)
     row["recommended_citation"] = recommended_citation(
         rec["variation_id"], rec["vcv_accession"], release
