@@ -332,3 +332,12 @@ async def test_a_tumour_phrase_miss_says_whether_one_word_of_it_matches(mcp) -> 
     none = await call_tool(mcp, TOOL, {"tumour_type": "zzqqxx qqzzyy"})
     assert part["error_code"] == none["error_code"] == "invalid_input"
     assert "one word of it" in part["message"] and "one word of it" not in none["message"]
+
+
+async def test_batch_get_variants_carries_the_somatic_blocks_too(mcp) -> None:
+    env = await call_tool(mcp, "get_variants", {"identifiers": ["VCV000013961", "17677"]})
+    braf, germline_only = env["results"]
+    assert braf["somatic_clinical_impact"]["classification"] == "Tier I - Strong"
+    assert braf["oncogenicity"]["classification"] == "Oncogenic"
+    assert germline_only["somatic_clinical_impact"] is None
+    assert germline_only["oncogenicity"] is None

@@ -643,6 +643,7 @@ class ClinVarService:
         _ensure_id_type(id_type)
         capped = list(identifiers)[: settings.MAX_PAGE_SIZE]
         release = await self._release_date()
+        has_somatic = await asyncio.to_thread(self.repo.has_somatic)
         results: list[dict[str, Any]] = []
         all_fenced: list[UntrustedText] = []
         found_count = 0
@@ -680,6 +681,8 @@ class ClinVarService:
             )
             projected, fenced = self._project(variant.model_dump(), response_mode)
             all_fenced.extend(fenced)
+            if has_somatic:  # the same separate blocks get_variant returns
+                projected.update(await self._somatic_blocks(variant.variation_id, response_mode))
             projected["identifier"] = ident
             projected["found"] = True
             results.append(projected)
