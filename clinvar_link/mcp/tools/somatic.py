@@ -60,7 +60,8 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
             results = result.get("results") or []
             next_commands: list[dict[str, Any]] = []
             if result.get("has_more"):
-                page = {"gene_symbol": gene_symbol, "tier": tier, "oncogenicity": oncogenicity}
+                page: dict[str, Any] = {"gene_symbol": gene_symbol, "tier": tier}
+                page |= {"oncogenicity": oncogenicity}
                 page |= {"tumour_type": tumour_type, "limit": limit}
                 page |= {"offset": result["next_offset"], "response_mode": response_mode}
                 args = {k: v for k, v in page.items() if v is not None}
