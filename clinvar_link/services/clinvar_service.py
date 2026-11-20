@@ -479,7 +479,7 @@ class ClinVarService:
                     "matches a substring of the MedGen name, or a MedGen id such as C0025202); "
                     + (
                         f"the whole phrase is not a name, but one word of it is: retry with "
-                        f"'{hits[0]}' alone"
+                        f"'{hits[0]}' alone, a broader query than the phrase"
                         if hits
                         else "no word of it is in a name either; try e.g. 'lung', 'melanoma' or "
                         "'glioma'"
