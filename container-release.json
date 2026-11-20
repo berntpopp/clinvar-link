@@ -30,8 +30,8 @@
   },
   "data": {
     "mode": "external-reference",
-    "release_tag": "bundle-2026-11-09-r2",
-    "digest": "sha256:c9b952add7fe78ebd6bcbd0fe0648014e9d01f7356d770e0e9b838c254d72287",
+    "release_tag": "bundle-2026-11-16",
+    "digest": "sha256:f6009745ae0fff4788218c24274d2d94e3a403ca0d98ada4e9cb944cb5c1a1a3",
     "schema_compatibility": ["1"],
     "image_allowlist": [
       "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/__init__.py",
@@ -53,7 +53,7 @@
     "profile": "immutable-bundle"
   },
   "smoke_environment": [
-    "CLINVAR_LINK_BUNDLE_EXPECTED_SHA256=b92a826a74dbbe759d00f47cb5e8e738340681ad31a0513ed0c884a4c3f00027"
+    "CLINVAR_LINK_BUNDLE_EXPECTED_SHA256=cd423b88c0326ccb0578bf45023fdab4b50a8236e08835d611a344c90900d791"
   ],
   "preparation": "docker/ci-prepare-smoke.sh"
 }
