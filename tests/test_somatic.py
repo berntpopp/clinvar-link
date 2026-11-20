@@ -325,3 +325,10 @@ async def test_oncogenicity_accepts_clinvar_s_wording_and_explains_pathogenic(mc
     assert [r["vcv_accession"] for r in env["results"]] == ["VCV000024842"]
     err = await call_tool(mcp, TOOL, {"oncogenicity": "pathogenic"})
     assert "germline" in err["message"]
+
+
+async def test_a_tumour_phrase_miss_says_whether_one_word_of_it_matches(mcp) -> None:
+    part = await call_tool(mcp, TOOL, {"tumour_type": "metastatic melanoma"})
+    none = await call_tool(mcp, TOOL, {"tumour_type": "zzqqxx qqzzyy"})
+    assert part["error_code"] == none["error_code"] == "invalid_input"
+    assert "one word of it" in part["message"] and "one word of it" not in none["message"]

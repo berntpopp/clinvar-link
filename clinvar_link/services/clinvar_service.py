@@ -461,12 +461,22 @@ class ClinVarService:
         if tumour is not None:
             _reject_forbidden_codepoints(tumour, field="tumour_type")
             if not await asyncio.to_thread(self.repo.tumour_type_known, tumour):
+                words = [w for w in _TOKEN_RE.findall(tumour) if len(w) > 2]
+                partial = await asyncio.to_thread(
+                    lambda: any(self.repo.tumour_type_known(w) for w in words)
+                )
                 raise ToolInputError(
                     f"unknown tumour type {tumour!r}",
                     field="tumour_type",
                     public_reason="names no tumour type in ClinVar's somatic submissions (it "
                     "matches a substring of the MedGen name, or a MedGen id such as C0025202); "
-                    "try one broader word such as 'lung', 'melanoma' or 'glioma'",
+                    + (
+                        "the whole phrase is not a name, but one word of it is: retry with "
+                        "that word alone"
+                        if partial
+                        else "no word of it is in a name either; try e.g. 'lung', 'melanoma' or "
+                        "'glioma'"
+                    ),
                 )
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
