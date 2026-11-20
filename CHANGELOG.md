@@ -7,20 +7,28 @@ All notable changes to clinvar-link are documented here.
 
 ### Fixed
 
-- `get_variant` sends a repeated OMIM description or PMID list once (`description_same_as`, `pmids_same_as`) and caps one at
-  2,000 characters below `full` (`description_truncated`): BRAF V600E fell from 159 KB to 10 KB
-  in `compact` and from 184 KB to 35 KB in `standard`.
+- `get_variant` sends a repeated OMIM description or PMID list once (`description_same_as`,
+  `pmids_same_as`) and caps a description at 2,000 characters below `full`
+  (`description_truncated`): BRAF V600E fell from 159 KB to 8.5 KB in `compact` and from 184 KB
+  to 33 KB in `standard`.
 - `last_evaluated` is ISO 8601 for the germline and somatic aggregates, like the per-SCV dates.
 - An `other` classification carries ClinVar's own `clinical_significance` (EGFR L858R: "drug
   response") in every mode.
+- `get_variants` (batch) carries the somatic blocks; it dropped them, so BRAF V600E read only as
+  germline "conflicting" there.
 - Capabilities: `search_somatic_classifications` is a core workflow tool, the tier and
   oncogenicity vocabularies are listed, submission text is no longer described as OMIM-only.
 
 ### Added
 
+- `search_somatic_classifications`: `tier` / `oncogenicity` accept ClinVar's wording ("Tier I - Strong",
+  "Tier 1", "Likely oncogenic"); a tumour phrase miss says whether one word of it matches.
 - `search_somatic_classifications`: `tumour_type` accepts a MedGen id (`C0025202`); with it,
   `standard` / `full` show only that tumour's assertions (`other_assertions` counts the rest);
   `_meta.next_commands[0]` is the next page when `has_more`.
+- `search_somatic_classifications(identifier=...)`: one variant's somatic detail without
+  `get_variant`'s germline payload (BRAF V600E: 16 KB instead of 33 KB); `get_variant` suggests it
+  first for a variant with a somatic call.
 - `search_variants` reads one-letter protein shorthand (`BRAF V600E`, `KRAS G12C`), which used to
   degrade to a whole-gene fallback.
 - Agent UX evaluation of the somatic surface: `docs/benchmarks/` (protocol, tasks, results) and

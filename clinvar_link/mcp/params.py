@@ -100,6 +100,19 @@ ResponseModeParam = Annotated[
     ),
 ]
 
+SomaticIdentifier = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Narrow to one variant (VCV, VariationID, rsID or HGVS, as get_variant takes): its "
+            "somatic detail without the germline payload. No somatic call is an empty page."
+        ),
+        examples=["VCV000013961"],
+        min_length=1,
+        max_length=256,
+    ),
+]
+
 SomaticResponseModeParam = Annotated[
     Literal["minimal", "compact", "standard", "full"],
     Field(

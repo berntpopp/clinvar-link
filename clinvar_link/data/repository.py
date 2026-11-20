@@ -653,9 +653,17 @@ class ClinVarRepository:
 
     @staticmethod
     def _somatic_where(
-        gene: str | None, impact: str | None, oncogenicity: str | None, tumour: str | None
+        gene: str | None,
+        impact: str | None,
+        oncogenicity: str | None,
+        tumour: str | None,
+        vid: int | None = None,
     ) -> tuple[str, list[Any]]:
-        clauses, params = ["1 = 1"], []
+        clauses: list[str] = ["1 = 1"]
+        params: list[Any] = []
+        if vid is not None:
+            clauses.append("s.variation_id = ?")
+            params.append(vid)
         if gene:
             clauses.append("UPPER(v.gene_symbol) = ?")
             params.append(gene.upper())
@@ -682,13 +690,14 @@ class ClinVarRepository:
         tumour: str | None,
         limit: int,
         offset: int,
+        vid: int | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Return (one page of somatic classification rows joined to their variant, total).
 
         ``impact`` is a tier prefix ("Tier I"): "Tier I - Strong" sorts before "Tier II - ...",
         so the plain text order is tier order; variants without a tier come last.
         """
-        where, params = self._somatic_where(gene, impact, oncogenicity, tumour)
+        where, params = self._somatic_where(gene, impact, oncogenicity, tumour, vid)
         base = (
             "FROM somatic_classification s JOIN variant v ON v.variation_id = s.variation_id "
             f"WHERE {where}"

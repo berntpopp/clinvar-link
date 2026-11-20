@@ -423,11 +423,16 @@ class ClinVarService:
         tier: str | None = None,
         oncogenicity: str | None = None,
         tumour_type: str | None = None,
+        identifier: str | None = None,
         limit: int = 20,
         offset: int = 0,
         response_mode: str = "compact",
     ) -> dict[str, Any]:
-        """List variants with a ClinVar somatic clinical-impact tier and/or oncogenicity call."""
+        """List variants with a ClinVar somatic clinical-impact tier and/or oncogenicity call.
+
+        ``identifier`` narrows to one variant: its somatic detail without get_variant's germline
+        payload (traits, citations, OMIM text). A variant without a somatic call is an empty page.
+        """
         if not await asyncio.to_thread(self.repo.has_somatic):
             raise ClinVarDataError("this ClinVar index predates the somatic tables; re-pull it")
         gene = (gene_symbol or "").strip() or None
@@ -478,10 +483,18 @@ class ClinVarService:
                         "'glioma'"
                     ),
                 )
+        vid = None
+        if identifier is not None:
+            _reject_forbidden_codepoints(identifier, field="identifier")
+            found = await self._resolve(identifier.strip(), "auto")
+            if found is None:
+                raise DataNotFoundError(f"No ClinVar variant for {identifier!r}")
+            vid = found["variation_id"]
         limit = max(1, min(limit, settings.MAX_PAGE_SIZE))
         offset = max(0, offset)
         rows, total = await asyncio.to_thread(
             lambda: self.repo.search_somatic(
+                vid=vid,
                 gene=gene,
                 impact=TIERS[tier_token] if tier_token else None,
                 oncogenicity=ONCOGENICITY[onc_token] if onc_token else None,

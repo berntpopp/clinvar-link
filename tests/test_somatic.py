@@ -204,7 +204,7 @@ async def test_search_lists_every_somatic_classification_by_tier(mcp) -> None:
     assert braf["oncogenicity"]["classification"] == "Oncogenic"
     assert "citation_template" in env["_meta"]
     assert env["_meta"]["next_commands"][0] == {
-        "tool": "get_variant",
+        "tool": TOOL,
         "arguments": {"identifier": "VCV000013961", "response_mode": "standard"},
     }
 
@@ -244,7 +244,7 @@ async def test_search_pagination_is_honest(mcp) -> None:
         "arguments": {"limit": 1, "offset": 1, "response_mode": "compact"},
     }
     last = await call_tool(mcp, TOOL, {"limit": 1, "offset": 1})
-    assert last["_meta"]["next_commands"][0]["tool"] == "get_variant"
+    assert last["_meta"]["next_commands"][0]["arguments"]["identifier"] == "VCV000024842"
 
 
 @pytest.mark.parametrize(
@@ -341,3 +341,25 @@ async def test_batch_get_variants_carries_the_somatic_blocks_too(mcp) -> None:
     assert braf["oncogenicity"]["classification"] == "Oncogenic"
     assert germline_only["somatic_clinical_impact"] is None
     assert germline_only["oncogenicity"] is None
+
+
+async def test_search_by_identifier_gives_one_variant_s_somatic_detail(mcp) -> None:
+    env = await call_tool(mcp, TOOL, {"identifier": "VCV000013961", "response_mode": "standard"})
+    (row,) = env["results"]
+    assert row["vcv_accession"] == "VCV000013961"
+    assert row["somatic_clinical_impact"]["assertions"]
+    assert "submissions" not in row and "traits" not in row  # no germline payload
+    germline_only = await call_tool(mcp, TOOL, {"identifier": "17677"})
+    assert germline_only["success"] is True and germline_only["total_count"] == 0
+    bad = await call_tool(mcp, TOOL, {"identifier": "BRAF V600E"})
+    assert bad["error_code"] == "invalid_input"
+
+
+async def test_get_variant_points_a_somatic_variant_at_its_somatic_detail(mcp) -> None:
+    env = await call_tool(mcp, "get_variant", {"identifier": "VCV000013961"})
+    assert env["_meta"]["next_commands"][0] == {
+        "tool": TOOL,
+        "arguments": {"identifier": "VCV000013961", "response_mode": "standard"},
+    }
+    plain = await call_tool(mcp, "get_variant", {"identifier": "17677"})
+    assert all(c["tool"] != TOOL for c in plain["_meta"]["next_commands"])

@@ -16,11 +16,13 @@ from clinvar_link.mcp.params import (
     OncogenicityFilter,
     RequestId,
     SomaticGeneFilter,
+    SomaticIdentifier,
     SomaticResponseModeParam,
     TierFilter,
     TumourTypeFilter,
 )
 from clinvar_link.services import ClinVarService
+from clinvar_link.services.somatic import ONCOGENICITY, TIERS, somatic_token
 
 type ToolReturn = dict[str, Any] | ToolResult
 
@@ -40,6 +42,7 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         tier: TierFilter = None,
         oncogenicity: OncogenicityFilter = None,
         tumour_type: TumourTypeFilter = None,
+        identifier: SomaticIdentifier = None,
         limit: Limit = 20,
         offset: Offset = 0,
         response_mode: SomaticResponseModeParam = "compact",
@@ -53,6 +56,7 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 tier=tier,
                 oncogenicity=oncogenicity,
                 tumour_type=tumour_type,
+                identifier=identifier,
                 limit=limit,
                 offset=offset,
                 response_mode=response_mode,
@@ -60,8 +64,9 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
             results = result.get("results") or []
             next_commands: list[dict[str, Any]] = []
             if result.get("has_more"):
-                page: dict[str, Any] = {"gene_symbol": gene_symbol, "tier": tier}
-                page |= {"oncogenicity": oncogenicity}
+                page: dict[str, Any] = {"gene_symbol": gene_symbol}
+                page |= {"tier": somatic_token(tier, TIERS)}
+                page |= {"oncogenicity": somatic_token(oncogenicity, ONCOGENICITY)}
                 page |= {"tumour_type": tumour_type, "limit": limit}
                 page |= {"offset": result["next_offset"], "response_mode": response_mode}
                 args = {k: v for k, v in page.items() if v is not None}
@@ -69,7 +74,7 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
             if results:
                 next_commands.append(
                     {
-                        "tool": "get_variant",
+                        "tool": "search_somatic_classifications",
                         "arguments": {
                             "identifier": results[0]["vcv_accession"],
                             "response_mode": "standard",

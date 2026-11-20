@@ -58,7 +58,9 @@ the monthly VCV XML. `search_somatic_classifications` lists them, Tier I first: 
 (`tier_i`…`tier_iv`) and `oncogenicity` filter the aggregate, `tumour_type` keeps variants with at
 least one somatic submission naming it (a MedGen-name substring or an exact MedGen id such as
 `C0025202`); with it, `standard` / `full` send only that tumour's assertions and count the rest in
-`other_assertions`. When `has_more`, `_meta.next_commands[0]` is the next page. Dates
+`other_assertions`. `identifier` (as `get_variant` takes it) narrows to one variant: its somatic
+detail without `get_variant`'s germline payload, and the call `get_variant` suggests first for a
+variant with a somatic call. When `has_more`, `_meta.next_commands[0]` is the next page. Dates
 (`last_evaluated`, germline and somatic) are ISO 8601. An index built before v0.9.0 omits the
 blocks and the search tool reports `internal` (re-pull the bundle).
 
