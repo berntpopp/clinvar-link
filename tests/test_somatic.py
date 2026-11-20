@@ -332,6 +332,7 @@ async def test_a_tumour_phrase_miss_says_whether_one_word_of_it_matches(mcp) -> 
     none = await call_tool(mcp, TOOL, {"tumour_type": "zzqqxx qqzzyy"})
     assert part["error_code"] == none["error_code"] == "invalid_input"
     assert "one word of it" in part["message"] and "one word of it" not in none["message"]
+    assert "'melanoma'" in part["message"]  # the matching word, a substring of a known name
 
 
 async def test_batch_get_variants_carries_the_somatic_blocks_too(mcp) -> None:
