@@ -43,6 +43,7 @@ _TOOLS = [
     "get_gene_clinvar_summary",
     "get_variants_by_gene",
     "get_variants_by_pmid",
+    "search_somatic_classifications",
 ]
 
 
@@ -101,6 +102,8 @@ def get_capabilities_resource() -> dict[str, Any]:
             "gene symbol -> get_gene_clinvar_summary (classification landscape)",
             "gene symbol -> get_variants_by_gene (per-variant ClinVar rows)",
             "PubMed id -> get_variants_by_pmid (the variants a paper's submissions report)",
+            "oncology: gene / tier / oncogenicity / tumour type -> search_somatic_classifications "
+            "-> get_variant(response_mode=standard) for tumour type + therapy per submission",
             "gene symbol + submitter=OMIM -> get_variants_by_gene (OMIM's per-family reports "
             "with description text and PMIDs; renamed genes resolved via HGNC)",
         ],

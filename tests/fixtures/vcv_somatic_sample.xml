@@ -1,0 +1,291 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ClinVarVariationRelease ReleaseDate="2026-11-05">
+  <VariationArchive VariationID="13961" VariationName="NM_004333.6(BRAF):c.1799T&gt;A (p.Val600Glu)" VariationType="single nucleotide variant" Accession="VCV000013961" Version="143" RecordType="classified" NumberOfSubmissions="45" NumberOfSubmitters="22" DateLastUpdated="2026-11-14" DateCreated="2015-01-31" MostRecentSubmission="2026-07-19">
+    <RecordStatus>current</RecordStatus>
+    <Species>Homo sapiens</Species>
+    <ClassifiedRecord>
+      <SimpleAllele AlleleID="29000" VariationID="13961">
+        <GeneList>
+          <Gene Symbol="BRAF" FullName="B-Raf proto-oncogene, serine/threonine kinase" GeneID="673" HGNC_ID="HGNC:1097" Source="submitted" RelationshipType="within single gene">
+          </Gene>
+        </GeneList>
+      </SimpleAllele>
+      <Classifications>
+        <GermlineClassification DateLastEvaluated="2026-03-11" NumberOfSubmissions="22" NumberOfSubmitters="17" DateCreated="2015-01-31" MostRecentSubmission="2026-07-19">
+          <ReviewStatus>criteria provided, conflicting classifications</ReviewStatus>
+          <Description>Conflicting classifications of pathogenicity</Description>
+        </GermlineClassification>
+        <SomaticClinicalImpact DateLastEvaluated="2025-11-05" NumberOfSubmissions="21" NumberOfSubmitters="3" DateCreated="2024-02-20" MostRecentSubmission="2025-12-07">
+          <ReviewStatus>criteria provided, multiple submitters</ReviewStatus>
+          <Description>Tier I - Strong</Description>
+        </SomaticClinicalImpact>
+        <OncogenicityClassification DateLastEvaluated="2025-03-04" NumberOfSubmissions="2" NumberOfSubmitters="2" DateCreated="2024-08-11" MostRecentSubmission="2025-03-11">
+          <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+          <Description>Oncogenic</Description>
+        </OncogenicityClassification>
+      </Classifications>
+      <ClinicalAssertionList>
+        <ClinicalAssertion ID="9887297" SubmissionDate="2025-03-04" ContributesToAggregateClassification="true" DateLastUpdated="2025-03-11" DateCreated="2024-08-11">
+          <ClinVarSubmissionID localKey="NM_004333.6:c.1799T&gt;A|MedGen:C0027651|OncogenicityClassification"/>
+          <ClinVarAccession Accession="SCV005094141" DateUpdated="2025-03-11" DateCreated="2024-08-11" Type="SCV" Version="2" SubmitterName="Center for Genomic Medicine, Rigshospitalet, Copenhagen University Hospital" OrgID="505691" OrganizationCategory="laboratory" OrgAbbreviation="GM4113, RH"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2025-03-04">
+            <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+            <OncogenicityClassification>Oncogenic</OncogenicityClassification>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="BRAF"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <XRef DB="MedGen" ID="C0027651"/>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+        <ClinicalAssertion ID="102801" SubmissionDate="2019-03-21" ContributesToAggregateClassification="false" DateLastUpdated="2015-01-31" DateCreated="2013-05-03">
+          <ClinVarSubmissionID localKey="15051483|MeSH:D002289" submittedAssembly="GRCh37"/>
+          <ClinVarAccession Accession="SCV000061601" DateUpdated="2015-01-31" DateCreated="2013-05-03" Type="SCV" Version="3" SubmitterName="Laboratory for Molecular Medicine, Mass General Brigham Personalized Medicine" OrgID="21766" OrganizationCategory="laboratory"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2009-05-29">
+            <ReviewStatus>no assertion criteria provided</ReviewStatus>
+            <GermlineClassification>Pathogenic</GermlineClassification>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="BRAF"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+            <Location>
+              <GeneLocation>NM_004333.4:EXON 15</GeneLocation>
+            </Location>
+            <OtherNameList>
+              <Name>NM_004333.4:c.1799T&gt;A</Name>
+              <Name>p.Val600Glu</Name>
+            </OtherNameList>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <XRef DB="MeSH" ID="D002289"/>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+        <ClinicalAssertion ID="13564074" SubmissionDate="2025-11-20" ContributesToAggregateClassification="true" DateLastUpdated="2025-11-22" DateCreated="2025-11-22">
+          <ClinVarSubmissionID localKey="e421b5278dfe82a2f2b20546a97ef4b6a97813433c9ad647d617192a03d76b7d" localKeyIsSubmitted="1"/>
+          <ClinVarAccession Accession="SCV007105098" DateUpdated="2025-11-22" DateCreated="2025-11-22" Type="SCV" Version="1" SubmitterName="Institute for Genomic Medicine (IGM) Clinical Laboratory, Nationwide Children's Hospital" OrgID="196472" OrganizationCategory="laboratory"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2022-12-26">
+            <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+            <SomaticClinicalImpact ClinicalImpactAssertionType="diagnostic" ClinicalImpactClinicalSignificance="supports diagnosis">Tier I - Strong</SomaticClinicalImpact>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="BRAF"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+            <OtherNameList>
+              <Name Type="SubmitterVariantId">NM_004333.6:c.1799T&gt;A p.(Val600Glu)</Name>
+            </OtherNameList>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <XRef DB="MONDO" ID="MONDO:0957196"/>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+        <ClinicalAssertion ID="8353727" SubmissionDate="2024-02-16" ContributesToAggregateClassification="true" DateLastUpdated="2024-02-20" DateCreated="2024-02-20">
+          <ClinVarSubmissionID localKey="civic.AID:7" localKeyIsSubmitted="1" submittedAssembly="GRCh37"/>
+          <ClinVarAccession Accession="SCV004565360" DateUpdated="2024-02-20" DateCreated="2024-02-20" Type="SCV" Version="1" SubmitterName="CIViC Knowledgebase, Washington University School of Medicine" OrgID="506594" OrganizationCategory="laboratory" OrgAbbreviation="CIViC"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2018-05-15">
+            <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+            <SomaticClinicalImpact ClinicalImpactAssertionType="therapeutic" ClinicalImpactClinicalSignificance="sensitivity/response" DrugForTherapeuticAssertion="Dabrafenib;Trametinib">Tier I - Strong</SomaticClinicalImpact>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="BRAF"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+            <OtherNameList>
+              <Name>V600E</Name>
+              <Name>VAL600GLU</Name>
+            </OtherNameList>
+            <XRefList>
+              <XRef DB="dbSNP" ID="113488022" Type="rsNumber"/>
+            </XRefList>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <Name>
+                <ElementValue Type="Preferred">Melanoma</ElementValue>
+              </Name>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+        <ClinicalAssertion ID="8353729" SubmissionDate="2024-02-16" ContributesToAggregateClassification="true" DateLastUpdated="2024-02-20" DateCreated="2024-02-20">
+          <ClinVarSubmissionID localKey="civic.AID:20" localKeyIsSubmitted="1" submittedAssembly="GRCh37"/>
+          <ClinVarAccession Accession="SCV004565362" DateUpdated="2024-02-20" DateCreated="2024-02-20" Type="SCV" Version="1" SubmitterName="CIViC Knowledgebase, Washington University School of Medicine" OrgID="506594" OrganizationCategory="laboratory" OrgAbbreviation="CIViC"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2019-02-28">
+            <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+            <SomaticClinicalImpact ClinicalImpactAssertionType="prognostic" ClinicalImpactClinicalSignificance="poor outcome">Tier I - Strong</SomaticClinicalImpact>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="BRAF"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+            <OtherNameList>
+              <Name>V600E</Name>
+              <Name>VAL600GLU</Name>
+            </OtherNameList>
+            <XRefList>
+              <XRef DB="dbSNP" ID="113488022" Type="rsNumber"/>
+            </XRefList>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <Name>
+                <ElementValue Type="Preferred">Colorectal cancer</ElementValue>
+              </Name>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+        <ClinicalAssertion ID="11277379" SubmissionDate="2025-02-26" ContributesToAggregateClassification="true" DateLastUpdated="2025-03-04" DateCreated="2025-03-04">
+          <ClinVarSubmissionID localKey="civic.AID:10" localKeyIsSubmitted="1"/>
+          <ClinVarAccession Accession="SCV005870910" DateUpdated="2025-03-04" DateCreated="2025-03-04" Type="SCV" Version="1" SubmitterName="Wagner Lab, Nationwide Children's Hospital" OrgID="509553" OrganizationCategory="laboratory"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2018-11-01">
+            <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+            <SomaticClinicalImpact ClinicalImpactAssertionType="therapeutic" ClinicalImpactClinicalSignificance="sensitivity/response" DrugForTherapeuticAssertion="Cobimetinib;Vemurafenib">Tier I - Strong</SomaticClinicalImpact>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="BRAF"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+            <OtherNameList>
+              <Name Type="SubmitterVariantId">civic.mpid:12</Name>
+              <Name>VAL600GLU</Name>
+              <Name>V640E</Name>
+              <Name>VAL640GLU</Name>
+            </OtherNameList>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <Name>
+                <ElementValue Type="Preferred">Melanoma</ElementValue>
+              </Name>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+      </ClinicalAssertionList>
+      <TraitMappingList>
+        <TraitMapping ClinicalAssertionID="9887297" TraitType="Disease" MappingType="XRef" MappingValue="C0027651" MappingRef="MedGen">
+          <MedGen CUI="C0027651" Name="Neoplasm"/>
+        </TraitMapping>
+        <TraitMapping ClinicalAssertionID="102801" TraitType="Disease" MappingType="XRef" MappingValue="D002289" MappingRef="MeSH">
+          <MedGen CUI="C0007131" Name="Non-small cell lung carcinoma"/>
+        </TraitMapping>
+        <TraitMapping ClinicalAssertionID="13564074" TraitType="Disease" MappingType="XRef" MappingValue="MONDO:0957196" MappingRef="MONDO">
+          <MedGen CUI="C4289688" Name="Diffuse midline glioma, H3 K27M-mutant"/>
+        </TraitMapping>
+        <TraitMapping ClinicalAssertionID="8353727" TraitType="Disease" MappingType="Name" MappingValue="Melanoma" MappingRef="Preferred">
+          <MedGen CUI="C0025202" Name="Melanoma"/>
+        </TraitMapping>
+        <TraitMapping ClinicalAssertionID="8353729" TraitType="Disease" MappingType="Name" MappingValue="Colorectal cancer" MappingRef="Preferred">
+          <MedGen CUI="C0346629" Name="Colorectal cancer"/>
+        </TraitMapping>
+        <TraitMapping ClinicalAssertionID="11277379" TraitType="Disease" MappingType="Name" MappingValue="Melanoma" MappingRef="Preferred">
+          <MedGen CUI="C0025202" Name="Melanoma"/>
+        </TraitMapping>
+      </TraitMappingList>
+    </ClassifiedRecord>
+  </VariationArchive>
+  <VariationArchive VariationID="24842" VariationName="NM_005359.6(SMAD4):c.1162C&gt;T (p.Gln388Ter)" VariationType="single nucleotide variant" Accession="VCV000024842" Version="13" RecordType="classified" NumberOfSubmissions="6" NumberOfSubmitters="6" DateLastUpdated="2026-04-13" DateCreated="2013-04-04" MostRecentSubmission="2026-02-15">
+    <RecordStatus>current</RecordStatus>
+    <Species>Homo sapiens</Species>
+    <ClassifiedRecord>
+      <SimpleAllele AlleleID="34298" VariationID="24842">
+        <GeneList>
+          <Gene Symbol="SMAD4" FullName="SMAD family member 4" GeneID="4089" HGNC_ID="HGNC:6770" Source="submitted" RelationshipType="within single gene">
+          </Gene>
+        </GeneList>
+      </SimpleAllele>
+      <Classifications>
+        <GermlineClassification DateLastEvaluated="2025-05-11" NumberOfSubmissions="4" NumberOfSubmitters="4" DateCreated="2013-04-04" MostRecentSubmission="2026-02-15">
+          <ReviewStatus>criteria provided, multiple submitters, no conflicts</ReviewStatus>
+          <Description>Pathogenic</Description>
+        </GermlineClassification>
+        <SomaticClinicalImpact DateLastEvaluated="2024-10-10" NumberOfSubmissions="1" NumberOfSubmitters="1" DateCreated="2025-11-15" MostRecentSubmission="2025-11-15">
+          <ReviewStatus>no assertion criteria provided</ReviewStatus>
+          <Description>Tier II - Potential</Description>
+        </SomaticClinicalImpact>
+        <OncogenicityClassification DateLastEvaluated="2025-03-04" NumberOfSubmissions="1" NumberOfSubmitters="1" DateCreated="2025-03-11" MostRecentSubmission="2025-03-11">
+          <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+          <Description>Likely oncogenic</Description>
+        </OncogenicityClassification>
+      </Classifications>
+      <ClinicalAssertionList>
+        <ClinicalAssertion ID="11299720" SubmissionDate="2025-03-04" ContributesToAggregateClassification="true" DateLastUpdated="2025-03-11" DateCreated="2025-03-11">
+          <ClinVarSubmissionID localKey="NM_005359.6:c.1162C&gt;T|MedGen:C0027651|OncogenicityClassification"/>
+          <ClinVarAccession Accession="SCV005872010" DateUpdated="2025-03-11" DateCreated="2025-03-11" Type="SCV" Version="1" SubmitterName="Center for Genomic Medicine, Rigshospitalet, Copenhagen University Hospital" OrgID="505691" OrganizationCategory="laboratory" OrgAbbreviation="GM4113, RH"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2025-03-04">
+            <ReviewStatus>criteria provided, single submitter</ReviewStatus>
+            <OncogenicityClassification>Likely oncogenic</OncogenicityClassification>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="SMAD4"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <XRef DB="MedGen" ID="C0027651"/>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+        <ClinicalAssertion ID="11688553" SubmissionDate="2025-05-09" ContributesToAggregateClassification="true" DateLastUpdated="2025-11-15" DateCreated="2025-11-15">
+          <ClinVarSubmissionID localKey="SMAD4_1162C&gt;T_chr18|MONDO:MONDO:0005575|ClinicalImpactClassification|prognostic" submittedAssembly="GRCh37"/>
+          <ClinVarAccession Accession="SCV006076886" DateUpdated="2025-11-15" DateCreated="2025-11-15" Type="SCV" Version="1" SubmitterName="Department of Clinical Biochemistry, Naestved Hospital" OrgID="509981" OrganizationCategory="clinic"/>
+          <RecordStatus>current</RecordStatus>
+          <Classification DateLastEvaluated="2024-10-10">
+            <ReviewStatus>no assertion criteria provided</ReviewStatus>
+            <SomaticClinicalImpact ClinicalImpactAssertionType="prognostic" ClinicalImpactClinicalSignificance="better outcome">Tier II - Potential</SomaticClinicalImpact>
+          </Classification>
+          <Assertion>variation to disease</Assertion>
+          <SimpleAllele>
+            <GeneList>
+              <Gene Symbol="SMAD4"/>
+            </GeneList>
+            <VariantType>Variation</VariantType>
+          </SimpleAllele>
+          <TraitSet Type="Disease">
+            <Trait Type="Disease">
+              <XRef DB="MONDO" ID="MONDO:0005575"/>
+            </Trait>
+          </TraitSet>
+        </ClinicalAssertion>
+      </ClinicalAssertionList>
+      <TraitMappingList>
+        <TraitMapping ClinicalAssertionID="11299720" TraitType="Disease" MappingType="XRef" MappingValue="C0027651" MappingRef="MedGen">
+          <MedGen CUI="C0027651" Name="Neoplasm"/>
+        </TraitMapping>
+        <TraitMapping ClinicalAssertionID="11688553" TraitType="Disease" MappingType="XRef" MappingValue="MONDO:0005575" MappingRef="MONDO">
+          <MedGen CUI="C0346629" Name="Colorectal cancer"/>
+        </TraitMapping>
+      </TraitMappingList>
+    </ClassifiedRecord>
+  </VariationArchive>
+</ClinVarVariationRelease>

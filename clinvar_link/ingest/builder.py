@@ -34,7 +34,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from clinvar_link.ingest.download_security import open_source_text
-from clinvar_link.ingest.parsing import GeneAccumulator, load_star_map, parse_variant_row
+from clinvar_link.ingest.parsing import (
+    GeneAccumulator,
+    load_star_map,
+    parse_somatic_columns,
+    parse_variant_row,
+)
 
 if TYPE_CHECKING:
     from clinvar_link.config import Settings
@@ -224,6 +229,7 @@ class _Batches:
         self.hgvs: list[tuple[str, int]] = []
         self.gene: list[tuple[str, int]] = []
         self.fts: list[tuple[int, str, str, str]] = []
+        self.somatic: list[tuple[Any, ...]] = []
 
         variant_cols = ", ".join(_VARIANT_COLUMNS)
         variant_ph = ", ".join("?" for _ in _VARIANT_COLUMNS)
@@ -273,6 +279,11 @@ class _Batches:
                 self.fts,
             )
             self.fts.clear()
+        if self.somatic:
+            conn.executemany(
+                "INSERT INTO somatic_classification VALUES (?, ?, ?, ?, ?, ?, ?)", self.somatic
+            )
+            self.somatic.clear()
 
 
 # hgvs4variation.txt positional columns (the file has no usable header row;
@@ -384,6 +395,9 @@ def _emit_canonical(
     """Insert the canonical variant + resolution/index/FTS rows for one VariationID."""
     parsed = parse_variant_row(row, star_map)
     batches.variant.append(_variant_values(vid, parsed))
+    somatic = parse_somatic_columns(row)
+    if somatic is not None:
+        batches.somatic.append((vid, *somatic.values()))
 
     rsid = parsed.get("rsid")
     if rsid is not None:

@@ -266,3 +266,57 @@ RequestId = Annotated[
         max_length=128,
     ),
 ]
+
+SomaticGeneFilter = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Restrict to this HGNC gene symbol (case-insensitive). A symbol with no ClinVar "
+            "variants is rejected with invalid_input; a known gene with no somatic call returns "
+            "an empty page."
+        ),
+        examples=["BRAF"],
+        max_length=64,
+    ),
+]
+
+TierFilter = Annotated[
+    Literal["tier_i", "tier_ii", "tier_iii", "tier_iv"] | None,
+    Field(
+        description=(
+            "Filter by the aggregate AMP/ASCO/CAP somatic clinical-impact tier: tier_i strong, "
+            "tier_ii potential, tier_iii unknown, tier_iv benign/likely benign."
+        ),
+        examples=["tier_i"],
+    ),
+]
+
+OncogenicityFilter = Annotated[
+    Literal[
+        "oncogenic",
+        "likely_oncogenic",
+        "uncertain_significance",
+        "likely_benign",
+        "benign",
+        "conflicting",
+    ]
+    | None,
+    Field(
+        description="Filter by the aggregate ClinGen/CGC/VICC oncogenicity classification.",
+        examples=["oncogenic"],
+    ),
+]
+
+TumourTypeFilter = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Keep variants with at least one somatic submission naming this tumour type "
+            "(case-insensitive substring of ClinVar's MedGen name, e.g. 'melanoma'). A value no "
+            "submission names is rejected with invalid_input, never an empty page."
+        ),
+        examples=["melanoma"],
+        min_length=2,
+        max_length=128,
+    ),
+]

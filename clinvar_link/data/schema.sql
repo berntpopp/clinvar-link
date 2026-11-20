@@ -121,6 +121,36 @@ CREATE TABLE submission_gene (
     PRIMARY KEY (gene_symbol_upper, scv)
 ) WITHOUT ROWID;
 
+-- ClinVar's SOMATIC aggregates (variant_summary columns 35-40), one row per variant that has
+-- one: AMP/ASCO/CAP clinical-impact tier and ClinGen/CGC/VICC oncogenicity. Deliberately apart
+-- from the germline variant.classification and never merged into it. A bundle built before
+-- these tables existed lacks them (the server checks).
+CREATE TABLE somatic_classification (
+    variation_id                    INTEGER PRIMARY KEY,
+    clinical_impact                 TEXT,
+    clinical_impact_review_status   TEXT,
+    clinical_impact_last_evaluated  TEXT,
+    oncogenicity                    TEXT,
+    oncogenicity_review_status      TEXT,
+    oncogenicity_last_evaluated     TEXT
+);
+
+-- Per-SCV somatic detail from the monthly VCV XML: tier / oncogenicity call, assertion type,
+-- tumour type(s) and therapy. JSON arrays: drugs (names), tumour_types ({name, medgen_id}).
+CREATE TABLE somatic_assertion (
+    scv             TEXT PRIMARY KEY,
+    variation_id    INTEGER,
+    submitter       TEXT,
+    kind            TEXT,   -- clinical_impact | oncogenicity
+    classification  TEXT,
+    assertion_type  TEXT,   -- therapeutic | diagnostic | prognostic (clinical_impact only)
+    significance    TEXT,   -- e.g. sensitivity/response (clinical_impact only)
+    drugs           TEXT,
+    tumour_types    TEXT,
+    review_status   TEXT,
+    last_evaluated  TEXT
+);
+
 -- HGNC approved / previous / alias symbols (hgnc_complete_set.txt) for rename resolution.
 CREATE TABLE gene_alias (
     symbol_upper     TEXT,

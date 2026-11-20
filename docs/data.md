@@ -74,6 +74,22 @@ Measured 2026-11-12: 4,708,791 records → 37,918 OMIM SCVs in 8.4 min (local) a
 `submission_summary`. A failure in any of these fails the build. An index built before v0.7.0
 lacks the tables: `get_variant` omits `submissions` and the `submitter` listing errors.
 
+**Somatic classifications (v0.9.0).** Since 2024 ClinVar keeps two somatic aggregates beside the
+germline one: the AMP/ASCO/CAP **clinical-impact tier** and the ClinGen/CGC/VICC **oncogenicity**
+(Landrum et al., NAR 2025, PMID 39578691). `variant_summary` columns 35-40
+(`SomaticClinicalImpact`, `ReviewStatusClinicalImpact`, `SomaticClinicalImpactLastEvaluated`,
+`Oncogenicity`, `ReviewStatusOncogenicity`, `OncogenicityLastEvaluated`) fill
+`somatic_classification`; `-` and "no classification for the single variant" (the call sits on
+an including haplotype) are stored as none. The same VCV XML pass keeps every current SCV that
+carries a `SomaticClinicalImpact` or `OncogenicityClassification` (any submitter) in
+`somatic_assertion`: assertion type, significance, drugs (`DrugForTherapeuticAssertion`) and tumour
+types (ClinVar's MedGen name from `TraitMapping`). Measured on the 2026-07 GRCh38 rows: 1,307
+tiered + 1,883 oncogenicity calls. The build fails if the TSV has somatic calls but the XML
+yields none. An index built before v0.9.0 lacks both tables: `get_variant` omits the somatic
+blocks and `search_somatic_classifications` errors. One-off lookup outside the bundle: E-utilities
+`efetch.fcgi?db=clinvar&rettype=vcv&id=<VariationID>` returns an empty set unless
+`&is_variationid&from_esearch=true` is added.
+
 A bundle-format change with an UNCHANGED upstream (new tables) cannot reuse the immutable
 `bundle-<date>` tag: dispatch the Data bundle workflow with `revision=2` to publish
 `bundle-<date>-r2`.

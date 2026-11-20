@@ -18,6 +18,7 @@ _EXPECTED_TOOLS = {
     "get_gene_clinvar_summary",
     "get_variants_by_gene",
     "get_variants_by_pmid",
+    "search_somatic_classifications",
     "get_server_capabilities",
 }
 
