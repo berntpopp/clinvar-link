@@ -65,7 +65,7 @@ variant with a somatic call. When `has_more`, `_meta.next_commands[0]` is the ne
 blocks and the search tool reports `internal` (re-pull the bundle).
 
 `get_variant`'s OMIM `submissions` send each distinct `description` once (a repeat carries
-`description_same_as: <SCV>`; a repeated PMID list likewise `pmids_same_as`) and, below `full`, cap it at 2,000 characters
+`description_same_as: <SCV>`; a repeated PMID list likewise `pmids_same_as`) and cap it at 500 characters in `compact`, 2,000 in `standard`
 (`description_truncated: true`). A normalized `classification` of `other` (drug response, risk
 factor, ...) carries ClinVar's own `clinical_significance` in every mode. `search_variants`
 reads one-letter protein shorthand (`BRAF V600E` as `p.Val600Glu`).

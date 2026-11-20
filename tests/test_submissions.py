@@ -618,6 +618,10 @@ async def test_get_variant_caps_a_long_description_below_full(mcp, monkeypatch) 
     )
     args = {"identifier": "VCV000100011"}
     (sub,) = (await _call(mcp, "get_variant", args))["submissions"]
+    assert len(sub["description"]["text"]) == 500 and sub["description_truncated"] is True
+    (sub,) = (await _call(mcp, "get_variant", {**args, "response_mode": "standard"}))[
+        "submissions"
+    ]
     assert len(sub["description"]["text"]) == 2000 and sub["description_truncated"] is True
     (sub,) = (await _call(mcp, "get_variant", {**args, "response_mode": "full"}))["submissions"]
     assert sub["description"]["text"] == long and "description_truncated" not in sub

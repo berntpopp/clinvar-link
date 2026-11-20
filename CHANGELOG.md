@@ -8,7 +8,7 @@ All notable changes to clinvar-link are documented here.
 ### Fixed
 
 - `get_variant` sends a repeated OMIM description or PMID list once (`description_same_as`,
-  `pmids_same_as`) and caps a description at 2,000 characters below `full`
+  `pmids_same_as`) and caps a description at 500 characters in `compact`, 2,000 in `standard`
   (`description_truncated`): BRAF V600E fell from 159 KB to 8.5 KB in `compact` and from 184 KB
   to 33 KB in `standard`.
 - `last_evaluated` is ISO 8601 for the germline and somatic aggregates, like the per-SCV dates.

@@ -1,0 +1,53 @@
+# Agent UX evaluation results (2026-11-20)
+
+Method: [`agent-ux-protocol.md`](agent-ux-protocol.md). Scope: the somatic surface added in
+v0.9.0, run against the pinned data bundle `bundle-2026-11-16` (ClinVar weekly release Mon,
+16 Nov 2026). Agents: Claude Code 2.1.329 (`claude-opus-5-5`), Codex CLI 0.164.0
+(`gpt-6-astra`, reasoning high, from its config), Antigravity `agy` 1.5.13. Prompts A
+(researcher) and B (adversarial) in every round; the held-out C was frozen before round 1 and
+run only in the final round. Raw traces are machine-local and are not committed.
+
+## Minimum rating per category (0-100, over all sessions of the round)
+
+ROUNDS_TABLE
+
+## Answer audit
+
+Every answer was checked against a private answer key, verified against the pinned snapshot
+before round 1. AUDIT_TEXT
+
+## Fixes, by round
+
+Round 1 ran v0.9.0 unchanged.
+
+- **Payload size** (every session, token efficiency 35-62). `get_variant` on BRAF V600E was
+  159 KB in `compact` and 184 KB in `standard`; Claude's client rejected the compact call. The
+  cause was OMIM: five SCVs carry the same 30 KB allelic-variant text and the same 41 PMIDs. A
+  repeat now points at the SCV that carries it (`description_same_as`, `pmids_same_as`), and a
+  description is capped at 2,000 characters below `full` (95% of OMIM texts fit). BRAF V600E:
+  8.5 KB compact, 33 KB standard.
+- **Paging**: `_meta.next_commands[0]` is now the next page when `has_more`.
+- **Dates**: the aggregates came as "Nov 05, 2025", the per-SCV dates as 2018-05-15. All
+  `last_evaluated` values are ISO 8601.
+- **Capabilities** listed neither the somatic tool as a core tool nor the tier / oncogenicity
+  vocabularies, and called submission text OMIM-only.
+- **Protein shorthand**: `search_variants("BRAF V600E")` and `("TP53 R175H")` fell back to the
+  whole gene (1,000 rows), and `get_variant`'s own recovery hint for "BRAF V600E" pointed there.
+  One-letter shorthand is now read as the three-letter form.
+- **Tumour type**: a MedGen id (`C0025202`, as returned in `tumour_types[].medgen_id`) was
+  rejected like nonsense. It now matches exactly, and with `tumour_type` set, `standard` shows
+  only that tumour's assertions (`other_assertions` counts the rest).
+- **"other" germline call**: EGFR L858R is "drug response" in ClinVar but read `other` below
+  `full` (found while writing the answer key). The raw wording now rides along.
+
+After round 2:
+
+- **Tier / oncogenicity wording**: "Tier 1" / "Tier I - Strong" / "Likely oncogenic" are accepted
+  like `classification` accepts "Likely pathogenic"; `oncogenicity=pathogenic` is still rejected
+  and now says the germline call is a different axis.
+- **Tumour phrase misses**: "lung adenocarcinoma" got the same error as "zzqqxx". The reason now
+  says when one word of the phrase is a tumour name.
+- **`response_mode`** on the somatic tool described the germline fields; it now says what each
+  mode adds to a somatic row.
+
+FINAL_TEXT

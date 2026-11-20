@@ -273,8 +273,9 @@ _STANDARD_EXTRA_FIELDS = (
 )
 
 
-# get_variant keeps this many characters of an OMIM description below ``full`` (95% fit whole).
-_DESCRIPTION_CAP = 2000
+# get_variant keeps this many characters of an OMIM description below ``full`` (standard: 95%
+# fit whole; compact is the lean default).
+_DESCRIPTION_CAP = {"compact": 500, "standard": 2000}
 
 
 def _expand_protein(token: str) -> str:
@@ -303,8 +304,8 @@ def _lean_descriptions(rows: list[dict[str, Any]], mode: str) -> list[dict[str, 
         if (scv := first.setdefault(desc["raw_sha256"], row["scv"])) != row["scv"]:
             row["description"] = None
             row["description_same_as"] = scv
-        elif mode != "full" and len(desc["text"]) > _DESCRIPTION_CAP:
-            row["description"] = {**desc, "text": desc["text"][:_DESCRIPTION_CAP]}
+        elif (cap := _DESCRIPTION_CAP.get(mode)) and len(desc["text"]) > cap:
+            row["description"] = {**desc, "text": desc["text"][:cap]}
             row["description_truncated"] = True
     return rows
 
