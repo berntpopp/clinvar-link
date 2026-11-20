@@ -5,6 +5,8 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-20
+
 ### Fixed
 
 - `get_variant` sends a repeated OMIM description or PMID list once (`description_same_as`,
