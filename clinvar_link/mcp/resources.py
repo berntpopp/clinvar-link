@@ -81,9 +81,9 @@ def get_capabilities_resource() -> dict[str, Any]:
             "tier": list(TIERS),
             "oncogenicity": list(ONCOGENICITY),
             "note": (
-                "classification and assembly also accept ClinVar's own published wording "
-                "case-insensitively ('Likely pathogenic' -> likely_pathogenic, 'hg19' -> "
-                "GRCh37). Any other value is REJECTED with invalid_input naming the parameter "
+                "classification, assembly, tier and oncogenicity also accept ClinVar's own "
+                "published wording case-insensitively ('Likely pathogenic' -> likely_pathogenic, "
+                "'hg19' -> GRCh37, 'Tier I - Strong' -> tier_i). Any other value is REJECTED with invalid_input naming the parameter "
                 "— an unrecognized filter value never returns an empty success."
             ),
         },
