@@ -68,7 +68,7 @@ Both paths and the container's first-boot `bootstrap` are described in
 
 | Tool | Purpose |
 |------|---------|
-| `get_variant` | Resolve one variant by VCV / VariationID / rsID / HGVS / AlleleID → classification, star rating, both-assembly coordinates, traits, RCV accessions, cited PMIDs, OMIM submission text, separate somatic clinical-impact + oncogenicity blocks. |
+| `get_variant` | Resolve one variant by VCV / VariationID / rsID / HGVS / AlleleID / GRCh38 `CHROM-POS-REF-ALT` → classification, star rating, both-assembly coordinates, traits, RCV accessions, cited PMIDs, OMIM submission text, separate somatic clinical-impact + oncogenicity blocks. |
 | `get_variants` | Batch form of `get_variant`: many identifiers (mixable shapes) in one call, each row echoing its `identifier` and `found` flag. |
 | `search_variants` | Free-text search over names / genes / identifiers, filtered by gene, classification, minimum stars or assembly. |
 | `get_gene_clinvar_summary` | Per-gene aggregate: counts by classification, star distribution, consequence categories, top traits, `has_pathogenic`. |

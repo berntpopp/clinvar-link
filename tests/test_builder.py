@@ -34,6 +34,7 @@ EXPECTED_INDEXES = {
     "idx_variant_stars",
     "idx_coord_vid",
     "idx_coord_assembly",
+    "idx_coord_vcf38",
     "idx_rsid",
     "idx_allele_id",
     "idx_hgvs_norm",

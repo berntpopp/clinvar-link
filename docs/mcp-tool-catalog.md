@@ -32,6 +32,10 @@ Every tool is annotated **`READ_ONLY_OPEN_WORLD`**.
 - **HGVS** — e.g. `NM_007294.4(BRCA1):c.5266dupC`. A clean transcript-qualified
   HGVS resolves **even without** the `(GENE)` qualifier.
 - **ClinVar AlleleID**
+- **GRCh38 coordinate** (`id_type="coordinate"`) — VCF-style `CHROM-POS-REF-ALT` as VEP
+  prints it (`13-28018505-C-A`; `chr` prefix and `:` separators accepted), matched against
+  `variant_summary`'s `PositionVCF` / `ReferenceAlleleVCF` / `AlternateAlleleVCF`. GRCh37 is not
+  matched. A coordinate held by several records is `ambiguous_query` with the candidate VCVs.
 
 `classification` is normalized to one of `pathogenic`, `likely_pathogenic`,
 `vus`, `likely_benign`, `benign`, `conflicting`, `not_provided`, `other`.
