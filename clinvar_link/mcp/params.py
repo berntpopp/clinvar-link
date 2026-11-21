@@ -67,7 +67,8 @@ Identifiers = Annotated[
     Field(
         description=(
             "A LIST of ClinVar variant identifiers resolved in one call (the batch form of "
-            "get_variant). Shapes may be mixed (VCV / rsID / HGVS / AlleleID / VariationID / GRCh38 CHROM-POS-REF-ALT). Each "
+            "get_variant). Shapes may be mixed (VCV / rsID / HGVS / AlleleID / VariationID / "
+            "GRCh38 CHROM-POS-REF-ALT). Each "
             "WELL-FORMED input yields one result row echoing its identifier and a `found` flag, "
             "so an absent record is an explicit miss, never silently dropped; a MALFORMED element "
             "fails the whole call with invalid_input naming its position. Capped at 100 per call."
