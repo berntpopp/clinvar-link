@@ -33,7 +33,9 @@ half-built database. `builder.SCHEMA_VERSION` is bumped on incompatible schema
 changes. ReviewStatus maps to the **0–4 star rating** via
 `clinvar_link/data/review_status_stars.yaml`; ClinicalSignificance is normalized
 to `pathogenic | likely_pathogenic | vus | likely_benign | benign | conflicting |
-not_provided | other`.
+not_provided | other`. A combined term (`Pathogenic/Likely pathogenic`,
+`Benign/Likely benign`, `...; risk factor`) folds to its weaker tier, so every
+projection then also returns ClinVar's verbatim `clinical_significance`.
 
 ### HGVS indexing strategy
 

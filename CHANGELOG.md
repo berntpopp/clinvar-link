@@ -5,6 +5,21 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-21
+
+### Fixed
+
+- `get_variant` / `get_variants`: a legacy HGVS that repeats a dup/del's bases
+  (`NM_007294.4:c.5266dupC`, `c.68_69delAG`) resolves to ClinVar's current form (`c.5266dup`);
+  bases that miscount the span, and `delins` / `ins` bases, are never dropped (#147).
+- A combined aggregate (`Pathogenic/Likely pathogenic`, `Benign/Likely benign`, `...; risk
+  factor`) still folds `classification` to its weaker tier, but every projection now also returns
+  ClinVar's verbatim `clinical_significance` (MECP2 VCV000011811 no longer reads as plain likely
+  pathogenic) (#149).
+- A `not_found` variant lookup says HGVS is keyed on the record's own (usually MANE Select)
+  transcript, so a miss on another transcript is not proof ClinVar has no record, and how to
+  recode it (#148).
+
 ## [0.10.0] - 2026-11-20
 
 ### Fixed

@@ -25,6 +25,23 @@ from typing import Any, Concatenate
 from clinvar_link.exceptions import ClinVarDataError, ToolInputError
 
 _FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+# Legacy HGVS repeats a dup/del's bases (c.5266dupC); ClinVar names drop them (c.5266dup).
+# delins/ins bases ARE the change: "delins..." fails [acgtn]+$ at the "i", so it is never touched.
+_LEGACY_DELDUP_RE = re.compile(r"(?<=\d)(del|dup)([acgtn]+)$")
+# Plain "<start>[_<end>]" positions; offsets (c.100+1) skip the length check.
+_SPAN_RE = re.compile(r"[cgmn]\.(\d+)(?:_(\d+))?(?:del|dup)[acgtn]+$")
+
+
+def _drop_legacy_bases(norm: str) -> str | None:
+    """``c.5266dupc`` -> ``c.5266dup``; None when there are no bases or they miscount the span."""
+    match = _LEGACY_DELDUP_RE.search(norm)
+    if match is None:
+        return None
+    if (span := _SPAN_RE.search(norm)) is not None:
+        start, end = int(span[1]), int(span[2] or span[1])
+        if end - start + 1 != len(match[2]):
+            return None
+    return norm[: match.start(2)]
 
 
 def _like_escape(value: str) -> str:
@@ -188,11 +205,20 @@ class ClinVarRepository:
         Tries the exact normalized key first, then a gene-qualifier-insensitive
         match so a clean transcript-qualified expression that omits the ``(GENE)``
         qualifier (``NM_007294.4:c.5266dupC``) still resolves against the stored
-        canonical key (``NM_007294.4(BRCA1):c.5266dupC``) on the first call.
+        canonical key (``NM_007294.4(BRCA1):c.5266dupC``) on the first call. A miss that
+        repeats a dup/del's bases (``c.5266dupC``) retries in ClinVar's current form
+        (``c.5266dup``) (#147).
         """
         norm = (hgvs or "").strip().lower()
         if not norm:
             return None
+        hit = self._get_by_hgvs_norm(norm)
+        if hit is None and (short := _drop_legacy_bases(norm)) is not None:
+            hit = self._get_by_hgvs_norm(short)
+        return hit
+
+    def _get_by_hgvs_norm(self, norm: str) -> dict[str, Any] | None:
+        """Exact normalized key, then the gene-qualifier-insensitive match."""
         row = self._conn.execute(
             "SELECT v.* FROM hgvs_lookup h JOIN variant v "
             "ON v.variation_id = h.variation_id WHERE h.hgvs_norm = ? LIMIT 1",
