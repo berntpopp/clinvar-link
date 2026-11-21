@@ -66,6 +66,8 @@ jobs:
         if: steps.existing.outputs.state != 'published_noop'
         env:
           CLINVAR_LINK_DATA_DIR: data
+          # Index the other NM_ transcripts of each record (#148): +1.95 GB DB, +0.37 GB .zst.
+          CLINVAR_LINK_ENABLE_HGVS4VARIATION: "true"
         run: |
           set -euo pipefail
           df -h . /tmp

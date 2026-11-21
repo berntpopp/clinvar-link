@@ -5,6 +5,12 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- The data bundle is built with `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` (`data-bundle.yml`): an
+  HGVS on another RefSeq transcript of a held record resolves (`NM_004992.4:c.473C>T` ->
+  VCV000011811) from the next bundle on (#148). The application default stays off.
+
 ## [0.10.3] - 2026-11-21
 
 ### Fixed

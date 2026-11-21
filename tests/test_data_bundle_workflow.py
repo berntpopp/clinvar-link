@@ -119,3 +119,12 @@ def test_enabled_hgvs4variation_that_did_not_load_fails_the_build() -> None:
     assert probe < build.index("uv run clinvar-link-data pack")
     assert "hgvs_norm = 'nm_004992.4:c.473c>t'" in build
     assert "assert row == (11811,)" in build
+
+
+def test_the_bundle_build_enables_hgvs4variation() -> None:
+    """#148: the shipped bundle indexes the other NM_ transcripts (the probe above guards it)."""
+    build, _ = _jobs()
+    flag = build.index('CLINVAR_LINK_ENABLE_HGVS4VARIATION: "true"')
+
+    assert build.index("- name: Build and pack without credentials") < flag
+    assert flag < build.index("uv run clinvar-link-data build")
