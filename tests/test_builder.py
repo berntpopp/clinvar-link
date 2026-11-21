@@ -330,10 +330,12 @@ def test_build_loads_hgvs4variation(tmp_path):
         return row["variation_id"] if row is not None else None
 
     try:
-        # Only the precise full expressions (transcript-/protein-qualified) are
-        # indexed: full NucleotideExpression (col 6) + ProteinExpression (col 8).
+        # Only the NM_ NucleotideExpression (col 6) is indexed (#148). ProteinExpression
+        # (col 8) is not: one NP_ change can belong to several records (LIMIT 1 lookup).
         assert vid_for("nm_007294.4(brca1):c.5266dupc") == 100001
-        assert vid_for("np_009225.1:p.gln1756fs") == 100001
+        assert vid_for("nm_007300.4:c.5329dup") == 100001
+        assert vid_for("np_009225.1:p.gln1756fs") is None
+        assert vid_for("lrg_292t1:c.5266dup") is None
         # The bare short forms (NucleotideChange col 7 / ProteinChange col 9) are
         # ambiguous (same c./p. maps to many variants) and are NO LONGER indexed.
         assert vid_for("c.5266dupc") is None

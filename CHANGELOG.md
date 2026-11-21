@@ -5,6 +5,17 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-21
+
+### Changed
+
+- The opt-in `hgvs4variation` loader (`ENABLE_HGVS4VARIATION`, still **off**) indexes only the
+  `NM_` nucleotide expressions: an HGVS on another RefSeq transcript of a held record resolves
+  (#148). `NP_` protein expressions are no longer indexed (one protein change can belong to
+  several records and the lookup takes one), nor `LRG_` / other accessions. About +1.8 GB when on.
+- `data-bundle.yml` fails the build when the flag is on but `hgvs4variation` did not load.
+  The shipped bundle is unchanged: the flag stays off until the owner turns it on.
+
 ## [0.10.1] - 2026-11-21
 
 ### Fixed

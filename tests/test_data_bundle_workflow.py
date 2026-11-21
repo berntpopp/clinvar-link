@@ -108,3 +108,14 @@ def test_revision_input_reaches_both_the_noop_check_and_the_release_tag() -> Non
     assert '"$last_modified")${REVISION:+-r$REVISION}"' in workflow
     assert '${REVISION:+--revision "$REVISION"}' in workflow
     assert '"$REVISION" =~ ^([2-9]|[1-9][0-9]+)$' in workflow
+
+
+def test_enabled_hgvs4variation_that_did_not_load_fails_the_build() -> None:
+    """#148: the CLI only warns on a failed hgvs4variation download; the bundle build must not."""
+    build, _ = _jobs()
+    probe = build.index("if settings.ENABLE_HGVS4VARIATION:")
+
+    assert build.index("uv run clinvar-link-data build") < probe
+    assert probe < build.index("uv run clinvar-link-data pack")
+    assert "hgvs_norm = 'nm_004992.4:c.473c>t'" in build
+    assert "assert row == (11811,)" in build
