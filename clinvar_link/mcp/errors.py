@@ -319,7 +319,10 @@ def _recovery_text(
             "Identifier well-formed but absent in the local ClinVar index. This is a "
             "reformulate, not a retry: confirm the VCV / rsID / HGVS / AlleleID "
             "(e.g. VCV000024455 | rs104886142 | NM_033380.3(COL4A5):c.1871G>A), or call "
-            f"{resolver} to locate the matching record, then retry."
+            f"{resolver} to locate the matching record, then retry. HGVS is keyed on each "
+            "record's own transcript (usually MANE Select), so a miss is NOT proof ClinVar has "
+            "no record: the variant may be recorded on another transcript. Recode it to the "
+            "MANE Select HGVS or an rsID (e.g. with a VEP recoder) and look it up again."
         )
     if error_code == "invalid_input":
         if isinstance(exc, UntrustedTextLimitError):

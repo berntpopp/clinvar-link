@@ -314,3 +314,15 @@ def test_search_deadline_raises_actionable_input_error(repo, monkeypatch, query)
         repo.count_search(query)
     monkeypatch.undo()
     assert repo.search("BRCA1")  # the handler is cleared afterwards
+
+
+def test_legacy_dup_del_bases_must_count_the_span():
+    """#147: bases that miscount the dup/del span are not silently dropped."""
+    from clinvar_link.data.repository import _drop_legacy_bases
+
+    assert _drop_legacy_bases("nm_007294.4:c.5266dupc") == "nm_007294.4:c.5266dup"
+    assert _drop_legacy_bases("nm_1.1:c.68_69delag") == "nm_1.1:c.68_69del"
+    assert _drop_legacy_bases("nm_1.1:c.68_69delagt") is None
+    assert _drop_legacy_bases("nm_1.1:c.100+1_100+3delagt") == "nm_1.1:c.100+1_100+3del"
+    assert _drop_legacy_bases("nm_1.1:c.80_83delinstgct") is None
+    assert _drop_legacy_bases("nm_1.1:c.5266dup") is None

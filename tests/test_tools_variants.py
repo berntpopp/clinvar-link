@@ -111,3 +111,47 @@ async def test_blank_identifier_does_not_echo_blank(mcp):
     assert out["fallback_args"] in (None, {})  # no blank query echoed
     for cmd in out["_meta"]["next_commands"]:
         assert cmd["arguments"].get("query", "").strip() != "" or "query" not in cmd["arguments"]
+
+
+@pytest.mark.parametrize(
+    ("identifier", "variation_id"),
+    [
+        ("NM_001267550.2:c.2926dupA", 100010),  # #147: stored as c.2926dup
+        ("NM_001267550.2(TTN):c.21229delG", 100006),  # stored as c.21229del
+        ("NM_000249.4:c.1852_1854delAAG", 100012),  # stored as c.1852_1854del
+    ],
+)
+async def test_get_variant_resolves_legacy_dup_del_with_trailing_bases(
+    mcp, identifier, variation_id
+):
+    """#147: the older HGVS style repeats the duplicated/deleted bases (dupC, delAG)."""
+    out = await call_tool(mcp, "get_variant", {"identifier": identifier})
+    assert out["success"] is True
+    assert out["variation_id"] == variation_id
+
+
+async def test_delins_bases_are_never_stripped(mcp):
+    """delins/ins bases are the change itself; only a dup/del's repeated bases are redundant."""
+    out = await call_tool(mcp, "get_variant", {"identifier": "NM_014855.3:c.80_83delinsTGC"})
+    assert out["error_code"] == "not_found"
+
+
+async def test_combined_aggregate_keeps_clinvar_s_own_term(mcp):
+    """#149: 'Pathogenic/Likely pathogenic' folds to likely_pathogenic; the verbatim term rides
+    alongside so the record is not understated as plain likely pathogenic."""
+    for mode in ("minimal", "compact", "standard"):
+        out = await call_tool(
+            mcp, "get_variant", {"identifier": "VCV000100012", "response_mode": mode}
+        )
+        assert out["classification"] == "likely_pathogenic"
+        assert out["clinical_significance"] == "Pathogenic/Likely pathogenic"
+    single = await call_tool(mcp, "get_variant", {"identifier": "VCV000100005"})
+    assert "clinical_significance" not in single
+
+
+async def test_hgvs_miss_says_the_variant_may_be_on_another_transcript(mcp):
+    """#148: a non-preferred-transcript HGVS miss is not evidence that ClinVar has no record."""
+    out = await call_tool(mcp, "get_variant", {"identifier": "NM_004992.4:c.473C>T"})
+    assert out["error_code"] == "not_found"
+    assert "another transcript" in out["recovery"]
+    assert "MANE" in out["recovery"]

@@ -71,6 +71,9 @@ _LIST_TOOL_MAX_OBJECTS = 10_000
 _RSID_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
 _VCV_RE = re.compile(r"^VCV\d+$", re.IGNORECASE)
 _DIGITS_RE = re.compile(r"^\d+$")
+# A ClinicalSignificance naming more than one term: "Pathogenic/Likely pathogenic",
+# "Pathogenic; risk factor", "Likely pathogenic, low penetrance".
+_COMBINED_RE = re.compile(r"[/;,]")
 _HGVS_HINTS = ("c.", "p.", "g.", "n.")
 # Mirrors the repository's FTS tokenizer, so the tokens this layer reasons about are exactly the
 # tokens the index will match.
@@ -1319,9 +1322,11 @@ class ClinVarService:
         record_id_base = payload.get("vcv_accession") or str(payload.get("variation_id") or "")
 
         out = {key: payload[key] for key in _MINIMAL_FIELDS if key in payload}
-        # "other" (drug response, risk factor, ...) means nothing without ClinVar's own words.
-        if payload.get("classification") == "other" and payload.get("clinical_significance"):
-            out["clinical_significance"] = payload["clinical_significance"]
+        # "other" (drug response, risk factor, ...) means nothing without ClinVar's own words,
+        # and a combined term ("Pathogenic/Likely pathogenic") folds to its weaker tier (#149).
+        verbatim = payload.get("clinical_significance") or ""
+        if verbatim and (payload.get("classification") == "other" or _COMBINED_RE.search(verbatim)):
+            out["clinical_significance"] = verbatim
         if mode == "minimal":
             if not keep_traits_in_minimal:
                 return out, []
