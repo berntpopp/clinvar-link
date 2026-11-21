@@ -17,7 +17,7 @@ The Docker images and Compose files carry their own (documented) overrides.
 | `SOURCE_URL` | NCBI `variant_summary.txt.gz` | Bulk-release source URL. |
 | `REFRESH_TTL_DAYS` | `7` | Skip a refresh if the index is younger than this. |
 | `AUTO_BOOTSTRAP` | `false` | Build the DB in-app on first start if absent. Superseded by the entrypoint's `bootstrap`; cron/CLI owns refresh in production. |
-| `ENABLE_HGVS4VARIATION` | `false` | Opt-in: also ingest the `NM_` transcript HGVS expressions of `hgvs4variation.txt.gz`, so a non-MANE transcript resolves, at about +1.8 GB (DB ~7 GB). See [data](data.md#hgvs-indexing-strategy). |
+| `ENABLE_HGVS4VARIATION` | `false` | Opt-in: also ingest the `NM_` transcript HGVS expressions of `hgvs4variation.txt.gz`, so a non-MANE transcript resolves, at about +1.95 GB (DB ~7.8 GB); the shipped bundle turns it on. See [data](data.md#hgvs-indexing-strategy). |
 | `HGVS4VARIATION_URL` | NCBI `hgvs4variation.txt.gz` | Source for the opt-in HGVS enrichment. |
 | `ENABLE_SUBMISSION_SUMMARY` | `false` | Index `submission_summary` per-submitter detail. Off in v1. |
 | `SOURCE_MAX_BYTES` | `1 GiB` | Download guard for the compressed source. |

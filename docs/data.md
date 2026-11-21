@@ -39,21 +39,20 @@ projection then also returns ClinVar's verbatim `clinical_significance`.
 
 ### HGVS indexing strategy
 
-The shipped bundle indexes HGVS straight from the `variant_summary` **`Name`**
-field — the full Name, the **canonical nucleotide expression** (the part before
-the trailing `(p....)` protein suffix, e.g. `NM_007294.4(BRCA1):c.5266dupC`), and
-the VCV accession. This keeps c-level lookups robust *without* shipping the
-56M-row `hgvs4variation` table. Ambiguous bare short forms (`c.` / `p.`) are
-deliberately **not** indexed.
+Every build indexes HGVS from the `variant_summary` **`Name`** field: the full Name, the
+**canonical nucleotide expression** (the part before the trailing `(p....)` protein suffix, e.g.
+`NM_007294.4(BRCA1):c.5266dupC`), and the VCV accession. Ambiguous bare short forms (`c.` / `p.`)
+are deliberately **not** indexed.
 
-Set `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` to also ingest the `NM_` nucleotide expressions
-of [`hgvs4variation.txt.gz`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz),
+With `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` the build also ingests the `NM_` nucleotide
+expressions of
+[`hgvs4variation.txt.gz`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz),
 so an HGVS on another RefSeq transcript of a held record resolves (`NM_004992.4:c.473C>T` ->
-VCV000011811, whose Name uses `NM_001110792.2`; #148). Protein (`NP_`), `LRG_` and the bare
-short forms are not indexed: one protein change can belong to several records. Cost: about
-+1.8 GB (DB ~7 GB). Off in the shipped bundle; turning it on is an owner decision plus a new data
-bundle. The CLI only warns when the download fails; `data-bundle.yml` fails the build when the
-flag is on and the file did not load.
+VCV000011811, whose Name uses `NM_001110792.2`; #148). Protein (`NP_`), `LRG_` and other
+accessions are not indexed: one protein change can belong to several records. The application
+default is off; the shipped bundle turns it on in `data-bundle.yml`. Measured 2026-11-21 on the
+2026-11-16 release: DB 5.86 -> 7.81 GB, `.zst` 1.16 -> 1.53 GB. The CLI only warns when the
+download fails; `data-bundle.yml` fails the build when the flag is on and the file did not load.
 
 [`var_citations.txt`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/var_citations.txt)
 (~250 MB, `CLINVAR_LINK_VAR_CITATIONS_URL`) is **always** ingested into `variant_citation`
