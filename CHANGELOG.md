@@ -5,6 +5,21 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-11-21
+
+### Fixed
+
+- A lookup key held by several ClinVar records is now `ambiguous_query` with up to 5 candidate
+  VCVs (`candidates`) and one ready `get_variant` call per candidate in `_meta.next_commands`.
+  Before, the server returned one of the records arbitrarily. This covers rsIDs (about 222k are
+  multi-allelic; rs267607823 is both an MLH1 VUS and a pathogenic allele), Names filed under
+  several VCVs (about 1.4k, mostly duplicate CNV submissions), AlleleIDs and the
+  gene-qualifier-insensitive HGVS match. `get_variants` marks such a row
+  `found: false, error_code: ambiguous_query, candidates`. A key held by exactly one record
+  behaves as before.
+- Advertised rsID examples (`rs334`, `rs104886142`, `rs28897696`) are multi-allelic, so they
+  now return `ambiguous_query`. They are replaced by `rs80357906` (BRCA1 c.5266dup, one record).
+
 ## [0.10.2] - 2026-11-21
 
 ### Changed

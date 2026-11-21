@@ -17,10 +17,10 @@ from clinvar_link.services import ClinVarService
 FIXTURE = Path(__file__).parent / "fixtures" / "variant_summary_sample.txt"
 
 
-def build_service(tmp_path: Path) -> ClinVarService:
+def build_service(tmp_path: Path, source: Path = FIXTURE) -> ClinVarService:
     """Build a real SQLite index from the fixture and return a service over it."""
     cfg = Settings(DATA_DIR=tmp_path, DB_FILENAME="t.sqlite")
-    build_database(cfg, source_path=FIXTURE, last_modified="Mon, 01 Jan 2026 00:00:00 GMT")
+    build_database(cfg, source_path=source, last_modified="Mon, 01 Jan 2026 00:00:00 GMT")
     repo = ClinVarRepository(cfg.db_path)
     return ClinVarService(repo)
 

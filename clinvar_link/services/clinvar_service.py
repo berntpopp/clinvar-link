@@ -16,7 +16,12 @@ from typing import Any
 
 from clinvar_link.config import settings
 from clinvar_link.data.repository import ClinVarRepository
-from clinvar_link.exceptions import ClinVarDataError, DataNotFoundError, ToolInputError
+from clinvar_link.exceptions import (
+    AmbiguousIdentifierError,
+    ClinVarDataError,
+    DataNotFoundError,
+    ToolInputError,
+)
 from clinvar_link.mcp.clinvar_date_cache import (
     has_cached_clinvar_release_date,
     set_cached_clinvar_release_date,
@@ -137,7 +142,7 @@ _INT64_MAX = 2**63 - 1
 _SEARCH_COUNT_EXACT_MAX = 1000
 
 _IDENTIFIER_REASON = (
-    "must be a VCV accession (VCV000007105), a dbSNP rsID (rs334), an HGVS expression, a "
+    "must be a VCV accession (VCV000007105), a dbSNP rsID (rs80357906), an HGVS expression, a "
     "ClinVar AlleleID or a VariationID; a numeric id must fit in 64 bits"
 )
 
@@ -548,7 +553,7 @@ class ClinVarService:
             raise ToolInputError(
                 f"id_type='rsid' requires an rsID (got {text!r})",
                 field="identifier",
-                public_reason="must be a dbSNP rsID (e.g. rs334) when id_type='rsid'",
+                public_reason="must be a dbSNP rsID (e.g. rs80357906) when id_type='rsid'",
             )
         if id_type in {"variation_id", "allele_id"} and not _DIGITS_RE.match(text):
             raise ToolInputError(
@@ -683,6 +688,16 @@ class ClinVarService:
                 )
             try:
                 repo_dict = await self._resolve(text, id_type)
+            except AmbiguousIdentifierError as exc:
+                results.append(
+                    {
+                        "identifier": ident,
+                        "found": False,
+                        "error_code": "ambiguous_query",
+                        "candidates": exc.candidates,
+                    }
+                )
+                continue
             except ToolInputError as exc:
                 raise ToolInputError(
                     f"identifiers[{index}] is malformed",

@@ -23,6 +23,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from clinvar_link.config import settings
 from clinvar_link.exceptions import (
+    AmbiguousIdentifierError,
     ClinVarDataError,
     ClinVarServerError,
     DataNotFoundError,
@@ -227,6 +228,8 @@ def _classify(
     if isinstance(exc, DataNotFoundError):
         tool, args = _fallback_for(context)
         return "not_found", False, tool, args
+    if isinstance(exc, AmbiguousIdentifierError):
+        return "ambiguous_query", False, None, None
     if isinstance(exc, ToolInputError):
         tool, args = _fallback_for(context)
         return "invalid_input", False, tool, args
@@ -255,7 +258,7 @@ def _recovery_action(error_code: str, retryable: bool) -> str:
     """
     if retryable:
         return "retry_backoff"
-    if error_code == "invalid_input":
+    if error_code in ("invalid_input", "ambiguous_query"):
         return "reformulate_input"
     return "switch_tool"
 
@@ -271,6 +274,13 @@ def _public_detail(exc: BaseException) -> str | None:
     """
     if isinstance(exc, UntrustedTextLimitError):
         return _RESPONSE_TOO_LARGE_MESSAGE
+    if isinstance(exc, AmbiguousIdentifierError):  # VCVs come from the index, not the caller
+        more = " and more" if exc.more else ""
+        return (
+            f"The identifier is held by several ClinVar records ({', '.join(exc.candidates)}"
+            f"{more}): a multi-allelic rsID, or one name filed under several VCVs. Choose one and "
+            "call again with its VCV accession."
+        )
     if isinstance(exc, ToolInputError) and exc.field and exc.public_reason:
         field = _safe_field_name((exc.field,))
         return f"Invalid value for parameter '{field}': {exc.public_reason}"
@@ -303,6 +313,12 @@ def _recovery_text(
             "accepted. Do not retry unchanged. field_errors names the parameter and its accepted "
             f"values.{switch}"
         )
+    if error_code == "ambiguous_query":
+        return (
+            "Not a retry: the identifier names several records. Call the same tool with one "
+            "VCV from candidates (next_commands has each call ready); compare their name and "
+            "classification to pick the one you mean."
+        )
     if error_code == "not_found":
         if tool_name == "get_variants_by_pmid":
             return (
@@ -318,7 +334,7 @@ def _recovery_text(
         return (
             "Identifier well-formed but absent in the local ClinVar index. This is a "
             "reformulate, not a retry: confirm the VCV / rsID / HGVS / AlleleID "
-            "(e.g. VCV000024455 | rs104886142 | NM_033380.3(COL4A5):c.1871G>A), or call "
+            "(e.g. VCV000024455 | rs80357906 | NM_033380.3(COL4A5):c.1871G>A), or call "
             f"{resolver} to locate the matching record, then retry. HGVS is keyed on each "
             "record's own transcript (usually MANE Select), so a miss is NOT proof ClinVar has "
             "no record: the variant may be recorded on another transcript. Recode it to the "
@@ -339,7 +355,7 @@ def _recovery_text(
         return (
             "The request was rejected as malformed (the identifier or query shape is "
             "wrong for this tool). Do not retry unchanged. Provide a valid id "
-            "(e.g. VCV000024455 | rs104886142 | NM_033380.3(COL4A5):c.1871G>A) or call "
+            "(e.g. VCV000024455 | rs80357906 | NM_033380.3(COL4A5):c.1871G>A) or call "
             f"{resolver}."
         )
     return (
@@ -620,6 +636,10 @@ def mcp_tool_error(exc: BaseException, context: McpErrorContext) -> McpToolError
     # as the secondary entry. When fallback_tool is already the discovery
     # entrypoint, the guard collapses to a single entry.
     next_commands: list[dict[str, Any]] = []
+    if isinstance(exc, AmbiguousIdentifierError):
+        next_commands = [
+            {"tool": context.tool_name, "arguments": {"identifier": vcv}} for vcv in exc.candidates
+        ]
     if fallback_tool and fallback_tool != _FALLBACK_TOOL:
         next_commands.append({"tool": fallback_tool, "arguments": fallback_args or {}})
     next_commands.append({"tool": _FALLBACK_TOOL, "arguments": {}})
@@ -641,6 +661,8 @@ def mcp_tool_error(exc: BaseException, context: McpErrorContext) -> McpToolError
     field_errors = _field_errors_for(exc)
     if field_errors is not None:
         payload["field_errors"] = field_errors
+    if isinstance(exc, AmbiguousIdentifierError):
+        payload["candidates"] = exc.candidates
     return McpToolError(payload)
 
 
