@@ -76,6 +76,8 @@ _LIST_TOOL_MAX_OBJECTS = 10_000
 _RSID_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
 _VCV_RE = re.compile(r"^VCV\d+$", re.IGNORECASE)
 _DIGITS_RE = re.compile(r"^\d+$")
+# GRCh38 VCF-style CHROM-POS-REF-ALT as VEP prints it (13-28018505-C-A); chr prefix and : or -.
+_COORD_RE = re.compile(r"^(?:chr)?([0-9]{1,2}|X|Y|MT?)[:-](\d+)[:-]([ACGTN]+)[:-]([ACGTN]+)$", re.I)
 # A ClinicalSignificance naming more than one term: "Pathogenic/Likely pathogenic",
 # "Pathogenic; risk factor", "Likely pathogenic, low penetrance".
 _COMBINED_RE = re.compile(r"[/;,]")
@@ -143,7 +145,8 @@ _SEARCH_COUNT_EXACT_MAX = 1000
 
 _IDENTIFIER_REASON = (
     "must be a VCV accession (VCV000007105), a dbSNP rsID (rs80357906), an HGVS expression, a "
-    "ClinVar AlleleID or a VariationID; a numeric id must fit in 64 bits"
+    "ClinVar AlleleID, a VariationID or a GRCh38 CHROM-POS-REF-ALT (13-28018505-C-A); a numeric "
+    "id must fit in 64 bits"
 )
 
 
@@ -373,7 +376,10 @@ class ClinVarService:
             raise ToolInputError(
                 "identifier is required",
                 field="identifier",
-                public_reason="is required (a VCV accession, rsID, HGVS, AlleleID or VariationID)",
+                public_reason=(
+                    "is required (a VCV accession, rsID, HGVS, AlleleID, VariationID or GRCh38 "
+                    "CHROM-POS-REF-ALT)"
+                ),
             )
         _reject_forbidden_codepoints(text, field="identifier")
 
@@ -563,6 +569,15 @@ class ClinVarService:
                     "must be a plain integer id when id_type='variation_id' or 'allele_id'"
                 ),
             )
+        if id_type == "coordinate" and not _COORD_RE.match(text):
+            raise ToolInputError(
+                f"id_type='coordinate' requires CHROM-POS-REF-ALT (got {text!r})",
+                field="identifier",
+                public_reason=(
+                    "must be a GRCh38 CHROM-POS-REF-ALT (e.g. 13-28018505-C-A) when "
+                    "id_type='coordinate'"
+                ),
+            )
         if id_type == "hgvs" and ":" not in text and not any(h in text for h in _HGVS_HINTS):
             raise ToolInputError(
                 f"id_type='hgvs' requires an HGVS expression (got {text!r})",
@@ -587,6 +602,8 @@ class ClinVarService:
             return await asyncio.to_thread(self.repo.get_by_hgvs, text)
         if id_type == "allele_id":
             return await self._maybe_allele_id(text)
+        if id_type == "coordinate":
+            return await self._maybe_coordinate(text)
         return await self._resolve_auto(text)
 
     async def _resolve_auto(self, text: str) -> dict[str, Any] | None:
@@ -600,16 +617,19 @@ class ClinVarService:
             if result is not None:
                 return result
             return await self._maybe_allele_id(text)
+        if _COORD_RE.match(text):
+            return await self._maybe_coordinate(text)
         if ":" in text or any(hint in text for hint in _HGVS_HINTS):
             return await asyncio.to_thread(self.repo.get_by_hgvs, text)
         raise ToolInputError(
             "unrecognized identifier shape; expected a VCV accession, dbSNP rsID, "
-            "HGVS expression, ClinVar AlleleID, or VariationID — or call "
+            "HGVS expression, ClinVar AlleleID, VariationID or GRCh38 CHROM-POS-REF-ALT — or call "
             "search_variants to locate the record",
             field="identifier",
             public_reason=(
-                "does not look like any accepted shape (VCV accession, rsID, HGVS, AlleleID or "
-                "VariationID); use search_variants to locate the record from loose text"
+                "does not look like any accepted shape (VCV accession, rsID, HGVS, AlleleID, "
+                "VariationID or GRCh38 CHROM-POS-REF-ALT such as 13-28018505-C-A); use "
+                "search_variants to locate the record from loose text"
             ),
         )
 
@@ -628,6 +648,20 @@ class ClinVarService:
         if rsid is None:
             return None
         return await asyncio.to_thread(self.repo.get_by_rsid, rsid)
+
+    async def _maybe_coordinate(self, text: str) -> dict[str, Any] | None:
+        """Resolve a GRCh38 CHROM-POS-REF-ALT against variant_summary's VCF columns."""
+        match = _COORD_RE.match(text)
+        if match is None:
+            return None
+        chrom, pos, ref, alt = match.groups()
+        chrom = "MT" if chrom.upper() in {"M", "MT"} else chrom.upper()
+        position = _as_sqlite_int(pos, field="identifier")
+        if position is None:
+            return None
+        return await asyncio.to_thread(
+            self.repo.get_by_grch38_vcf, chrom, position, ref.upper(), alt.upper()
+        )
 
     async def _maybe_allele_id(self, text: str) -> dict[str, Any] | None:
         """Resolve as a ClinVar AlleleID; non-integer input resolves to ``None``."""

@@ -51,10 +51,12 @@ Identifier = Annotated[
         description=(
             "A single ClinVar variant identifier. Accepts a VCV accession (VCV000007105), a "
             "dbSNP rsID (rs80357906), an HGVS expression (NM_000059.3:c.1234A>G — the (GENE) "
-            "qualifier is optional), a ClinVar AlleleID, or a VariationID. Use id_type to force "
+            "qualifier is optional), a ClinVar AlleleID, a VariationID, or a GRCh38 VCF-style "
+            "CHROM-POS-REF-ALT as VEP prints it (13-28018505-C-A; chr prefix and ':' accepted). "
+            "Use id_type to force "
             "one interpretation; the default 'auto' detects the shape."
         ),
-        examples=["VCV000007105", "rs80357906", "NM_007294.4:c.5266dup"],
+        examples=["VCV000007105", "rs80357906", "NM_007294.4:c.5266dup", "13-28018505-C-A"],
         min_length=1,
         max_length=512,
     ),
@@ -65,7 +67,7 @@ Identifiers = Annotated[
     Field(
         description=(
             "A LIST of ClinVar variant identifiers resolved in one call (the batch form of "
-            "get_variant). Shapes may be mixed (VCV / rsID / HGVS / AlleleID / VariationID). Each "
+            "get_variant). Shapes may be mixed (VCV / rsID / HGVS / AlleleID / VariationID / GRCh38 CHROM-POS-REF-ALT). Each "
             "WELL-FORMED input yields one result row echoing its identifier and a `found` flag, "
             "so an absent record is an explicit miss, never silently dropped; a MALFORMED element "
             "fails the whole call with invalid_input naming its position. Capped at 100 per call."
@@ -77,7 +79,7 @@ Identifiers = Annotated[
 ]
 
 IdTypeParam = Annotated[
-    Literal["auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id"],
+    Literal["auto", "vcv", "variation_id", "rsid", "hgvs", "allele_id", "coordinate"],
     Field(
         description=(
             "How to interpret `identifier`. 'auto' (default) detects the shape from the value; "

@@ -5,6 +5,20 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-11-21
+
+### Added
+
+- `get_variant` / `get_variants` accept a GRCh38 VCF-style `CHROM-POS-REF-ALT` identifier as VEP
+  prints it (`13-28018505-C-A`; `chr` prefix and `:` or `-` separators accepted), auto-detected or
+  forced with the new `id_type="coordinate"`. It matches `variant_summary`'s GRCh38
+  `PositionVCF` / `ReferenceAlleleVCF` / `AlternateAlleleVCF`; a coordinate held by several
+  records is `ambiguous_query` with the candidates (#154). The schema, examples and the
+  unrecognised-shape hint name the new shape. GRCh37 is not matched.
+- The data build adds the partial index `idx_coord_vcf38` (GRCh38 rows only, about 69 MB on the
+  current 5.1 GB index). A bundle built before it still answers coordinate lookups correctly via
+  a per-chromosome scan (up to ~0.4 s on chromosome 1); the next bundle makes them instant.
+
 ### Changed
 
 - The data bundle is built with `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` (`data-bundle.yml`): an

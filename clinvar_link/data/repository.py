@@ -216,6 +216,18 @@ class ClinVarRepository:
         """Return the variant linked to a ClinVar AlleleID, ``None``, or raise if several are."""
         return self._only_record("FROM allele_id_lookup k WHERE k.allele_id = ?", (allele_id,))
 
+    def get_by_grch38_vcf(self, chrom: str, pos: int, ref: str, alt: str) -> dict[str, Any] | None:
+        """Return the variant at a GRCh38 VCF-style CHROM-POS-REF-ALT, ``None``, or raise if several.
+
+        The literal ``assembly = 'GRCh38'`` lets the partial idx_coord_vcf38 serve it; a bundle built
+        before that index falls back to idx_coord_assembly (a per-chromosome scan, still correct).
+        """
+        return self._only_record(
+            "FROM variant_coordinate k WHERE k.assembly = 'GRCh38' AND k.chromosome = ? "
+            "AND k.position_vcf = ? AND k.reference_allele_vcf = ? AND k.alternate_allele_vcf = ?",
+            (chrom, pos, ref, alt),
+        )
+
     def get_by_hgvs(self, hgvs: str) -> dict[str, Any] | None:
         """Return the variant matching a normalized HGVS string, ``None``, or raise if several.
 

@@ -13,6 +13,8 @@ CREATE INDEX idx_variant_class ON variant (classification);
 CREATE INDEX idx_variant_stars ON variant (star_rating);
 CREATE INDEX idx_coord_vid ON variant_coordinate (variation_id);
 CREATE INDEX idx_coord_assembly ON variant_coordinate (assembly, chromosome, start);
+-- GRCh38 VCF-style coordinate lookup (CHROM-POS-REF-ALT identifiers, #154). Partial: GRCh38 only.
+CREATE INDEX idx_coord_vcf38 ON variant_coordinate (chromosome, position_vcf) WHERE assembly = 'GRCh38';
 CREATE INDEX idx_rsid ON rsid_lookup (rsid);
 CREATE INDEX idx_allele_id ON allele_id_lookup (allele_id);
 CREATE INDEX idx_gene_index ON gene_index (gene_symbol_upper);

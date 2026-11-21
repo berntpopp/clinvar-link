@@ -58,6 +58,7 @@ class IdType(str, Enum):
     RSID = "rsid"
     HGVS = "hgvs"
     ALLELE_ID = "allele_id"
+    COORDINATE = "coordinate"
 
 
 # Response-Envelope Standard v1: the closed, fleet-wide `error_code` enum. Defined here (not in
