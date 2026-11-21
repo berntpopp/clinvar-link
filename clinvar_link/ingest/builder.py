@@ -290,13 +290,12 @@ class _Batches:
 # every comment/explanation line is '#'-prefixed and skipped).
 _HGVS4VAR_TYPE_COL = 4
 _HGVS4VAR_VID_COL = 2
-# Expression columns to index: only the PRECISE, transcript-/protein-qualified
-# full expressions -- NucleotideExpression (col 6, ``NM_...:c.`` / ``NR_...:n.``)
-# and ProteinExpression (col 8, ``NP_...:p.``). The bare short forms
-# NucleotideChange (col 7, e.g. ``c.5266dupC``) and ProteinChange (col 9, e.g.
-# ``p.Gln1756fs``) are AMBIGUOUS -- the same change maps to many variants across
-# genes/transcripts -- so they are intentionally NOT indexed.
-_HGVS4VAR_EXPR_COLS = (6, 8)
+# Index only the RefSeq mRNA NucleotideExpression (col 6, ``NM_...:c.``) -- the other
+# transcripts a report may name for a held record (#148). Not indexed: ProteinExpression
+# (col 8, ``NP_...:p.``) -- one protein change can belong to several records and the lookup
+# takes LIMIT 1; LRG_ / AJ... / NR_ expressions (rarely cited, ~size); and the AMBIGUOUS bare
+# short forms (cols 7 / 9, e.g. ``c.5266dupC``, ``p.Gln1756fs``).
+_HGVS4VAR_EXPR_COL = 6
 _HGVS4VAR_MIN_FIELDS = 13
 
 
@@ -307,10 +306,10 @@ def _load_hgvs4variation(
     *,
     max_expanded_bytes: int,
 ) -> int:
-    """Index the precise coding/protein HGVS expressions from ``hgvs4variation.txt[.gz]``.
+    """Index the ``NM_`` nucleotide HGVS expressions from ``hgvs4variation.txt[.gz]``.
 
-    For each kept, non-genomic row, inserts the normalized full nucleotide and
-    protein expressions into ``hgvs_lookup``. Ambiguous bare changes are skipped. Inserts use
+    For each kept, non-genomic row, inserts the normalized ``NM_...:c.`` expression into
+    ``hgvs_lookup`` (see ``_HGVS4VAR_EXPR_COL`` for what is skipped and why). Inserts use
     ``INSERT OR IGNORE`` against the UNIQUE ``idx_hgvs_norm`` so the GRCh37/GRCh38
     rows that repeat the same expression collapse to one ``(hgvs_norm,
     variation_id)`` row. Streams the file and flushes in bounded batches so memory
@@ -340,13 +339,9 @@ def _load_hgvs4variation(
             vid = _int_or_none(fields[_HGVS4VAR_VID_COL])
             if vid is None or vid not in emitted:
                 continue
-            for col in _HGVS4VAR_EXPR_COLS:
-                value = fields[col]
-                if not value or value == "-":
-                    continue
-                hgvs_norm = _normalize_hgvs(value)
-                if hgvs_norm:
-                    pending.append((hgvs_norm, vid))
+            value = fields[_HGVS4VAR_EXPR_COL]
+            if value.startswith("NM_"):
+                pending.append((_normalize_hgvs(value), vid))
             if len(pending) >= _INSERT_BATCH:
                 flush()
     flush()
@@ -529,7 +524,7 @@ def build_database(
     atomically swaps it into ``config.db_path``.
 
     When ``hgvs_source_path`` is given, the secondary ``hgvs4variation`` source is
-    streamed afterwards to index every coding/protein HGVS expression of each
+    streamed afterwards to index the other NM_ transcript expressions of each
     kept variant into ``hgvs_lookup`` (before the deferred indexes are built).
     ``citations_source_path`` (``var_citations.txt``) likewise fills ``variant_citation``.
     ``secondary_loader`` then fills further tables on the open connection (the VCV XML
@@ -607,7 +602,7 @@ def build_database(
 
             batches.flush()
 
-            # Secondary source: index ALL coding/protein HGVS expressions of the
+            # Secondary source: index the NM_ transcript HGVS expressions of the
             # kept variants. Runs before the deferred indexes so idx_hgvs_norm is
             # built once over the full table at the end.
             if hgvs_source_path is not None:

@@ -165,7 +165,9 @@ def test_get_by_hgvs_resolves_hgvs4variation_forms(repo_with_hgvs):
     # expression and the full protein expression to the VariationID.
     repo = repo_with_hgvs
     assert repo.get_by_hgvs("NM_007294.4(BRCA1):c.5266dupC")["variation_id"] == 100001
-    assert repo.get_by_hgvs("NP_009225.1:p.Gln1756fs")["variation_id"] == 100001
+    # #148: protein expressions are not indexed. One NP_ change can belong to several records
+    # (different c. changes, same p. change) and the lookup takes LIMIT 1 -> a wrong record.
+    assert repo.get_by_hgvs("NP_009225.1:p.Gln1756fs") is None
     # The bare short forms are ambiguous and no longer indexed -> no resolution.
     assert repo.get_by_hgvs("c.5266dupC") is None
     assert repo.get_by_hgvs("p.Gln1756fs") is None
@@ -326,3 +328,13 @@ def test_legacy_dup_del_bases_must_count_the_span():
     assert _drop_legacy_bases("nm_1.1:c.100+1_100+3delagt") == "nm_1.1:c.100+1_100+3del"
     assert _drop_legacy_bases("nm_1.1:c.80_83delinstgct") is None
     assert _drop_legacy_bases("nm_1.1:c.5266dup") is None
+
+
+def test_get_by_hgvs_resolves_non_mane_transcript(repo, repo_with_hgvs):
+    """#148: an HGVS on another NM_ transcript of a held record resolves to the same record."""
+    mane = repo_with_hgvs.get_by_hgvs("NM_007294.4:c.5266dupC")["variation_id"]
+    assert repo_with_hgvs.get_by_hgvs("NM_007300.4:c.5329dup")["variation_id"] == mane
+    assert repo.get_by_hgvs("NM_007300.4:c.5329dup") is None  # the lean (shipped) bundle
+    # Only NM_ nucleotide expressions are indexed: not LRG_ / NP_ / LRG_p.
+    assert repo_with_hgvs.get_by_hgvs("LRG_292t1:c.5266dup") is None
+    assert repo_with_hgvs.get_by_hgvs("NP_009231.2:p.Gln1777fs") is None

@@ -46,11 +46,14 @@ the VCV accession. This keeps c-level lookups robust *without* shipping the
 56M-row `hgvs4variation` table. Ambiguous bare short forms (`c.` / `p.`) are
 deliberately **not** indexed.
 
-Set `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` to also ingest
-[`hgvs4variation.txt.gz`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz)
-for exhaustive multi-transcript HGVS coverage (~12 keys/variant), at roughly
-**2x DB size (~8 GB)**. The secondary download never fails the main build (it is
-logged as a warning).
+Set `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` to also ingest the `NM_` nucleotide expressions
+of [`hgvs4variation.txt.gz`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/hgvs4variation.txt.gz),
+so an HGVS on another RefSeq transcript of a held record resolves (`NM_004992.4:c.473C>T` ->
+VCV000011811, whose Name uses `NM_001110792.2`; #148). Protein (`NP_`), `LRG_` and the bare
+short forms are not indexed: one protein change can belong to several records. Cost: about
++1.8 GB (DB ~7 GB). Off in the shipped bundle; turning it on is an owner decision plus a new data
+bundle. The CLI only warns when the download fails; `data-bundle.yml` fails the build when the
+flag is on and the file did not load.
 
 [`var_citations.txt`](https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/var_citations.txt)
 (~250 MB, `CLINVAR_LINK_VAR_CITATIONS_URL`) is **always** ingested into `variant_citation`

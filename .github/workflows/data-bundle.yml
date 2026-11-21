@@ -76,6 +76,20 @@ jobs:
             uv run clinvar-link-data build
           fi
           echo "build wall time: $((SECONDS - start)) s"
+          # The CLI only warns when hgvs4variation fails to load; with the flag on, a bundle
+          # without it must not ship. NM_004992.4:c.473C>T (MECP2, VCV000011811) is a non-Name
+          # transcript that only hgvs4variation indexes (#148).
+          uv run python - <<'PY'
+          import sqlite3
+          from clinvar_link.config import settings
+          if settings.ENABLE_HGVS4VARIATION:
+              db = sqlite3.connect(f"file:{settings.db_path}?mode=ro", uri=True)
+              row = db.execute(
+                  "SELECT variation_id FROM hgvs_lookup WHERE hgvs_norm = 'nm_004992.4:c.473c>t'"
+              ).fetchone()
+              assert row == (11811,), f"hgvs4variation not loaded (probe got {row})"
+              print("hgvs4variation loaded")
+          PY
           df -h . /tmp
           du -sh data/*
           uv run clinvar-link-data pack --out-dir dist
