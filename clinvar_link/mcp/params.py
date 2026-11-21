@@ -50,11 +50,11 @@ Identifier = Annotated[
     Field(
         description=(
             "A single ClinVar variant identifier. Accepts a VCV accession (VCV000007105), a "
-            "dbSNP rsID (rs334), an HGVS expression (NM_000059.3:c.1234A>G — the (GENE) "
+            "dbSNP rsID (rs80357906), an HGVS expression (NM_000059.3:c.1234A>G — the (GENE) "
             "qualifier is optional), a ClinVar AlleleID, or a VariationID. Use id_type to force "
             "one interpretation; the default 'auto' detects the shape."
         ),
-        examples=["VCV000007105", "rs334", "NM_007294.4:c.5266dup"],
+        examples=["VCV000007105", "rs80357906", "NM_007294.4:c.5266dup"],
         min_length=1,
         max_length=512,
     ),
@@ -70,7 +70,7 @@ Identifiers = Annotated[
             "so an absent record is an explicit miss, never silently dropped; a MALFORMED element "
             "fails the whole call with invalid_input naming its position. Capped at 100 per call."
         ),
-        examples=[["VCV000007105", "rs334"]],
+        examples=[["VCV000007105", "rs80357906"]],
         min_length=1,
         max_length=100,
     ),

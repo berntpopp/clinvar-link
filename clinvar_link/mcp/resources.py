@@ -179,7 +179,7 @@ def get_usage_resource() -> str:
         "## Resolve a variant\n"
         "Call `get_variant` with any one of these identifier shapes:\n"
         "- VCV accession (e.g. `VCV000012345`)\n"
-        "- dbSNP rsID (e.g. `rs28897696`)\n"
+        "- dbSNP rsID (e.g. `rs80357906`)\n"
         "- HGVS expression (e.g. `NM_000059.3:c.1234A>G`)\n"
         "- ClinVar AlleleID (integer)\n\n"
         "If the identifier does not resolve, call `search_variants` with the gene "

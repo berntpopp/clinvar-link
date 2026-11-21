@@ -22,9 +22,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Concatenate
 
-from clinvar_link.exceptions import ClinVarDataError, ToolInputError
+from clinvar_link.exceptions import AmbiguousIdentifierError, ClinVarDataError, ToolInputError
 
 _FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+# A key held by several records (multi-allelic rsID, one Name under several VCVs) is reported
+# as ambiguous with at most this many candidate VCVs, never resolved to one of them.
+MAX_CANDIDATES = 5
 # Legacy HGVS repeats a dup/del's bases (c.5266dupC); ClinVar names drop them (c.5266dup).
 # delins/ins bases ARE the change: "delins..." fails [acgtn]+$ at the "i", so it is never touched.
 _LEGACY_DELDUP_RE = re.compile(r"(?<=\d)(del|dup)([acgtn]+)$")
@@ -181,26 +184,40 @@ class ClinVarRepository:
             return None
         return self.get_by_variation_id(vid)
 
+    def _only_record(self, lookup_sql: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+        """Return the one variant a lookup key names, ``None`` for none, or raise if several.
+
+        ``lookup_sql`` selects ``variation_id`` from a lookup table aliased ``k``; picking one of
+        several records (MLH1 rs267607823 is a VUS and a pathogenic allele) would be a guess.
+        """
+        vids = [
+            row[0]
+            for row in self._conn.execute(
+                # lookup_sql is one of this class's constant clauses; values bind as params.
+                f"SELECT DISTINCT k.variation_id {lookup_sql} "  # noqa: S608
+                "AND EXISTS (SELECT 1 FROM variant v WHERE v.variation_id = k.variation_id) "
+                f"ORDER BY k.variation_id LIMIT {MAX_CANDIDATES + 1}",
+                params,
+            )
+        ]
+        if len(vids) > 1:
+            raise AmbiguousIdentifierError(
+                f"lookup key held by {len(vids)}+ records",
+                [f"VCV{vid:09d}" for vid in vids[:MAX_CANDIDATES]],
+                more=len(vids) > MAX_CANDIDATES,
+            )
+        return self.get_by_variation_id(vids[0]) if vids else None
+
     def get_by_rsid(self, rsid: int) -> dict[str, Any] | None:
-        """Return the first variant linked to a dbSNP rsid, or ``None``."""
-        row = self._conn.execute(
-            "SELECT v.* FROM rsid_lookup r JOIN variant v "
-            "ON v.variation_id = r.variation_id WHERE r.rsid = ? LIMIT 1",
-            (rsid,),
-        ).fetchone()
-        return self._row_to_variant(row) if row is not None else None
+        """Return the variant linked to a dbSNP rsid, ``None``, or raise if several are."""
+        return self._only_record("FROM rsid_lookup k WHERE k.rsid = ?", (rsid,))
 
     def get_by_allele_id(self, allele_id: int) -> dict[str, Any] | None:
-        """Return the first variant linked to a ClinVar AlleleID, or ``None``."""
-        row = self._conn.execute(
-            "SELECT v.* FROM allele_id_lookup a JOIN variant v "
-            "ON v.variation_id = a.variation_id WHERE a.allele_id = ? LIMIT 1",
-            (allele_id,),
-        ).fetchone()
-        return self._row_to_variant(row) if row is not None else None
+        """Return the variant linked to a ClinVar AlleleID, ``None``, or raise if several are."""
+        return self._only_record("FROM allele_id_lookup k WHERE k.allele_id = ?", (allele_id,))
 
     def get_by_hgvs(self, hgvs: str) -> dict[str, Any] | None:
-        """Return the first variant matching a normalized HGVS string, or ``None``.
+        """Return the variant matching a normalized HGVS string, ``None``, or raise if several.
 
         Tries the exact normalized key first, then a gene-qualifier-insensitive
         match so a clean transcript-qualified expression that omits the ``(GENE)``
@@ -219,14 +236,8 @@ class ClinVarRepository:
 
     def _get_by_hgvs_norm(self, norm: str) -> dict[str, Any] | None:
         """Exact normalized key, then the gene-qualifier-insensitive match."""
-        row = self._conn.execute(
-            "SELECT v.* FROM hgvs_lookup h JOIN variant v "
-            "ON v.variation_id = h.variation_id WHERE h.hgvs_norm = ? LIMIT 1",
-            (norm,),
-        ).fetchone()
-        if row is not None:
-            return self._row_to_variant(row)
-        return self._get_by_hgvs_gene_insensitive(norm)
+        hit = self._only_record("FROM hgvs_lookup k WHERE k.hgvs_norm = ?", (norm,))
+        return hit if hit is not None else self._get_by_hgvs_gene_insensitive(norm)
 
     def _get_by_hgvs_gene_insensitive(self, norm: str) -> dict[str, Any] | None:
         """Match a stored gene-qualified key when the query omits ``(GENE)``.
@@ -242,14 +253,11 @@ class ClinVarRepository:
         pattern = f"{_like_escape(head)}(%):{_like_escape(tail)}"
         # The range bound lets idx_hgvs_norm serve the ``head(`` prefix (keys are lowercased
         # at build time), so a miss no longer scans the whole table (#141). ')' sorts after '('.
-        row = self._conn.execute(
-            "SELECT v.* FROM hgvs_lookup h JOIN variant v "
-            "ON v.variation_id = h.variation_id "
-            "WHERE h.hgvs_norm >= ? AND h.hgvs_norm < ? AND h.hgvs_norm LIKE ? ESCAPE '\\' "
-            "ORDER BY h.variation_id LIMIT 1",
+        return self._only_record(
+            "FROM hgvs_lookup k WHERE k.hgvs_norm >= ? AND k.hgvs_norm < ? "
+            "AND k.hgvs_norm LIKE ? ESCAPE '\\'",
             (f"{head}(", f"{head})", pattern),
-        ).fetchone()
-        return self._row_to_variant(row) if row is not None else None
+        )
 
     # -- search ----------------------------------------------------------------
 

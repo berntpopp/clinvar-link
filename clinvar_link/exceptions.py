@@ -61,6 +61,20 @@ class DataNotFoundError(ClinVarServerError):
     pass
 
 
+class AmbiguousIdentifierError(ClinVarServerError):
+    """Raised when one lookup key (rsID, HGVS, AlleleID) is held by several ClinVar records.
+
+    ``candidates`` are server-authored VCV accessions (at most ``MAX_CANDIDATES``); ``more``
+    says further records hold the key too.
+    """
+
+    def __init__(self, message: str, candidates: list[str], *, more: bool) -> None:
+        """Store the candidate VCVs the caller must choose between."""
+        super().__init__(message)
+        self.candidates = candidates
+        self.more = more
+
+
 class ClinVarDataError(ClinVarServerError):
     """Generic data/index error (corrupt DB, missing schema, query failure)."""
 
