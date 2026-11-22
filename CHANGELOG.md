@@ -14,6 +14,9 @@ All notable changes to clinvar-link are documented here.
   left 8% headroom over `bundle-2026-11-16-r2` (7.88 GB); it is now 16 GiB, still fail-closed
   (#157). The size descriptions carry the 2026-11-22 measurements, and the data-bundle workflow
   warns when the packed asset passes 85% of GitHub's 2 GiB release-asset limit.
+- The server container's memory limit defaults to 4g (was 2g in the deployed overlay, 1g in the
+  other Compose files). cgroup v2 counts the SQLite page cache toward it, and at 2g the 7.88 GB
+  r2 bundle hit the limit ~8k times in 2 h with ~1.45 M page refaults (#159).
 
 ## [0.10.5] - 2026-11-22
 

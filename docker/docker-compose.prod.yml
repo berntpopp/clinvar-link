@@ -85,7 +85,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1g
+          # Page cache counts toward the limit; less thrashes it on the 7.88 GB r2 bundle (#159).
+          memory: 4g
           cpus: "1.0"
           pids: 256
     healthcheck: !override
