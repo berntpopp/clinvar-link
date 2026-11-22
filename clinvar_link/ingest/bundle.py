@@ -409,7 +409,7 @@ def download_verify_install(
     staging_dir: Path,
     expected_sha256: str,
     max_compressed_bytes: int = 2 << 30,
-    max_expanded_bytes: int = 8 << 30,
+    max_expanded_bytes: int = 16 << 30,
     max_seconds: float | None = None,
     expected_expanded_sha256: str | None = None,
     expected_schema_version: str | None = None,

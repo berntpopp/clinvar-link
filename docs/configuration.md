@@ -44,8 +44,8 @@ How the server obtains a prebuilt `clinvar.sqlite.zst` instead of building one.
 | `BUILD_LOCAL` | `false` | Fall back to a full local build when no bundle is available (`bootstrap`). |
 | `BUNDLE_DOWNLOAD_DIR` | `DATA_DIR` | Staging dir for the downloaded `.zst` before decompression. Shares a filesystem with the index so the swap is atomic. |
 | `BUNDLE_REFERENCE_ROOT` | `DATA_DIR` | Root under which sha256-addressed bundle versions are materialized. |
-| `BUNDLE_MAX_BYTES` | `2 GiB` | Guard on the compressed asset (GitHub's own release-asset cap). |
-| `BUNDLE_MAX_EXPANDED_BYTES` | `8 GiB` | Guard on the expanded DB. |
+| `BUNDLE_MAX_BYTES` | `2 GiB` | Guard on the compressed asset (GitHub's own release-asset cap; 1.51 GB on 2026-11-22, the bundle workflow warns above 85%). |
+| `BUNDLE_MAX_EXPANDED_BYTES` | `16 GiB` | Guard on the expanded DB that `pull` installs (7.88 GB on 2026-11-22). |
 | `METADATA_MAX_BYTES` | `1 MiB` | Guard on release metadata. |
 
 > [!IMPORTANT]

@@ -95,6 +95,11 @@ jobs:
           df -h . /tmp
           du -sh data/*
           uv run clinvar-link-data pack --out-dir dist
+          # #157: GitHub rejects release assets over 2 GiB; plan a split before it fails.
+          size=$(stat -c %s dist/clinvar.sqlite.zst)
+          if (( size * 100 > (2 << 30) * 85 )); then
+            echo "::warning ::clinvar.sqlite.zst is $size bytes, over 85% of the 2 GiB asset limit"
+          fi
       - name: Create exact release metadata
         id: meta
         if: steps.existing.outputs.state != 'published_noop'

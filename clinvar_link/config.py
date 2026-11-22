@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     SOURCE_MAX_EXPANDED_BYTES: int = Field(
         default=8 << 30,
         gt=0,
-        description="Expanded source limit; measured below 4 GiB on 2026-07-10; override if needed.",
+        description="Expanded source limit; largest is hgvs4variation, 4.81 GB on 2026-11-22.",
     )
 
     # Prebuilt-bundle distribution. Instead of building the index locally, clients
@@ -145,12 +145,12 @@ class Settings(BaseSettings):
     BUNDLE_MAX_BYTES: int = Field(
         default=2 << 30,
         gt=0,
-        description="Bundle limit; measured below 1 GiB on 2026-07-10; override if needed.",
+        description="Bundle limit = GitHub's 2 GiB asset cap; measured 1.51 GB on 2026-11-22.",
     )
     BUNDLE_MAX_EXPANDED_BYTES: int = Field(
-        default=8 << 30,
+        default=16 << 30,
         gt=0,
-        description="Expanded DB limit; measured below 4 GiB on 2026-07-10; override if needed.",
+        description="Expanded DB limit `pull` enforces; measured 7.88 GB on 2026-11-22.",
     )
     METADATA_MAX_BYTES: int = Field(
         default=1 << 20,
