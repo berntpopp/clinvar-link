@@ -443,3 +443,11 @@ def test_production_accepts_only_well_formed_revision_tags(tag: str, ok: bool) -
     else:
         with pytest.raises(ValidationError, match="release tag"):
             _production_settings(BUNDLE_RELEASE_TAG=tag, BUNDLE_URL=url)
+
+
+def test_size_caps_leave_headroom_over_the_shipped_bundle() -> None:
+    """#157: `pull` enforces BUNDLE_MAX_EXPANDED_BYTES; bundle-2026-11-16-r2 unpacks to 7.88 GB."""
+    fields = Settings.model_fields
+    assert fields["BUNDLE_MAX_EXPANDED_BYTES"].default == 16 << 30
+    assert fields["BUNDLE_MAX_BYTES"].default == 2 << 30  # GitHub's release-asset limit
+    assert 7_882_149_888 / fields["BUNDLE_MAX_EXPANDED_BYTES"].default < 0.5

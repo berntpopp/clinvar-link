@@ -128,3 +128,13 @@ def test_the_bundle_build_enables_hgvs4variation() -> None:
 
     assert build.index("- name: Build and pack without credentials") < flag
     assert flag < build.index("uv run clinvar-link-data build")
+
+
+def test_the_bundle_build_warns_near_the_github_asset_limit() -> None:
+    """#157: warn above 85% of the 2 GiB asset cap so a split is planned before it fails."""
+    build, _ = _jobs()
+    warn = build.index("::warning")
+
+    assert build.index("uv run clinvar-link-data pack") < warn
+    assert "stat -c %s dist/clinvar.sqlite.zst" in build
+    assert "size * 100 > (2 << 30) * 85" in build

@@ -5,6 +5,16 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-11-22
+
+### Fixed
+
+- `pull` refuses an unpacked index over `BUNDLE_MAX_EXPANDED_BYTES` (not
+  `SOURCE_MAX_EXPANDED_BYTES`, which guards the build's source downloads). Its 8 GiB default
+  left 8% headroom over `bundle-2026-11-16-r2` (7.88 GB); it is now 16 GiB, still fail-closed
+  (#157). The size descriptions carry the 2026-11-22 measurements, and the data-bundle workflow
+  warns when the packed asset passes 85% of GitHub's 2 GiB release-asset limit.
+
 ## [0.10.5] - 2026-11-22
 
 ### Changed
