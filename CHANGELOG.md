@@ -5,6 +5,17 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-11-22
+
+### Changed
+
+- Pinned `bundle-2026-11-16-r2` (see `container-release.json`): the same ClinVar release
+  2026-11-16, rebuilt with `CLINVAR_LINK_ENABLE_HGVS4VARIATION=true` (#148). `hgvs_lookup` grows
+  from 17.8 M to 41.5 M rows, so an HGVS on another RefSeq transcript of a held record resolves
+  (`NM_004992.4:c.473C>T` -> VCV000011811). The index also carries `idx_coord_vcf38`, so GRCh38
+  coordinate lookups (0.10.4) no longer fall back to the per-chromosome scan. The index grows to
+  7.9 GB expanded / 1.5 GB compressed.
+
 ## [0.10.4] - 2026-11-21
 
 ### Added
