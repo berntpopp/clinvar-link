@@ -119,7 +119,7 @@ async def test_facade_lists_tools_and_get_variant(facade: Any) -> None:
         data = res.structured_content
 
     assert data["success"] is True
-    assert data["classification"] == "pathogenic"
+    assert data["result"]["classification"] == "pathogenic"
     assert data["recommended_citation"]
 
 

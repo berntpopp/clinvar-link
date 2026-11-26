@@ -29,7 +29,10 @@ from clinvar_link.exceptions import (
     DataNotFoundError,
     ToolInputError,
 )
-from clinvar_link.mcp.clinvar_date_cache import get_cached_clinvar_release_date
+from clinvar_link.mcp.clinvar_date_cache import (
+    get_cached_clinvar_release_date,
+    get_cached_retrieved_at,
+)
 from clinvar_link.mcp.freshness import clinvar_freshness
 from clinvar_link.mcp.resources import server_version
 from clinvar_link.mcp.untrusted_content import (
@@ -95,6 +98,13 @@ def _provenance_meta(context: McpErrorContext | None = None) -> dict[str, Any]:
         "server_version": server_version(),
     }
     if clinvar_date is not None:
+        # Response-Envelope v1.2 provenance: `data_version` is the ClinVar release the index
+        # was built from (`clinvar_release_date` is kept beside it), `retrieved_at` its download.
+        meta["source"] = "clinvar"
+        meta["data_version"] = clinvar_date
+        retrieved_at = get_cached_retrieved_at()
+        if retrieved_at is not None:
+            meta["retrieved_at"] = retrieved_at
         meta["clinvar_release_date"] = clinvar_date
         fresh = clinvar_freshness(clinvar_date, settings.REFRESH_TTL_DAYS)
         if fresh is not None:
@@ -733,6 +743,7 @@ def _augment_meta_observability(
     if ctx.request_id and "request_id" not in meta:
         meta["request_id"] = ctx.request_id
     meta["latency_ms"] = latency_ms
+    meta["elapsed_ms"] = latency_ms
 
 
 def error_tool_result(envelope: dict[str, Any]) -> ToolResult:
@@ -748,6 +759,10 @@ def error_tool_result(envelope: dict[str, Any]) -> ToolResult:
     the only shape that carries both, and the envelope contents are unchanged.
     """
     return ToolResult(structured_content=envelope, is_error=True)
+
+
+# Keys that stay beside `result` when a single-record payload is nested (v1 §1).
+_FRAME_KEYS = ("_meta", "recommended_citation")
 
 
 async def run_mcp_tool(
@@ -779,12 +794,19 @@ async def run_mcp_tool(
         # the tool already provides _meta. A symmetric success:true flag lets
         # callers branch on `success` instead of special-casing `is False`.
         if isinstance(result, dict):
+            # Response-Envelope v1 §1: the payload key is `results` or `result`, never bare
+            # domain keys. A single-record tool's service dict is nested here, once; the
+            # ops/meta capabilities tool is outside the data envelope and stays flat.
+            if tool_name != _FALLBACK_TOOL and not {"result", "results"} & result.keys():
+                frame = {k: result.pop(k) for k in _FRAME_KEYS if k in result}
+                result = {"result": result, **frame}
             result.setdefault("success", True)
             existing_meta: dict[str, Any] = result.get("_meta") or {}
             result["_meta"] = {
                 **existing_meta,
                 **_provenance_meta(ctx),
                 "latency_ms": latency_ms,
+                "elapsed_ms": latency_ms,  # the v1 §4 name; latency_ms is this server's older one
             }
         logger.info(
             "mcp_tool_ok tool=%s request_id=%s latency_ms=%s",

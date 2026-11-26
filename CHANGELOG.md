@@ -5,6 +5,26 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-26
+
+### Changed
+
+- **Response shape:** `get_variant` and `get_gene_clinvar_summary` return their record under
+  `result` (Response-Envelope Standard v1 §1); it was spread over the top level of the envelope.
+  `success`, `_meta` and `recommended_citation` stay where they were. List tools already used
+  `results` and are unchanged, as is `get_server_capabilities`.
+
+### Added
+
+- Response-Envelope Standard v1.2 provenance in `_meta` of every successful data result (#164):
+  `source` (`clinvar`), `data_version` (the ClinVar release the index was built from, the same
+  value as `clinvar_release_date`, which stays) and `retrieved_at` (when that release was
+  downloaded; the index build time when no download was recorded).
+- `_meta.elapsed_ms`, the standard's name for `latency_ms`. `latency_ms` is deprecated and
+  stays for one minor release.
+- Every data tool's result is validated against the published envelope schema v1.2.0 in the
+  test suite; the vendored behaviour gate checks the provenance rule.
+
 ## [0.10.6] - 2026-11-22
 
 ### Fixed

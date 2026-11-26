@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clinvar-link"
-version = "0.10.6"
+version = "0.11.0"
 description = "MCP server grounding variant-pathogenicity questions in NCBI ClinVar."
 readme = "README.md"
 authors = [{ name = "Bernt Popp" }]
@@ -54,6 +54,7 @@ dev = [
     "mypy>=2.3.1,<3.0.0",
     "pre-commit>=4.6.2,<5.0.0",
     "types-PyYAML>=6.0.12.20260815,<7.0",
+    "jsonschema>=4.23,<5",
 ]
 
 [project.scripts]

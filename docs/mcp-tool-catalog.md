@@ -97,15 +97,17 @@ Every response — success **and** error — carries `_meta`:
 | `_meta` field | Meaning |
 |---|---|
 | `next_commands` | A ready-to-call `{tool, arguments}` list: the chaining contract. |
-| `clinvar_release` / `clinvar_release_date` | The live ClinVar release the answer came from. |
+| `source` / `data_version` / `retrieved_at` | Provenance (Response-Envelope v1.2): `clinvar`, the ClinVar release the index was built from, and when that release was downloaded (RFC 3339 UTC). |
+| `clinvar_release_date` | The same release as `data_version`, under this server's older name. |
 | `data_freshness` | `{age_days, past_ttl}` against `REFRESH_TTL_DAYS`. |
 | `request_id` | Accepted from the client for correlation, else minted server-side. |
-| `latency_ms` | Timing hint. |
+| `elapsed_ms` / `latency_ms` | Timing hint (`latency_ms` is the older name). |
 | `server_version` | Stamped on every response. |
 | `citation_template` | **List responses only** (`minimal`/`compact`): the citation hoisted once — fill `{variation_id}` / `{vcv_accession}` per row. |
 
-Single variant/gene results carry a paste-verbatim **`recommended_citation`**
-instead (see [data → licence & citation](data.md#licence--citation)).
+The payload is under **`results`** (lists) or **`result`** (`get_variant`,
+`get_gene_clinvar_summary`). Single variant/gene results carry a paste-verbatim
+**`recommended_citation`** beside `result` instead (see [data → licence & citation](data.md#licence--citation)).
 
 ## Search and pagination
 
@@ -150,14 +152,16 @@ Result (compact projection, abridged):
 ```json
 {
   "success": true,
-  "variation_id": 12345,
-  "vcv_accession": "VCV000012345",
-  "classification": "pathogenic",
-  "star_rating": 2,
-  "review_status": "criteria provided, multiple submitters, no conflicts",
-  "gene_symbol": "BRCA1",
-  "canonical_assembly": "GRCh38",
-  "traits": ["Hereditary breast and ovarian cancer syndrome"],
+  "result": {
+    "variation_id": 12345,
+    "vcv_accession": "VCV000012345",
+    "classification": "pathogenic",
+    "star_rating": 2,
+    "review_status": "criteria provided, multiple submitters, no conflicts",
+    "gene_symbol": "BRCA1",
+    "canonical_assembly": "GRCh38",
+    "traits": ["Hereditary breast and ovarian cancer syndrome"]
+  },
   "recommended_citation": "ClinVar (NCBI). VariationID 12345 (VCV000012345). ClinVar weekly release 2026-06-15. https://www.ncbi.nlm.nih.gov/clinvar/variation/12345/",
   "_meta": { "next_commands": [ { "tool": "get_gene_clinvar_summary", "arguments": { "gene_symbol": "BRCA1" } } ] }
 }

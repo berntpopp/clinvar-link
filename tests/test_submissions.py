@@ -411,12 +411,12 @@ async def test_unknown_submitter_is_rejected_by_the_schema(mcp) -> None:
 async def test_get_variant_carries_its_submissions(mcp) -> None:
     out = await _call(mcp, "get_variant", {"identifier": "VCV000100011"})
     assert out["success"] is True
-    (sub,) = out["submissions"]
+    (sub,) = out["result"]["submissions"]
     assert sub["scv"] == "SCV000900011" and sub["pmids"] == ["20000001", "20000002"]
     assert "Müller" in sub["description"]["text"]
     assert "variation_id" not in sub
     plain = await _call(mcp, "get_variant", {"identifier": "VCV000100001"})
-    assert plain["submissions"] == []
+    assert plain["result"]["submissions"] == []
     minimal = await _call(
         mcp, "get_variant", {"identifier": "VCV000100011", "response_mode": "minimal"}
     )
@@ -598,7 +598,7 @@ async def test_get_variant_sends_a_repeated_description_once(mcp, monkeypatch) -
 
     monkeypatch.setattr(ClinVarRepository, "submissions_for_variant", doubled)
     out = await _call(mcp, "get_variant", {"identifier": "VCV000100011"})
-    first, again = out["submissions"]
+    first, again = out["result"]["submissions"]
     assert "Müller" in first["description"]["text"]
     assert again["description"] is None
     assert again["description_same_as"] == first["scv"]
@@ -617,9 +617,12 @@ async def test_get_variant_caps_a_long_description_below_full(mcp, monkeypatch) 
         lambda self, vid: [{**s, "description": long} for s in real(self, vid)],
     )
     args = {"identifier": "VCV000100011"}
-    (sub,) = (await _call(mcp, "get_variant", args))["submissions"]
+    (sub,) = (await _call(mcp, "get_variant", args))["result"]["submissions"]
     assert len(sub["description"]["text"]) == 500 and sub["description_truncated"] is True
-    (sub,) = (await _call(mcp, "get_variant", {**args, "response_mode": "standard"}))["submissions"]
+    out = await _call(mcp, "get_variant", {**args, "response_mode": "standard"})
+    (sub,) = out["result"]["submissions"]
     assert len(sub["description"]["text"]) == 2000 and sub["description_truncated"] is True
-    (sub,) = (await _call(mcp, "get_variant", {**args, "response_mode": "full"}))["submissions"]
+    (sub,) = (await _call(mcp, "get_variant", {**args, "response_mode": "full"}))["result"][
+        "submissions"
+    ]
     assert sub["description"]["text"] == long and "description_truncated" not in sub

@@ -251,8 +251,9 @@ async def test_get_variant_returns_the_fields_its_lead_names(mcp):
     async with Client(mcp) as client:
         res = await client.call_tool("get_variant", {"identifier": "VCV000100001"})
     body = res.structured_content or {}
-    for field in ("classification", "review_status", "star_rating", "recommended_citation"):
-        assert body.get(field) not in (None, ""), field
+    assert body.get("recommended_citation")
+    for field in ("classification", "review_status", "star_rating"):
+        assert body["result"].get(field) not in (None, ""), field
 
 
 async def test_search_variants_rows_carry_the_fields_its_lead_names(mcp):

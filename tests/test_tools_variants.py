@@ -19,7 +19,7 @@ def mcp(tmp_path):
 async def test_get_variant_by_vcv(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
     assert out["success"] is True
-    assert out["classification"] == "pathogenic"
+    assert out["result"]["classification"] == "pathogenic"
     assert out["recommended_citation"]
     assert out["_meta"]["next_commands"]
 
@@ -33,7 +33,7 @@ async def test_meta_carries_freshness(mcp):
 async def test_get_variant_by_rsid(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "rs80357906"})
     assert out["success"] is True
-    assert out["variation_id"] == 100001
+    assert out["result"]["variation_id"] == 100001
 
 
 async def test_get_variant_not_found_returns_envelope(mcp):
@@ -51,17 +51,14 @@ async def test_response_mode_minimal_trims_keys(mcp):
     )
     # The minimal projection is a strict subset of full (ignoring the _meta/success
     # envelope keys that run_mcp_tool injects on both).
-    envelope_keys = {"_meta", "success"}
-    minimal_payload = set(minimal) - envelope_keys
-    full_payload = set(full) - envelope_keys
-    assert minimal_payload < full_payload
-    assert "coordinates" not in minimal and "coordinates" in full
+    assert set(minimal["result"]) < set(full["result"])
+    assert "coordinates" not in minimal["result"] and "coordinates" in full["result"]
 
 
 async def test_get_variant_resolves_gene_unqualified_hgvs(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "NM_007294.4:c.5266dupC"})
     assert out["success"] is True
-    assert out["variation_id"] == 100001
+    assert out["result"]["variation_id"] == 100001
 
 
 async def test_get_variants_batch_tool(mcp):
@@ -127,7 +124,7 @@ async def test_get_variant_resolves_legacy_dup_del_with_trailing_bases(
     """#147: the older HGVS style repeats the duplicated/deleted bases (dupC, delAG)."""
     out = await call_tool(mcp, "get_variant", {"identifier": identifier})
     assert out["success"] is True
-    assert out["variation_id"] == variation_id
+    assert out["result"]["variation_id"] == variation_id
 
 
 async def test_delins_bases_are_never_stripped(mcp):
@@ -143,10 +140,10 @@ async def test_combined_aggregate_keeps_clinvar_s_own_term(mcp):
         out = await call_tool(
             mcp, "get_variant", {"identifier": "VCV000100012", "response_mode": mode}
         )
-        assert out["classification"] == "likely_pathogenic"
-        assert out["clinical_significance"] == "Pathogenic/Likely pathogenic"
+        assert out["result"]["classification"] == "likely_pathogenic"
+        assert out["result"]["clinical_significance"] == "Pathogenic/Likely pathogenic"
     single = await call_tool(mcp, "get_variant", {"identifier": "VCV000100005"})
-    assert "clinical_significance" not in single
+    assert "clinical_significance" not in single["result"]
 
 
 async def test_hgvs_miss_says_the_variant_may_be_on_another_transcript(mcp):

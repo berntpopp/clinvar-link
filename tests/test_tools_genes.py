@@ -22,8 +22,8 @@ async def test_gene_summary(mcp):
     # `variant_count`, NOT `total_count`: the fleet's list tools use `total_count` for a PAGE's
     # result-set size, and this payload also carries a truncated top_traits list — one key
     # meaning two things is how a model concludes it is reading page 1 of 15,947 traits.
-    assert out["variant_count"] >= 1
-    assert "total_count" not in out
+    assert out["result"]["variant_count"] >= 1
+    assert "total_count" not in out["result"]
     assert out["recommended_citation"]
     assert out["_meta"]["next_commands"]
 

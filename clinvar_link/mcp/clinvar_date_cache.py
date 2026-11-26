@@ -13,6 +13,8 @@ process lifetime.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 _CACHE: dict[str, str | None] = {}
 
 
@@ -29,6 +31,22 @@ def get_cached_clinvar_release_date() -> str | None:
 def set_cached_clinvar_release_date(date: str | None) -> None:
     """Record a fetched ClinVar release date for the process lifetime."""
     _CACHE["date"] = date
+
+
+def get_cached_retrieved_at() -> str | None:
+    """Return when the served ClinVar snapshot was downloaded (RFC 3339 UTC, ``Z``), if known."""
+    return _CACHE.get("retrieved_at")
+
+
+def set_cached_retrieved_at(value: str | None) -> None:
+    """Record the snapshot download time; normalizes any ISO-8601 UTC offset to ``Z``."""
+    if value:
+        _CACHE["retrieved_at"] = (
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            .astimezone(UTC)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z")
+        )
 
 
 def reset_clinvar_date_cache() -> None:

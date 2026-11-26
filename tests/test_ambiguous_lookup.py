@@ -61,9 +61,9 @@ async def test_get_variants_batch_marks_the_ambiguous_row(mcp):
 
 async def test_a_key_on_exactly_one_record_still_resolves(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "NM_014855.3:c.358C>T"})
-    assert out["success"] is True and out["variation_id"] == 100020
+    assert out["success"] is True and out["result"]["variation_id"] == 100020
     out = await call_tool(mcp, "get_variant", {"identifier": "NM_000249.4:c.1246A>T"})
-    assert out["success"] is True and out["variation_id"] == 100032
+    assert out["success"] is True and out["result"]["variation_id"] == 100032
 
 
 def test_candidates_are_capped(tmp_path):
