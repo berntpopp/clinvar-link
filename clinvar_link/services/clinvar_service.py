@@ -49,6 +49,7 @@ from clinvar_link.services.citation import (
     gene_citation,
     recommended_citation,
 )
+from clinvar_link.services.gene_ids import resolve_gene_argument
 from clinvar_link.services.somatic import (
     DETAIL_MODES,
     ONCOGENICITY,
@@ -1013,6 +1014,12 @@ class ClinVarService:
         )
 
     # -- gene-scoped views -----------------------------------------------------
+
+    async def resolve_gene_argument(
+        self, gene_symbol: str | None
+    ) -> tuple[str | None, dict[str, str] | None]:
+        """Convert a `gene_symbol` argument given as an HGNC id; see ``services/gene_ids``."""
+        return await asyncio.to_thread(resolve_gene_argument, self.repo, gene_symbol)
 
     async def get_gene_clinvar_summary(
         self,

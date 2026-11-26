@@ -132,7 +132,8 @@ GeneSymbol = Annotated[
     str,
     Field(
         description=(
-            "An HGNC gene symbol (case-insensitive), e.g. BRCA1, TP53, CFTR. A symbol with no "
+            "An HGNC gene symbol (case-insensitive, e.g. BRCA1) or HGNC id (HGNC:1100). An "
+            "Ensembl or NCBI Gene id is rejected with the call that converts it. A gene with no "
             "ClinVar variants in the local index returns not_found, never an empty success."
         ),
         examples=["BRCA1"],
@@ -145,10 +146,11 @@ GeneSymbolFilter = Annotated[
     str | None,
     Field(
         description=(
-            "Restrict the search to this HGNC gene symbol. An explicit value always wins; when "
+            "Restrict the search to this HGNC gene symbol or HGNC id (an Ensembl or NCBI Gene id "
+            "is rejected with the call that converts it). An explicit value always wins; when "
             "omitted, a symbol in the query text is applied automatically (reported as "
-            "_meta.search.gene_symbol_inferred) so loose text narrows within the gene, not into "
-            "unrelated ones. An unknown symbol is not_found, never an empty page."
+            "_meta.search.gene_symbol_inferred). An unknown symbol is not_found, never an empty "
+            "page."
         ),
         examples=["BRCA1"],
         max_length=64,
@@ -300,7 +302,8 @@ SomaticGeneFilter = Annotated[
     str | None,
     Field(
         description=(
-            "Restrict to this HGNC gene symbol (case-insensitive). A symbol with no ClinVar "
+            "Restrict to this HGNC gene symbol (case-insensitive) or HGNC id; an Ensembl or NCBI "
+            "Gene id is rejected with the call that converts it. A symbol with no ClinVar "
             "variants is rejected with invalid_input; a known gene with no somatic call returns "
             "an empty page."
         ),
