@@ -5,6 +5,12 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-26
+
+### Fixed
+
+- The list tools (`get_variants_by_gene`, `search_variants`, `get_variants_by_pmid`, `search_somatic_classifications`, `get_variants`) bound fenced `untrusted_text` to the default ceilings (128 objects, 2 MiB per object, 8 MiB in total) per response (GTS-CORE-TXT-03). A page that would exceed them is cut to whole rows and says so: `truncated: true` with `truncation` (`reason`, `returned_count`, `omitted_count`), and a paged tool sets `has_more` and `next_offset` to continue right after the last returned row. A single row over a ceiling on its own is still the typed `invalid_input` error.
+
 ## [0.12.0] - 2026-11-26
 
 ### Added

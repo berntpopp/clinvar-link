@@ -102,6 +102,26 @@ def enforce_untrusted_text_limits(
         )
 
 
+def bound_untrusted_rows[Row](
+    rows: list[tuple[Row, list[UntrustedText]]],
+) -> tuple[list[Row], int]:
+    """Keep the leading WHOLE rows whose fenced objects fit the default v1.1 ceilings.
+
+    Returns ``(kept_rows, omitted_count)``; the caller flags ``truncated`` when
+    ``omitted_count`` is non-zero, so a cut is never silent. A row that breaches a
+    ceiling on its own still raises :class:`UntrustedTextLimitError`.
+    """
+    count = total = 0
+    for i, (_, fenced) in enumerate(rows):
+        enforce_untrusted_text_limits(fenced)
+        size = sum(len(obj.text.encode("utf-8")) for obj in fenced)
+        if count + len(fenced) > DEFAULT_MAX_OBJECTS or total + size > DEFAULT_MAX_TOTAL_TEXT_BYTES:
+            return [row for row, _ in rows[:i]], len(rows) - i
+        count += len(fenced)
+        total += size
+    return [row for row, _ in rows], 0
+
+
 #: Length cap for caller-visible free-text message/error strings (fleet norm).
 MAX_MESSAGE_CHARS = 280
 
