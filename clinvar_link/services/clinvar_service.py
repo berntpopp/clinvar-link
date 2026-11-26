@@ -30,6 +30,7 @@ from clinvar_link.mcp.clinvar_date_cache import (
 from clinvar_link.mcp.untrusted_content import (
     FORBIDDEN_CODEPOINTS,
     UntrustedText,
+    bound_untrusted_rows,
     enforce_untrusted_text_limits,
     fence_untrusted_text,
 )
@@ -64,15 +65,9 @@ from clinvar_link.services.submission_rows import submission_row
 # and duplicate row fields (cdna_change == name) are dropped to save tokens.
 _LEAN_LIST_MODES = frozenset({"minimal", "compact"})
 
-# Response-Envelope v1.1: the batch/list tools (get_variants, search_variants,
-# get_variants_by_gene) aggregate every row's fenced trait objects into ONE
-# enforce_untrusted_text_limits call over the WHOLE response. Trait count per
-# variant is not capped by the model, so up to MAX_PAGE_SIZE rows each
-# carrying several conditions is a legitimate, non-hostile shape; a generous
-# ceiling avoids raising on a real multi-condition batch while the 2 MiB/object
-# and 8 MiB/total byte ceilings (always enforced, never overridden) remain the
-# real DoS backstop. get_variant (single row) and get_gene_clinvar_summary
-# (top_traits capped at 5 by ingest) keep the library default of 128.
+# Response-Envelope v1.1: the batch/list tools cut their rows to the DEFAULT ceilings
+# (bound_untrusted_rows: whole rows, flagged `truncated`, paging on from the cut). This
+# generous ceiling is only get_variant's per-variant somatic blocks.
 _LIST_TOOL_MAX_OBJECTS = 10_000
 
 _RSID_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
@@ -422,19 +417,21 @@ class ClinVarService:
             )
         # Kept apart from the germline classification; an index predating them omits the keys.
         if await asyncio.to_thread(self.repo.has_somatic):
-            projected.update(await self._somatic_blocks(variant.variation_id, response_mode))
+            blocks, fenced = await self._somatic_blocks(variant.variation_id, response_mode)
+            enforce_untrusted_text_limits(fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
+            projected.update(blocks)
         return projected
 
-    async def _somatic_blocks(self, vid: int, mode: str) -> dict[str, Any]:
+    async def _somatic_blocks(
+        self, vid: int, mode: str
+    ) -> tuple[dict[str, Any], list[UntrustedText]]:
         flat = await asyncio.to_thread(self.repo.somatic_classification, vid)
         assertions = (
             (await asyncio.to_thread(self.repo.somatic_assertions, [vid])).get(vid, [])
             if mode in DETAIL_MODES
             else []
         )
-        blocks, fenced = somatic_blocks(flat, assertions, mode)
-        enforce_untrusted_text_limits(fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
-        return blocks
+        return somatic_blocks(flat, assertions, mode)
 
     async def search_somatic_classifications(
         self,
@@ -533,15 +530,13 @@ class ClinVarService:
             somatic_row(r, assertions.get(r["variation_id"], []), release, response_mode, tumour)
             for r in rows
         ]
-        enforce_untrusted_text_limits(
-            [obj for _, fenced in shaped for obj in fenced], max_objects=_LIST_TOOL_MAX_OBJECTS
-        )
-        results = [row for row, _ in shaped]
+        results, omitted = bound_untrusted_rows(shaped)
         out: dict[str, Any] = {
             "results": results,
             "count": len(results),
             **self._pagination(total, (offset + len(results)) < total, limit, offset),
         }
+        self._flag_cut(out, omitted, offset)
         self._lean_list(out, results, release, response_mode)
         return out
 
@@ -706,9 +701,7 @@ class ClinVarService:
         capped = list(identifiers)[: settings.MAX_PAGE_SIZE]
         release = await self._release_date()
         has_somatic = await asyncio.to_thread(self.repo.has_somatic)
-        results: list[dict[str, Any]] = []
-        all_fenced: list[UntrustedText] = []
-        found_count = 0
+        rows: list[tuple[dict[str, Any], list[UntrustedText]]] = []
         for index, ident in enumerate(capped):
             text = ident.strip() if isinstance(ident, str) else ""
             # A MALFORMED element fails the batch with invalid_input naming its position — it must
@@ -728,13 +721,16 @@ class ClinVarService:
             try:
                 repo_dict = await self._resolve(text, id_type)
             except AmbiguousIdentifierError as exc:
-                results.append(
-                    {
-                        "identifier": ident,
-                        "found": False,
-                        "error_code": "ambiguous_query",
-                        "candidates": exc.candidates,
-                    }
+                rows.append(
+                    (
+                        {
+                            "identifier": ident,
+                            "found": False,
+                            "error_code": "ambiguous_query",
+                            "candidates": exc.candidates,
+                        },
+                        [],
+                    )
                 )
                 continue
             except ToolInputError as exc:
@@ -744,31 +740,31 @@ class ClinVarService:
                     public_reason=exc.public_reason or "is not a well-formed ClinVar identifier",
                 ) from exc
             if repo_dict is None:
-                results.append({"identifier": ident, "found": False})
+                rows.append(({"identifier": ident, "found": False}, []))
                 continue
-            found_count += 1
             variant = ClinVarVariant(**repo_dict)
             variant.recommended_citation = recommended_citation(
                 variant.variation_id, variant.vcv_accession, release
             )
             projected, fenced = self._project(variant.model_dump(), response_mode)
-            all_fenced.extend(fenced)
             if has_somatic:  # the same separate blocks get_variant returns
-                projected.update(await self._somatic_blocks(variant.variation_id, response_mode))
+                blocks, somatic_fenced = await self._somatic_blocks(
+                    variant.variation_id, response_mode
+                )
+                projected.update(blocks)
+                fenced = fenced + somatic_fenced
             projected["identifier"] = ident
             projected["found"] = True
-            results.append(projected)
-        # v1.1: enforce over every fenced object the WHOLE response emits, not
-        # per row — a batch tool's real cap is settings.MAX_PAGE_SIZE rows, each
-        # with an uncapped condition list, so the ceiling is generous.
-        enforce_untrusted_text_limits(all_fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
+            rows.append((projected, fenced))
+        results, omitted = bound_untrusted_rows(rows)
         out: dict[str, Any] = {
             "results": results,
             "count": len(results),
             "requested": len(capped),
-            "found_count": found_count,
+            "found_count": sum(1 for row in results if row["found"]),
             "truncated": len(identifiers) > len(capped),
         }
+        self._flag_cut(out, omitted, None)
         self._lean_list(out, results, release, response_mode)
         return out
 
@@ -861,11 +857,9 @@ class ClinVarService:
             count_mode=count_mode,
         )
         release = await self._release_date()
-        projected_rows = [self._to_projected(row, release, response_mode) for row in rows]
-        results = [row for row, _ in projected_rows]
-        all_fenced = [obj for _, fenced in projected_rows for obj in fenced]
-        # v1.1: one response-wide enforcement call, not per row (§ get_variants).
-        enforce_untrusted_text_limits(all_fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
+        results, omitted = bound_untrusted_rows(
+            [self._to_projected(row, release, response_mode) for row in rows]
+        )
         out: dict[str, Any] = {
             "results": results,
             "count": len(results),
@@ -873,6 +867,7 @@ class ClinVarService:
             "match_mode": used,
             **self._pagination(total, has_more, limit, offset, capped=capped),
         }
+        self._flag_cut(out, omitted, offset)
         self._lean_list(out, results, release, response_mode)
         out.setdefault("_meta", {})["search"] = self._search_meta(used, inferred, effective_gene)
         return out
@@ -1132,11 +1127,9 @@ class ClinVarService:
             offset=offset,
         )
         release = await self._release_date()
-        projected_rows = [self._to_projected(row, release, response_mode) for row in rows]
-        results = [row for row, _ in projected_rows]
-        all_fenced = [obj for _, fenced in projected_rows for obj in fenced]
-        # v1.1: one response-wide enforcement call, not per row (§ get_variants).
-        enforce_untrusted_text_limits(all_fenced, max_objects=_LIST_TOOL_MAX_OBJECTS)
+        results, omitted = bound_untrusted_rows(
+            [self._to_projected(row, release, response_mode) for row in rows]
+        )
         has_more = (offset + len(results)) < total
         out: dict[str, Any] = {
             "gene_symbol": gene_symbol,
@@ -1144,6 +1137,7 @@ class ClinVarService:
             "count": len(results),
             **self._pagination(total, has_more, limit, offset),
         }
+        self._flag_cut(out, omitted, offset)
         self._lean_list(out, results, release, response_mode)
         return out
 
@@ -1175,10 +1169,8 @@ class ClinVarService:
             self.repo.submissions_by_gene, symbols, submitter, limit=limit, offset=offset
         )
         release = await self._release_date()
-        rows = [submission_row(sub, release, response_mode) for sub in subs]
-        results = [row for row, _ in rows]
-        enforce_untrusted_text_limits(
-            [obj for _, fenced in rows for obj in fenced], max_objects=_LIST_TOOL_MAX_OBJECTS
+        results, omitted = bound_untrusted_rows(
+            [submission_row(sub, release, response_mode) for sub in subs]
         )
         out: dict[str, Any] = {
             "gene_symbol": gene_symbol,
@@ -1188,6 +1180,7 @@ class ClinVarService:
             "count": len(results),
             **self._pagination(total, (offset + len(results)) < total, limit, offset),
         }
+        self._flag_cut(out, omitted, offset)
         self._lean_list(out, results, release, response_mode)
         return out
 
@@ -1211,11 +1204,8 @@ class ClinVarService:
             raise DataNotFoundError(f"No ClinVar variant cites PMID {text}")
         rows = await asyncio.to_thread(self.repo.variants_by_pmid, text, limit=limit, offset=offset)
         release = await self._release_date()
-        projected_rows = [self._to_projected(row, release, response_mode) for row in rows]
-        results = [row for row, _ in projected_rows]
-        enforce_untrusted_text_limits(
-            [obj for _, fenced in projected_rows for obj in fenced],
-            max_objects=_LIST_TOOL_MAX_OBJECTS,
+        results, omitted = bound_untrusted_rows(
+            [self._to_projected(row, release, response_mode) for row in rows]
         )
         out: dict[str, Any] = {
             "pmid": text,
@@ -1223,6 +1213,7 @@ class ClinVarService:
             "count": len(results),
             **self._pagination(total, (offset + len(results)) < total, limit, offset),
         }
+        self._flag_cut(out, omitted, offset)
         self._lean_list(out, results, release, response_mode)
         return out
 
@@ -1248,6 +1239,21 @@ class ClinVarService:
         if capped:
             block["total_count_capped"] = True
         return block
+
+    @staticmethod
+    def _flag_cut(out: dict[str, Any], omitted: int, offset: int | None) -> None:
+        """GTS-CORE-TXT-03: a page cut to the untrusted-text ceilings says so, never silently."""
+        if not omitted:
+            return
+        out["truncated"] = True
+        out["truncation"] = {
+            "reason": "untrusted_text_limits",
+            "returned_count": len(out["results"]),
+            "omitted_count": omitted,
+        }
+        if offset is not None:  # a paged tool continues right after the last returned row
+            out["has_more"] = True
+            out["next_offset"] = offset + len(out["results"])
 
     @staticmethod
     def _lean_list(

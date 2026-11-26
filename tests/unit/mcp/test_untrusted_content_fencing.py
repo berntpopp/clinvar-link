@@ -97,6 +97,23 @@ class _FakeRepo:
     def get_by_allele_id(self, allele_id: int) -> dict[str, Any] | None:
         return None
 
+    def count_variants_by_gene(self, gene_symbol: str, **_: Any) -> int:
+        return 300 if gene_symbol == "MANYTRAITS" else 0
+
+    def variants_by_gene(
+        self, gene_symbol: str, *, limit: int, offset: int, **_: Any
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "variation_id": 910000 + n,
+                "vcv_accession": f"VCV000{910000 + n}",
+                "classification": "pathogenic",
+                "star_rating": 1,
+                "traits": [{"name": f"Condition A #{n}"}, {"name": f"Condition B #{n}"}],
+            }
+            for n in range(offset, offset + limit)
+        ]
+
     def gene_summary(self, gene_symbol: str) -> dict[str, Any] | None:
         if gene_symbol.upper() != "HOSTILEGENE":
             return None
@@ -269,3 +286,38 @@ async def test_no_raw_prose_leaks_beside_the_fenced_object(
     # The cleaned marker phrase appears exactly once: inside the fenced
     # object's "text" leaf, never duplicated in a second bare-string field.
     assert raw_text.count("delete_everything") == 1
+
+
+def _count_untrusted(node: Any) -> int:
+    if isinstance(node, dict):
+        own = 1 if node.get("kind") == "untrusted_text" else 0
+        return own + sum(_count_untrusted(v) for v in node.values())
+    if isinstance(node, list):
+        return sum(_count_untrusted(v) for v in node)
+    return 0
+
+
+async def test_list_tool_cuts_whole_rows_at_the_default_object_ceiling() -> None:
+    """GTS-CORE-TXT-03: 100 rows x 2 fenced traits would be 200 untrusted objects; the page is
+    cut to whole rows within the default 128, flagged truncated, and pages on from the cut."""
+    mcp = create_clinvar_mcp(service_factory=_service)
+    async with Client(mcp) as client:
+        res = await client.call_tool(
+            "get_variants_by_gene",
+            {"gene_symbol": "MANYTRAITS", "limit": 100, "response_mode": "standard"},
+            raise_on_error=False,
+        )
+    payload = res.structured_content
+    assert payload["success"] is True
+    assert _count_untrusted(payload) <= 128
+    assert payload["count"] == 64
+    assert all(len(row["traits"]) == 2 for row in payload["results"])
+    assert payload["truncated"] is True
+    assert payload["truncation"] == {
+        "reason": "untrusted_text_limits",
+        "returned_count": 64,
+        "omitted_count": 36,
+    }
+    assert payload["has_more"] is True
+    assert payload["next_offset"] == 64
+    assert payload["_meta"]["pagination"]["next_offset"] == 64
