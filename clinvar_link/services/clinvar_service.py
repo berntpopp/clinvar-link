@@ -25,6 +25,7 @@ from clinvar_link.exceptions import (
 from clinvar_link.mcp.clinvar_date_cache import (
     has_cached_clinvar_release_date,
     set_cached_clinvar_release_date,
+    set_cached_retrieved_at,
 )
 from clinvar_link.mcp.untrusted_content import (
     FORBIDDEN_CODEPOINTS,
@@ -350,6 +351,9 @@ class ClinVarService:
         release = raw if raw else None
         if release is not None and not has_cached_clinvar_release_date():
             set_cached_clinvar_release_date(release)
+        # Envelope v1.2 `retrieved_at`: the snapshot's download time; a locally built index
+        # without a recorded download falls back to its build time.
+        set_cached_retrieved_at(meta.get("source_retrieved_at") or meta.get("build_utc"))
         return release
 
     async def get_clinvar_meta(self) -> dict[str, Any]:

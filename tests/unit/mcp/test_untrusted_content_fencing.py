@@ -130,7 +130,7 @@ async def test_get_variant_traits_name_is_fenced_via_real_mcp_tool() -> None:
     mirror = json.loads(res.content[0].text)
     for payload in (res.structured_content, mirror):
         assert isinstance(payload, dict)
-        trait_row = payload["traits"][0]
+        trait_row = payload["result"]["traits"][0]
         fenced = trait_row["name"]
         # 1. typed object with the schema literal
         assert fenced["kind"] == "untrusted_text"
@@ -164,7 +164,7 @@ async def test_get_variant_compact_default_traits_are_fenced_too() -> None:
 
     mirror = json.loads(res.content[0].text)
     for payload in (res.structured_content, mirror):
-        fenced = payload["traits"][0]
+        fenced = payload["result"]["traits"][0]
         assert fenced["kind"] == "untrusted_text"
         assert fenced["raw_sha256"] == HOSTILE_SHA256
         assert "delete_everything" in fenced["text"]
@@ -181,7 +181,7 @@ async def test_get_gene_clinvar_summary_top_traits_is_fenced_via_real_mcp_tool()
     mirror = json.loads(res.content[0].text)
     for payload in (res.structured_content, mirror):
         assert isinstance(payload, dict)
-        entry = payload["top_traits"][0]
+        entry = payload["result"]["top_traits"][0]
         fenced = entry["trait"]
         assert fenced["kind"] == "untrusted_text"
         assert fenced["raw_sha256"] == HOSTILE_SHA256

@@ -93,7 +93,7 @@ async def test_run_mcp_tool_success_injects_meta():
         return {"value": 1}
 
     out = await run_mcp_tool("t", ok, context=McpErrorContext(tool_name="t"))
-    assert out["success"] is True and out["value"] == 1
+    assert out["success"] is True and out["result"] == {"value": 1}
     assert out["_meta"]["unsafe_for_clinical_use"] is True
 
 

@@ -53,20 +53,20 @@ def test_builder_dedups_and_drops_unknown_variants(tmp_path):
 async def test_get_variant_returns_its_citations(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100001"})
     assert out["success"] is True
-    assert out["citation_count"] == 3
-    assert {"source": "PubMed", "id": "29058690"} in out["citations"]
+    assert out["result"]["citation_count"] == 3
+    assert {"source": "PubMed", "id": "29058690"} in out["result"]["citations"]
 
 
 async def test_get_variant_minimal_omits_citations(mcp):
     out = await call_tool(
         mcp, "get_variant", {"identifier": "VCV000100001", "response_mode": "minimal"}
     )
-    assert "citations" not in out
+    assert "citations" not in out["result"]
 
 
 async def test_get_variant_uncited_is_an_honest_zero(mcp):
     out = await call_tool(mcp, "get_variant", {"identifier": "VCV000100003"})
-    assert out["citations"] == [] and out["citation_count"] == 0
+    assert out["result"]["citations"] == [] and out["result"]["citation_count"] == 0
 
 
 async def test_variants_by_pmid_lists_the_cited_records(mcp):

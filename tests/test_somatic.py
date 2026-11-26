@@ -136,6 +136,7 @@ def test_vcv_stream_collects_somatic_scvs_with_tumour_and_therapy() -> None:
 async def test_braf_v600e_shows_tier_i_and_oncogenic_beside_germline_conflicting(mcp) -> None:
     env = await call_tool(mcp, "get_variant", {"identifier": "VCV000013961"})
     assert env["success"] is True
+    env = env["result"]
     # The germline aggregate is untouched...
     assert env["classification"] == "conflicting"
     assert env["review_status"] == "criteria provided, conflicting classifications"
@@ -153,7 +154,8 @@ async def test_braf_v600e_shows_tier_i_and_oncogenic_beside_germline_conflicting
 
 
 async def test_standard_mode_lists_per_scv_tumour_and_therapy(mcp) -> None:
-    env = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
+    out = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
+    env = out["result"]
     impact = env["somatic_clinical_impact"]["assertions"]
     civic = next(a for a in impact if a["scv"] == "SCV004565360")
     assert _texts([t["name"] for t in civic["tumour_types"]]) == ["Melanoma"]
@@ -165,7 +167,7 @@ async def test_standard_mode_lists_per_scv_tumour_and_therapy(mcp) -> None:
 
 async def test_germline_only_and_unclassified_variants_carry_null_somatic_blocks(mcp) -> None:
     for vid in ("17677", "2626791"):
-        env = await call_tool(mcp, "get_variant", {"identifier": vid})
+        env = (await call_tool(mcp, "get_variant", {"identifier": vid}))["result"]
         assert env["somatic_clinical_impact"] is None
         assert env["oncogenicity"] is None
 
@@ -183,7 +185,9 @@ async def test_index_without_somatic_tables_omits_blocks_and_tool_errors(
         mcp = create_clinvar_mcp(service_factory=lambda: service)
         env = await call_tool(mcp, "get_variant", {"identifier": "13961"})
         assert env["success"] is True
-        assert "somatic_clinical_impact" not in env and "oncogenicity" not in env
+        assert (
+            "somatic_clinical_impact" not in env["result"] and "oncogenicity" not in env["result"]
+        )
         err = await call_tool(mcp, TOOL, {})
         assert err["success"] is False and err["error_code"] == "internal"
     finally:
@@ -299,7 +303,8 @@ def test_build_fails_when_the_vcv_xml_yields_no_somatic_scv(respx_mock, tmp_path
 
 
 async def test_germline_last_evaluated_is_iso_like_the_somatic_dates(mcp) -> None:
-    env = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
+    out = await call_tool(mcp, "get_variant", {"identifier": "13961", "response_mode": "standard"})
+    env = out["result"]
     assert env["last_evaluated"] == "2025-01-23"
 
 
