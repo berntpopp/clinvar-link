@@ -51,8 +51,10 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         """List ClinVar variants that carry a SOMATIC classification: the AMP/ASCO/CAP clinical-impact tier (somatic_clinical_impact) and the ClinGen/CGC/VICC oncogenicity call (oncogenicity), each with review status and date, beside the separate germline_classification (never merged). Tier I first, paginated with total_count / has_more / next_offset. standard/full add per-submission tumour type, therapy and assertion type. Use this for oncology questions (actionable tier, oncogenic call); coverage is ClinVar's somatic submissions only, so an empty page is not evidence a variant lacks clinical impact."""
 
         async def _call() -> dict[str, Any]:
-            result = await service_factory().search_somatic_classifications(
-                gene_symbol=gene_symbol,
+            service = service_factory()
+            gene, resolved_from = await service.resolve_gene_argument(gene_symbol)
+            result = await service.search_somatic_classifications(
+                gene_symbol=gene,
                 tier=tier,
                 oncogenicity=oncogenicity,
                 tumour_type=tumour_type,
@@ -61,6 +63,8 @@ def register_somatic_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 offset=offset,
                 response_mode=response_mode,
             )
+            if resolved_from:
+                result["resolved_from"] = resolved_from
             results = result.get("results") or []
             next_commands: list[dict[str, Any]] = []
             if result.get("has_more"):

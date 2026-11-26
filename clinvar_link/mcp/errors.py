@@ -28,6 +28,7 @@ from clinvar_link.exceptions import (
     ClinVarServerError,
     DataNotFoundError,
     ToolInputError,
+    UnsupportedGeneIdError,
 )
 from clinvar_link.mcp.clinvar_date_cache import (
     get_cached_clinvar_release_date,
@@ -240,6 +241,8 @@ def _classify(
         return "not_found", False, tool, args
     if isinstance(exc, AmbiguousIdentifierError):
         return "ambiguous_query", False, None, None
+    if isinstance(exc, UnsupportedGeneIdError):  # the converter is the only useful next step
+        return "invalid_input", False, exc.converter["tool"], exc.converter["arguments"]
     if isinstance(exc, ToolInputError):
         tool, args = _fallback_for(context)
         return "invalid_input", False, tool, args
@@ -673,6 +676,9 @@ def mcp_tool_error(exc: BaseException, context: McpErrorContext) -> McpToolError
         payload["field_errors"] = field_errors
     if isinstance(exc, AmbiguousIdentifierError):
         payload["candidates"] = exc.candidates
+    if isinstance(exc, UnsupportedGeneIdError):
+        payload["field"] = exc.field
+        payload["allowed_values"] = list(exc.ACCEPTED_FORMS)
     return McpToolError(payload)
 
 
@@ -762,7 +768,7 @@ def error_tool_result(envelope: dict[str, Any]) -> ToolResult:
 
 
 # Keys that stay beside `result` when a single-record payload is nested (v1 §1).
-_FRAME_KEYS = ("_meta", "recommended_citation")
+_FRAME_KEYS = ("_meta", "recommended_citation", "resolved_from")
 
 
 async def run_mcp_tool(
@@ -802,6 +808,14 @@ async def run_mcp_tool(
                 result = {"result": result, **frame}
             result.setdefault("success", True)
             existing_meta: dict[str, Any] = result.get("_meta") or {}
+            if "has_more" in result:
+                # Paging is by offset: there is no cursor, `next_offset` is the continuation.
+                existing_meta["pagination"] = {
+                    "total_count": result.get("total_count"),
+                    "has_more": result["has_more"],
+                    "next_cursor": None,
+                    "next_offset": result.get("next_offset"),
+                }
             result["_meta"] = {
                 **existing_meta,
                 **_provenance_meta(ctx),

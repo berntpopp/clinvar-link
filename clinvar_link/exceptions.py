@@ -1,5 +1,7 @@
 """Custom exceptions for the clinvar-link server."""
 
+from typing import Any
+
 
 class ClinVarServerError(Exception):
     """Base exception for clinvar-link server errors."""
@@ -134,3 +136,19 @@ class ToolInputError(ValueError):
         super().__init__(message)
         self.field = field
         self.public_reason = public_reason
+
+
+class UnsupportedGeneIdError(ToolInputError):
+    """A well-formed gene identifier in a form the index cannot convert to a symbol."""
+
+    ACCEPTED_FORMS = ("<symbol> e.g. BRCA1", "HGNC:<id> e.g. HGNC:1100")
+
+    def __init__(self, value: str, converter: dict[str, Any]) -> None:
+        """Keep the ready-to-call hgnc-link step that converts ``value`` to a symbol."""
+        super().__init__(
+            f"unsupported gene identifier {value!r}",
+            field="gene_symbol",
+            public_reason="is a gene identifier this index cannot convert; send the HGNC "
+            "symbol or HGNC id. next_commands holds the call that converts it",
+        )
+        self.converter = converter

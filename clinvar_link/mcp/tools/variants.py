@@ -155,12 +155,14 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
         response_mode: ResponseModeParam = "compact",
         request_id: RequestId = None,
     ) -> ToolReturn:
-        """Free-text search across ClinVar variant names, genes, and traits; returns matching variants (vcv_accession, gene, classification, star rating) as a paginated list. Use this to locate a record when you only have a gene symbol plus a change (BRAF V600E reads as p.Val600Glu) or other loose text, then re-call get_variant with the returned vcv_accession. A gene symbol written in the query is applied as a filter automatically, so results never wander into an unrelated gene, and _meta.search declares what was inferred and whether the match degraded. Pagination: total_count / has_more / next_offset; in minimal/compact mode the citation is hoisted once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row)."""
+        """Free-text search across ClinVar variant names, genes, and traits; returns matching variants (vcv_accession, gene, classification, star rating) as a paginated list. Use this to locate a record when you only have a gene symbol plus a change (BRAF V600E reads as p.Val600Glu) or other loose text, then re-call get_variant with the returned vcv_accession. A gene symbol written in the query is applied as a filter automatically, and _meta.search declares what was inferred and whether the match degraded. Paginated (total_count / has_more / next_offset); minimal/compact hoist the citation once to _meta.citation_template (fill {variation_id}/{vcv_accession} per row)."""
 
         async def _call() -> dict[str, Any]:
-            result = await service_factory().search_variants(
+            service = service_factory()
+            gene, resolved_from = await service.resolve_gene_argument(gene_symbol)
+            result = await service.search_variants(
                 query,
-                gene_symbol=gene_symbol,
+                gene_symbol=gene,
                 classification=classification,
                 min_stars=min_stars,
                 assembly=assembly,
@@ -170,6 +172,8 @@ def register_variant_tools(mcp: FastMCP, *, service_factory: Callable[[], ClinVa
                 offset=offset,
                 response_mode=response_mode,
             )
+            if resolved_from:
+                result["resolved_from"] = resolved_from
             results = result.get("results") or []
             next_commands: list[dict[str, Any]] = []
             if results:

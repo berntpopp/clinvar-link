@@ -626,6 +626,17 @@ class ClinVarRepository:
                 break
         return out
 
+    def symbol_for_hgnc_id(self, hgnc_id: str) -> str | None:
+        """Return the approved symbol of an HGNC id, or None (also for an index without HGNC)."""
+        try:
+            row = self._conn.execute(
+                "SELECT approved_symbol FROM gene_alias WHERE hgnc_id = ? AND kind = 'approved'",
+                (hgnc_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        return row[0] if row else None
+
     def _gene_submission_where(self, symbols: list[str], submitter: str) -> tuple[str, list[Any]]:
         marks = ", ".join("?" for _ in symbols)
         return (

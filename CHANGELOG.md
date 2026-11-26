@@ -5,6 +5,23 @@ All notable changes to clinvar-link are documented here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-26
+
+### Added
+
+- Gene identifier forms: every `gene_symbol` parameter accepts an HGNC id (`HGNC:1100`),
+  converted through the HGNC table of the index and echoed as
+  `resolved_from: {input, form, resolved_to}`. An Ensembl gene id or an NCBI Gene id, which the
+  index cannot convert, is rejected with `invalid_input` (`field`, `allowed_values`, and the
+  hgnc-link call that converts it in `_meta.next_commands`) instead of `not_found`.
+- List tools report `_meta.pagination` (`total_count`, `has_more`, `next_cursor`,
+  `next_offset`). Paging is by offset, so `next_cursor` is always `null` and `next_offset`
+  continues; the top-level paging fields are unchanged.
+
+### Changed
+
+- `search_variants`: shorter description, so the tool definition fits the 1,200-token budget.
+
 ## [0.11.0] - 2026-11-26
 
 ### Changed
